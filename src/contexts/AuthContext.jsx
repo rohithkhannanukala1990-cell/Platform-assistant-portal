@@ -102,14 +102,14 @@ export function AuthProvider({ children }) {
     setError(null)
 
     try {
-      const body = new URLSearchParams()
-      body.set('username', username)
-      body.set('password', password)
-
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
+        body: (() => {
+          const form = new FormData()
+          form.append('username', username)
+          form.append('password', password)
+          return form
+        })(),
       })
 
       const data = await res.json().catch(() => ({}))

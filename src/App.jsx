@@ -111,8 +111,12 @@ function AppLayout() {
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-500">Platform Engineering</span>
             <span className="text-slate-700">/</span>
-            <span className={`text-xs font-semibold ${roleInfo.color}`}>{roleInfo.label}</span>
-            <span className="text-slate-700">/</span>
+            {roleInfo && (
+              <>
+                <span className={`text-xs font-semibold ${roleInfo.color}`}>{roleInfo.label}</span>
+                <span className="text-slate-700">/</span>
+              </>
+            )}
             <span className="text-xs font-semibold text-white">{breadcrumb()}</span>
           </div>
 

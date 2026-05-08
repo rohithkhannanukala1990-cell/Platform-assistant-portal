@@ -15,7 +15,7 @@ export function RoleProvider({ children }) {
   const { role: jwtRole, user, isAuthenticated } = useAuth()
   const isDev = import.meta.env.DEV
   const role = jwtRole ?? (isDev ? 'Admin' : null)
-  const roleInfo = ROLES[role]
+  const roleInfo = ROLES[role] ?? ROLES['Admin']
 
   return (
     <RoleContext.Provider value={{ role, roleInfo, user, isAuthenticated }}>

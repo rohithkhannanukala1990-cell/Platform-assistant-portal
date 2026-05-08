@@ -194,11 +194,13 @@ def write_audit(
 # ── SEED FUNCTIONS ────────────────────────────────────────────────────────────
 
 def seed_default_admin() -> None:
-    username = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
-    password = os.getenv("DEFAULT_ADMIN_PASSWORD", "changeme123")
+    username = "admin"
+    password = "changeme123"
     with Session(engine) as session:
-        exists = session.exec(select(User).limit(1)).first()
-        if exists:
+        existing_admin = session.exec(
+            select(User).where(User.username == username)
+        ).first()
+        if existing_admin:
             return
         session.add(
             User(
@@ -211,7 +213,7 @@ def seed_default_admin() -> None:
             )
         )
         session.commit()
-    print("[auth] WARNING: seeded default admin user. Change DEFAULT_ADMIN_PASSWORD immediately.")
+    print("[auth] WARNING: seeded default admin user with default credentials (admin/changeme123). Change immediately.")
 
 
 def seed_default_llm_config() -> None:

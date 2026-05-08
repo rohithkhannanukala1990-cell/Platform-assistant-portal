@@ -89,6 +89,7 @@ app.add_middleware(
         "http://localhost:5175",
         "http://frontend:5173",  # Docker service name
     ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
