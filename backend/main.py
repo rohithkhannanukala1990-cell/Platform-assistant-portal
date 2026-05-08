@@ -1,19 +1,28 @@
 import os
 import re
 import json
+import asyncio
 import ollama
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google import genai
+from sqlmodel import Session
+from sqlalchemy import text as sa_text
+from database import engine as db_engine
+from command_validator import CommandValidator
+from tasks import process_inbound_webhook, process_webhook_log
 from database import (
     create_db_and_tables,
-    save_incident, get_all_incidents,
+    save_incident, get_all_incidents, update_incident_status, serialize_incident,
     save_infra,    get_all_infra,
     save_cicd,     get_all_cicd,
     get_settings,  update_settings,
     create_notification, get_all_notifications, mark_notification_read,
+    save_webhook_event, update_webhook_event, get_recent_webhook_events,
+    get_pending_approvals,
 )
 
 load_dotenv()
@@ -29,7 +38,29 @@ if AI_PROVIDER == "gemini":
         raise RuntimeError("GEMINI_API_KEY is not set. Please add it to backend/.env")
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
-app = FastAPI(title="AIOps Portal API", version="0.1.0")
+async def _wait_for_db(retries: int = 30, delay: float = 2.0):
+    """Block startup until PostgreSQL accepts connections."""
+    for attempt in range(1, retries + 1):
+        try:
+            with Session(db_engine) as session:
+                session.exec(sa_text("SELECT 1"))
+            print(f"[db] PostgreSQL ready (attempt {attempt})")
+            return
+        except Exception as exc:
+            print(f"[db] Waiting for database… attempt {attempt}/{retries}: {exc}")
+            await asyncio.sleep(delay)
+    raise RuntimeError("Database did not become ready in time. Aborting startup.")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await _wait_for_db()
+    create_db_and_tables()
+    yield
+    # (cleanup on shutdown goes here if needed)
+
+
+app = FastAPI(title="AIOps Portal API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,15 +68,11 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:5174",
         "http://localhost:5175",
+        "http://frontend:5173",  # Docker service name
     ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def on_startup():
-    create_db_and_tables()
 
 
 # ── System prompt ────────────────────────────────────────────────────────────
@@ -121,6 +148,11 @@ class IncidentSummary(BaseModel):
     model_used: str
     source: str = "manual"
     raw_logs: str = ""
+    status: str = "OPEN"
+    execution_logs: str | None = None
+    owner_role: str = "Admin"
+    proposed_remediation_plan: list[str] = []
+    agent_execution_logs: str | None = None
 
 
 # ── JSON parser with fallback ────────────────────────────────────────────────
@@ -186,7 +218,7 @@ async def call_gemini(logs: str, system_prompt: str = SYSTEM_PROMPT) -> str:
 
 # ── Shared triage core ────────────────────────────────────────────────────────
 
-async def _run_triage(log_text: str, source: str = "manual") -> dict:
+async def _run_triage(log_text: str, source: str = "manual", owner_role: str = "Admin") -> dict:
     """
     Call AI → parse → save incident → notification → Slack.
     Returns the serialised TriageResponse dict (or raises on AI error).
@@ -206,6 +238,7 @@ async def _run_triage(log_text: str, source: str = "manual") -> dict:
         "model_used":   model_used,
         "raw_response": raw_text,
         "source":       source,
+        "owner_role":   owner_role,
     })
 
     severity   = parsed["severity"]
@@ -221,6 +254,9 @@ async def _run_triage(log_text: str, source: str = "manual") -> dict:
         webhook  = settings.get("slack_webhook_url", "").strip()
         if webhook:
             await _send_slack_alert(webhook, severity, parsed["summary"], parsed["root_cause"])
+
+    # Spawn HITL evaluation as a fire-and-forget async task
+    asyncio.create_task(_hitl_evaluate(record.id, severity, parsed, owner_role))
 
     return {
         "id":              record.id,
@@ -238,6 +274,272 @@ async def _run_triage(log_text: str, source: str = "manual") -> dict:
     }
 
 
+# ── HITL Agentic Processor ────────────────────────────────────────────────────
+
+_AUTO_RESOLVE_SEVERITIES = {"Low", "Warning", "Medium"}
+_HITL_SEVERITIES         = {"High", "Critical"}
+
+# Sources that should receive DB-specific SQL remediation plans
+_DB_SOURCES = {
+    "rds", "aws rds", "postgresql", "postgres",
+    "mysql", "mongodb", "redis", "clickhouse",
+    "elasticsearch", "sqlite",
+}
+
+def _build_db_remediation_plan(summary: str, commands: list[str]) -> list[str]:
+    """
+    Generate a SQL/CLI-first remediation plan for database incidents.
+    Keyword-matches the summary to pick the most relevant script set,
+    then appends any AI-generated commands.
+    """
+    s = summary.lower()
+
+    if any(k in s for k in ("deadlock", "blocking", "lock wait", "lock timeout")):
+        plan = [
+            "-- 1. Identify blocking transactions",
+            "SELECT pid, now() - pg_stat_activity.query_start AS duration, query, state\n"
+            "  FROM pg_stat_activity\n"
+            "  WHERE state != 'idle' AND query_start < now() - interval '30 seconds'\n"
+            "  ORDER BY duration DESC;",
+            "-- 2. Kill the blocking process (replace <pid> with value from above)",
+            "SELECT pg_terminate_backend(<pid>);",
+            "-- 3. Verify no remaining locks",
+            "SELECT * FROM pg_locks WHERE NOT granted;",
+            "-- 4. Review lock-acquisition order in application code to prevent recurrence",
+        ]
+    elif any(k in s for k in ("connection", "pool exhausted", "too many clients", "max_connections")):
+        plan = [
+            "-- 1. Check current connection count",
+            "SELECT count(*) FROM pg_stat_activity;",
+            "-- 2. View connections grouped by state",
+            "SELECT state, count(*) FROM pg_stat_activity GROUP BY state;",
+            "-- 3. Terminate idle connections older than 10 minutes",
+            "SELECT pg_terminate_backend(pid)\n"
+            "  FROM pg_stat_activity\n"
+            "  WHERE state = 'idle'\n"
+            "    AND query_start < now() - interval '10 minutes';",
+            "-- 4. Increase max_connections in postgresql.conf (requires restart)",
+            "ALTER SYSTEM SET max_connections = 300;  SELECT pg_reload_conf();",
+        ]
+    elif any(k in s for k in ("slow query", "slow queries", "long-running", "performance")):
+        plan = [
+            "-- 1. Find slow queries",
+            "SELECT pid, now() - query_start AS runtime, query\n"
+            "  FROM pg_stat_activity\n"
+            "  WHERE state = 'active' AND query_start < now() - interval '5 seconds'\n"
+            "  ORDER BY runtime DESC;",
+            "-- 2. Explain the slowest query (replace <pid>)",
+            "SELECT pg_cancel_backend(<pid>);",
+            "-- 3. Check for missing indexes",
+            "SELECT schemaname, tablename, attname, n_distinct, correlation\n"
+            "  FROM pg_stats WHERE tablename = '<table_name>';",
+            "-- 4. Run VACUUM ANALYZE on affected table",
+            "VACUUM ANALYZE <table_name>;",
+        ]
+    elif any(k in s for k in ("replication", "replica lag", "standby")):
+        plan = [
+            "-- 1. Check replication lag on primary",
+            "SELECT client_addr, state, sent_lsn, write_lsn, flush_lsn, replay_lsn,\n"
+            "       (sent_lsn - replay_lsn) AS replication_lag\n"
+            "  FROM pg_stat_replication;",
+            "-- 2. Confirm replica is streaming",
+            "SELECT now() - pg_last_xact_replay_timestamp() AS replication_delay;",
+            "-- 3. If lag > 60s, consider promoting replica or reducing write load on primary",
+            "-- CLI: pg_ctl promote -D /var/lib/postgresql/data",
+        ]
+    elif any(k in s for k in ("storage", "disk", "space", "capacity")):
+        plan = [
+            "-- 1. Check table sizes",
+            "SELECT relname AS table, pg_size_pretty(pg_total_relation_size(relid)) AS size\n"
+            "  FROM pg_catalog.pg_statio_user_tables\n"
+            "  ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;",
+            "-- 2. Check dead tuple bloat",
+            "SELECT relname, n_dead_tup, last_vacuum FROM pg_stat_user_tables\n"
+            "  ORDER BY n_dead_tup DESC LIMIT 10;",
+            "-- 3. Reclaim space with VACUUM FULL (locks table — run during maintenance window)",
+            "VACUUM FULL ANALYZE <table_name>;",
+            "-- 4. Archive or partition old data if table > 50 GB",
+        ]
+    elif any(k in s for k in ("oom", "out of memory", "memory")):
+        plan = [
+            "-- 1. Check current memory settings",
+            "SHOW work_mem;  SHOW shared_buffers;",
+            "-- 2. Identify memory-heavy queries",
+            "SELECT pid, query, (now() - query_start) AS runtime\n"
+            "  FROM pg_stat_activity WHERE state = 'active' ORDER BY runtime DESC;",
+            "-- CLI 3. Restart DB process to clear memory (last resort)",
+            "sudo systemctl restart postgresql",
+        ]
+    else:
+        # Generic DB fallback
+        plan = [
+            "-- 1. Check database health",
+            "SELECT datname, numbackends, xact_commit, xact_rollback, blks_hit, blks_read\n"
+            "  FROM pg_stat_database ORDER BY numbackends DESC;",
+            "-- 2. Look for errors in the DB log",
+            "sudo tail -n 100 /var/log/postgresql/postgresql-$(date +%Y-%m-%d).log | grep -i error",
+            "-- 3. Verify connectivity",
+            "psql -U postgres -c 'SELECT version();'",
+        ]
+
+    # Append any AI-generated commands that aren't already covered
+    for cmd in commands[:3]:
+        c = cmd.strip()
+        if c and c not in plan:
+            plan.append(f"-- AI suggested: {c}")
+
+    return plan
+
+_AGENT_AUTO_LOGS_TEMPLATE = """\
+[AGENT] Auto-remediation triggered for Incident #{id} (severity: {severity})
+[00:01] Evaluating incident context and action plan...
+[00:02] Connecting to target environment...
+[00:03] Executing step 1/{total}: {step1}
+[00:05] Executing step 2/{total}: {step2}
+[00:07] Executing step 3/{total}: {step3}
+[00:09] Running post-remediation health checks...
+[00:10] Health checks PASSED. Services responding normally.
+[00:10] ✅ Incident #{id} auto-resolved by agent. No human intervention required.
+"""
+
+async def _hitl_evaluate(incident_id: int, severity: str, parsed: dict, owner_role: str):
+    """
+    Autonomous path        → LOW / WARNING / MEDIUM : auto-simulate fix → RESOLVED_BY_AGENT
+    HITL path              → HIGH / CRITICAL        : set AWAITING_APPROVAL + notify
+    Safety guardrail fired → any severity           : ESCALATED_SECURITY_RISK + clear plan
+    """
+    import json as _json
+    await asyncio.sleep(2)   # simulate agent thinking delay
+
+    action_plan = parsed.get("action_plan", []) or []
+    commands    = parsed.get("commands",    []) or []
+
+    # ── Safety guardrail: scan raw AI commands before building any plan ────────
+    raw_check = CommandValidator.validate(commands + action_plan)
+    if not raw_check.safe:
+        _escalate_security_risk(incident_id, raw_check.violations, stage="raw AI output")
+        return
+
+    if severity in _HITL_SEVERITIES:
+        # DB incidents get a SQL/CLI-first remediation plan
+        if owner_role == "DatabaseDeveloper":
+            plan = _build_db_remediation_plan(
+                summary=parsed.get("summary", ""),
+                commands=commands,
+            )
+        else:
+            plan = action_plan + (
+                [f"Run: {c}" for c in commands[:3]] if commands else []
+            )
+            if not plan:
+                plan = [
+                    "1. Isolate the affected service from load balancer",
+                    "2. Capture diagnostic snapshot (heap dump / packet trace)",
+                    "3. Apply hot-fix and perform rolling restart",
+                    "4. Validate with smoke tests before re-routing traffic",
+                ]
+
+        # ── Safety guardrail: re-scan the final plan before queuing ───────────
+        plan_check = CommandValidator.validate(plan)
+        if not plan_check.safe:
+            _escalate_security_risk(incident_id, plan_check.violations, stage="final plan")
+            return
+
+        update_incident_status(
+            incident_id,
+            status="AWAITING_APPROVAL",
+            proposed_remediation_plan=_json.dumps(plan),
+        )
+        create_notification(
+            message=f"🤖 Agent requires approval for Incident #{incident_id} [{severity}] — awaiting {owner_role}",
+            type="critical" if severity == "Critical" else "warning",
+            incident_id=incident_id,
+        )
+        # Mock outbound Slack alert to owner team
+        await _mock_hitl_slack_notify(incident_id, severity, owner_role, parsed.get("summary", ""))
+        print(f"[HITL] Incident #{incident_id} → AWAITING_APPROVAL (owner: {owner_role})")
+
+    else:
+        # Auto-resolve
+        steps  = action_plan if action_plan else ["Restarting service", "Clearing cache", "Verifying health"]
+        logs   = _AGENT_AUTO_LOGS_TEMPLATE.format(
+            id=incident_id, severity=severity,
+            total=min(len(steps), 3),
+            step1=steps[0] if len(steps) > 0 else "Restarting affected service",
+            step2=steps[1] if len(steps) > 1 else "Clearing stale cache entries",
+            step3=steps[2] if len(steps) > 2 else "Running health checks",
+        )
+        update_incident_status(
+            incident_id,
+            status="RESOLVED_BY_AGENT",
+            agent_execution_logs=logs,
+        )
+        create_notification(
+            message=f"🤖 Agent auto-resolved Incident #{incident_id} [{severity}] — no approval needed",
+            type="info",
+            incident_id=incident_id,
+        )
+        print(f"[HITL] Incident #{incident_id} → RESOLVED_BY_AGENT (autonomous, severity: {severity})")
+
+
+def _escalate_security_risk(incident_id: int, violations: list[str], stage: str = ""):
+    """
+    Called when the CommandValidator fires a blocklist hit.
+    Updates the incident to ESCALATED_SECURITY_RISK and clears the plan.
+    """
+    violation_summary = "; ".join(violations[:3])
+    print(f"[GUARDRAIL] 🚨 Incident #{incident_id} ESCALATED_SECURITY_RISK — "
+          f"blocklist hit at {stage}: {violation_summary}")
+    update_incident_status(
+        incident_id,
+        status="ESCALATED_SECURITY_RISK",
+        proposed_remediation_plan=None,
+        agent_execution_logs=(
+            f"[GUARDRAIL] AI Safety Guardrail triggered at stage: {stage}\n"
+            f"[GUARDRAIL] Violations detected:\n"
+            + "\n".join(f"  • {v}" for v in violations)
+            + "\n[GUARDRAIL] Proposed plan has been cleared. Manual intervention required."
+        ),
+    )
+    create_notification(
+        message=(
+            f"🚨 AI Safety Guardrail fired on Incident #{incident_id} — "
+            f"destructive command detected. Manual intervention required."
+        ),
+        type="critical",
+        incident_id=incident_id,
+    )
+
+
+async def _mock_hitl_slack_notify(incident_id: int, severity: str, owner_role: str, summary: str):
+    """Mock outbound Slack notification to the owner role's channel."""
+    try:
+        settings = get_settings()
+        webhook  = settings.get("slack_webhook_url", "").strip()
+        if not webhook:
+            print(f"[HITL-Slack] No webhook configured — skipping Slack notify for #{incident_id}")
+            return
+        payload = {
+            "attachments": [{
+                "color": "#FF0000" if severity == "Critical" else "#FFA500",
+                "blocks": [
+                    {"type": "header", "text": {"type": "plain_text", "text": f"🤖 HITL Approval Required — {severity} Incident"}},
+                    {"type": "section", "fields": [
+                        {"type": "mrkdwn", "text": f"*Incident:* #{incident_id}"},
+                        {"type": "mrkdwn", "text": f"*Assigned Role:* {owner_role}"},
+                        {"type": "mrkdwn", "text": f"*Summary:*\n{summary[:300]}"},
+                    ]},
+                    {"type": "section", "text": {"type": "mrkdwn",
+                        "text": "👉 Open the AIOps portal → *Agent Pending Approvals* to approve or reject."}},
+                ],
+            }]
+        }
+        async with httpx.AsyncClient(timeout=8) as client:
+            await client.post(webhook, json=payload)
+    except Exception as exc:
+        print(f"[HITL-Slack] notify failed: {exc}")
+
+
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @app.post("/api/triage", response_model=TriageResponse)
@@ -252,8 +554,155 @@ async def triage_logs(request: TriageRequest):
 
 
 @app.get("/api/incidents", response_model=list[IncidentSummary])
-def list_incidents():
-    return get_all_incidents()
+def list_incidents(role: str | None = None):
+    """Return all incidents. If ?role=<X> is provided and role != Admin,
+    only incidents where owner_role matches are returned."""
+    incidents = get_all_incidents()
+    if role and role != "Admin":
+        incidents = [i for i in incidents if i.get("owner_role", "Admin") == role]
+    return incidents
+
+
+MOCK_RUNBOOK_LOGS = """\
+[00:00] Initializing Automated Runbook...
+[00:01] Authenticating with target cluster...
+[00:02] Connecting to target nodes: node-01, node-02, node-03
+[00:03] Running pre-flight health checks... OK
+[00:04] Identifying affected services from incident metadata...
+[00:05] Executing remediation step 1/4: Draining affected pods...
+[00:06] Executing remediation step 2/4: Restarting failed services...
+[00:07] Executing remediation step 3/4: Clearing stale locks and cache entries...
+[00:08] Executing remediation step 4/4: Verifying service health endpoints...
+[00:09] All health checks passed. Services are responding normally.
+[00:10] Rolling back temporary network policy overrides...
+[00:11] Emitting resolution event to monitoring platform...
+[00:12] Incident successfully mitigated. Status set to RESOLVED."""
+
+
+@app.post("/api/incidents/{incident_id}/remediate")
+async def remediate_incident(incident_id: int):
+    all_incidents = get_all_incidents()
+    incident = next((i for i in all_incidents if i["id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    if incident.get("status") == "RESOLVED":
+        raise HTTPException(status_code=400, detail="Incident is already resolved")
+
+    # Simulate execution delay
+    await asyncio.sleep(2)
+
+    updated = update_incident_status(
+        incident_id,
+        status="RESOLVED",
+        execution_logs=MOCK_RUNBOOK_LOGS,
+    )
+
+    create_notification(
+        message=f"✅ Incident #{incident_id} auto-remediated via Automated Runbook",
+        type="info",
+        incident_id=incident_id,
+    )
+
+    return updated
+
+
+# ── HITL Approval / Rejection routes ─────────────────────────────────────────
+
+_SERVICENOW_MOCK_URL = "https://mock-servicenow.internal/api/incidents/close"
+
+_AGENT_APPROVED_LOGS = """\
+[AGENT] Approval received from {role}. Beginning execution of Incident #{id}...
+[00:01] Verifying approval token and incident context...
+[00:02] Connecting to target cluster and validating credentials...
+[00:03] Step 1 — {step1}
+[00:05] Step 2 — {step2}
+[00:07] Step 3 — {step3}
+[00:08] Executing post-remediation validation suite...
+[00:09] All health checks PASSED ✓
+[00:10] ✅ Incident #{id} resolved by agent following human approval.
+[00:10] ServiceNow ticket closure webhook fired → {sn_url}
+"""
+
+
+class ApprovalRequest(BaseModel):
+    approved_by_role: str = "Admin"
+
+
+@app.post("/api/incidents/{incident_id}/approve")
+async def approve_incident(incident_id: int, body: ApprovalRequest):
+    import json as _json
+    all_incidents = get_all_incidents()
+    incident = next((i for i in all_incidents if i["id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    if incident.get("status") != "AWAITING_APPROVAL":
+        raise HTTPException(status_code=400, detail="Incident is not awaiting approval")
+
+    plan  = incident.get("proposed_remediation_plan") or []
+    steps = plan if isinstance(plan, list) else []
+
+    await asyncio.sleep(3)   # simulate execution
+
+    logs = _AGENT_APPROVED_LOGS.format(
+        role=body.approved_by_role,
+        id=incident_id,
+        step1=steps[0] if len(steps) > 0 else "Isolating affected service",
+        step2=steps[1] if len(steps) > 1 else "Applying remediation patch",
+        step3=steps[2] if len(steps) > 2 else "Restarting and validating services",
+        sn_url=_SERVICENOW_MOCK_URL,
+    )
+
+    updated = update_incident_status(
+        incident_id,
+        status="RESOLVED_BY_AGENT",
+        agent_execution_logs=logs,
+    )
+
+    create_notification(
+        message=f"✅ Incident #{incident_id} resolved by agent after approval by {body.approved_by_role}",
+        type="info",
+        incident_id=incident_id,
+    )
+
+    # Fire mock ServiceNow ticket-close webhook (fire-and-forget)
+    asyncio.create_task(_close_servicenow_ticket(incident_id))
+
+    return updated
+
+
+@app.post("/api/incidents/{incident_id}/reject")
+async def reject_incident(incident_id: int):
+    all_incidents = get_all_incidents()
+    incident = next((i for i in all_incidents if i["id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    if incident.get("status") != "AWAITING_APPROVAL":
+        raise HTTPException(status_code=400, detail="Incident is not awaiting approval")
+
+    updated = update_incident_status(incident_id, status="REJECTED")
+    create_notification(
+        message=f"🚫 Incident #{incident_id} agent execution rejected by operator",
+        type="warning",
+        incident_id=incident_id,
+    )
+    return updated
+
+
+@app.get("/api/incidents/approvals")
+def list_pending_approvals(role: str | None = None):
+    return get_pending_approvals(role=role)
+
+
+async def _close_servicenow_ticket(incident_id: int):
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(_SERVICENOW_MOCK_URL, json={
+                "incident_id": incident_id,
+                "action": "close",
+                "resolved_by": "AIOps-Agent",
+            })
+    except Exception as exc:
+        print(f"[ServiceNow] mock ticket close for #{incident_id}: {exc}")
 
 
 # ── Webhook Ingestion ──────────────────────────────────────────────────────────
@@ -264,28 +713,138 @@ class WebhookLogRequest(BaseModel):
     timestamp: str | None = None
 
 
-async def _webhook_background(log_text: str, source: str):
-    """Background task: run triage silently, log any errors."""
-    try:
-        await _run_triage(log_text, source=f"webhook:{source}")
-    except Exception as exc:
-        print(f"[webhook] Background triage failed for source={source}: {exc}")
-
-
 @app.post("/api/webhooks/logs", status_code=202)
-async def ingest_webhook_log(request: WebhookLogRequest, background_tasks: BackgroundTasks):
-    """Accept a log payload, return 202 immediately, triage in the background."""
+async def ingest_webhook_log(request: WebhookLogRequest):
+    """Accept a log payload, return 202 immediately, dispatch Celery task for triage."""
     if not request.log_text.strip():
         raise HTTPException(status_code=400, detail="log_text cannot be empty.")
     if not request.source.strip():
         raise HTTPException(status_code=400, detail="source cannot be empty.")
 
-    background_tasks.add_task(_webhook_background, request.log_text, request.source.strip())
+    task = process_webhook_log.delay(request.log_text, request.source.strip())
 
     return {
         "status":  "accepted",
+        "task_id": task.id,
         "message": f"Log from '{request.source}' queued for triage.",
     }
+
+
+# ── Webhook Gateway (inbound, auto-routing) ───────────────────────────────────
+
+# Source → owner_role routing table
+_ROLE_ROUTES: dict[str, str] = {
+    # Developer
+    "github":       "Developer",
+    "gitlab":       "Developer",
+    "jira":         "Developer",
+    # Data Engineer
+    "airflow":      "DataEngineer",
+    "snowflake":    "DataEngineer",
+    "dbt":          "DataEngineer",
+    "kafka":        "DataEngineer",
+    # Network Engineer
+    "aws":          "NetworkEngineer",
+    "datadog":      "NetworkEngineer",
+    "pagerduty":    "NetworkEngineer",
+    "cloudwatch":   "NetworkEngineer",
+    # Database Developer
+    "aws rds":      "DatabaseDeveloper",
+    "rds":          "DatabaseDeveloper",
+    "mongodb":      "DatabaseDeveloper",
+    "postgresql":   "DatabaseDeveloper",
+    "postgres":     "DatabaseDeveloper",
+    "mysql":        "DatabaseDeveloper",
+    "redis":        "DatabaseDeveloper",
+    "clickhouse":   "DatabaseDeveloper",
+    "elasticsearch":"DatabaseDeveloper",
+}
+
+def _route_owner(source: str) -> str:
+    return _ROLE_ROUTES.get(source.lower(), "Admin")
+
+
+def _map_to_cloud_event(payload: dict, source: str) -> tuple[str, str, str]:
+    """
+    Extract (event_type, log_text, cloud_event_id) from an arbitrary inbound payload.
+    Tries common keys from GitHub, Datadog, Airflow, Snowflake, AWS SNS, etc.
+    Falls back to JSON-dumping the entire payload as the log text.
+    """
+    import uuid, json as _json
+
+    # --- event type inference ---
+    event_type = (
+        payload.get("action")                        # GitHub
+        or payload.get("alert_type")                 # Datadog
+        or payload.get("event")                      # generic
+        or payload.get("dag_id")                     # Airflow
+        or payload.get("Type")                       # AWS SNS
+        or "inbound_event"
+    )
+
+    # --- log text extraction ---
+    candidates = [
+        payload.get("message"),                      # generic
+        payload.get("body"),                         # Datadog / PagerDuty
+        payload.get("detail"),                       # AWS EventBridge
+        payload.get("Message"),                      # AWS SNS JSON inside message
+        payload.get("head_commit", {}).get("message") if isinstance(payload.get("head_commit"), dict) else None,  # GitHub push
+        payload.get("description"),
+    ]
+    log_text = next((c for c in candidates if c), None)
+    if not log_text:
+        log_text = f"Inbound webhook event from {source}:\n{_json.dumps(payload, indent=2)}"
+
+    cloud_event_id = str(uuid.uuid4())
+    return str(event_type), log_text, cloud_event_id
+
+
+class InboundWebhookRequest(BaseModel):
+    source:     str
+    payload:    dict = {}
+    event_type: str | None = None
+
+
+@app.post("/api/webhooks/inbound", status_code=202)
+async def inbound_webhook_gateway(request: InboundWebhookRequest):
+    """
+    Queue-first webhook gateway.
+    Accepts any source+payload, returns 202 immediately,
+    dispatches a Celery task for normalization + AI triage.
+    """
+    import json as _json, uuid
+    source = request.source.strip().lower()
+    if not source:
+        raise HTTPException(status_code=400, detail="source cannot be empty.")
+
+    payload    = request.payload or {}
+    event_type = request.event_type or _map_to_cloud_event(payload, source)[0]
+    owner_role = _route_owner(source)
+    ce_id      = str(uuid.uuid4())
+
+    ev = save_webhook_event({
+        "source":         source,
+        "event_type":     event_type,
+        "owner_role":     owner_role,
+        "status":         "accepted",
+        "raw_payload":    _json.dumps(payload),
+        "cloud_event_id": ce_id,
+    })
+
+    task = process_inbound_webhook.delay(payload, source, ev.id)
+
+    return {
+        "status":         "accepted",
+        "task_id":        task.id,
+        "cloud_event_id": ce_id,
+        "routed_to":      owner_role,
+        "message":        f"Event from '{source}' accepted and queued for processing.",
+    }
+
+
+@app.get("/api/webhooks/activity")
+def webhook_activity(limit: int = 40):
+    return get_recent_webhook_events(limit=limit)
 
 
 # ── Slack helper ──────────────────────────────────────────────────────────────
@@ -801,7 +1360,7 @@ def get_analytics():
     unread_notifs     = sum(1 for n in notifs if not n["is_read"])
 
     # ── Incidents by severity ─────────────────────────────────────────────────
-    severity_order = ["Critical", "High", "Medium", "Low", "Unknown"]
+    severity_order = ["Critical", "High", "Medium", "Warning", "Low", "Unknown"]
     sev_counter    = Counter(i["severity"] for i in incidents)
     incidents_by_severity = [
         {"name": s, "value": sev_counter.get(s, 0)}
@@ -872,3 +1431,144 @@ def get_analytics():
 @app.get("/health")
 def health():
     return {"status": "ok", "provider": AI_PROVIDER, "model": OLLAMA_MODEL}
+
+
+# ── Platform Assistant Chatbot ─────────────────────────────────────────────────
+
+CHAT_SYSTEM_TEMPLATE = """You are an SRE Platform Assistant embedded in an AIOps portal.
+
+Current system state:
+{context}
+
+Rules:
+- Answer ONLY based on the data provided above. Do not invent data.
+- Be concise — 2-4 sentences max unless a list is clearly better.
+- If the user asks something completely unrelated to platform operations, politely decline.
+- Use plain text. No markdown headers, no bullet asterisks.
+- If referencing an incident, include its ID and severity.
+"""
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+def _build_context() -> str:
+    incidents  = get_all_incidents()
+    infra_list = get_all_infra()
+    cicd_list  = get_all_cicd()
+    notifs     = get_all_notifications()
+
+    open_incidents     = [i for i in incidents if i.get("status", "OPEN") == "OPEN"]
+    resolved_incidents = [i for i in incidents if i.get("status", "OPEN") == "RESOLVED"]
+    critical_open      = [i for i in open_incidents if i["severity"] == "Critical"]
+
+    lines = [
+        f"Total incidents: {len(incidents)}",
+        f"Open incidents: {len(open_incidents)}",
+        f"Resolved incidents: {len(resolved_incidents)}",
+        f"Critical open incidents: {len(critical_open)}",
+    ]
+
+    if open_incidents:
+        lines.append("Open incident summaries:")
+        for i in open_incidents[:5]:
+            lines.append(f"  - Incident #{i['id']} [{i['severity']}]: {i['summary'][:120]}")
+
+    if resolved_incidents:
+        lines.append("Last resolved incidents:")
+        for i in resolved_incidents[:3]:
+            lines.append(f"  - Incident #{i['id']} [{i['severity']}]: {i['summary'][:100]} (RESOLVED)")
+
+    lines.append(f"Infra generations in DB: {len(infra_list)}")
+    if infra_list:
+        last_infra = infra_list[0]
+        lines.append(f"  Last: {last_infra['resource_name']} on {last_infra['provider_used']}")
+
+    lines.append(f"CI/CD pipelines in DB: {len(cicd_list)}")
+    if cicd_list:
+        last_cicd = cicd_list[0]
+        lines.append(f"  Last: {last_cicd['tool_name']} pipeline")
+
+    unread = sum(1 for n in notifs if not n["is_read"])
+    lines.append(f"Unread notifications: {unread}")
+
+    return "\n".join(lines)
+
+
+@app.post("/api/chat")
+async def platform_chat(request: ChatRequest):
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+
+    context     = _build_context()
+    system_prompt = CHAT_SYSTEM_TEMPLATE.format(context=context)
+
+    try:
+        if AI_PROVIDER == "ollama":
+            response = await call_ollama(request.message, system_prompt=system_prompt)
+        else:
+            response = await call_gemini(request.message, system_prompt=system_prompt)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI provider error: {str(exc)}")
+
+    return {"response": response.strip()}
+
+
+# ── Log Anomaly Detection ─────────────────────────────────────────────────────
+
+ANOMALY_INCIDENT = {
+    "severity":        "Warning",
+    "summary":         "Predictive Anomaly: Gradual Memory Leak in auth-service",
+    "root_cause":      "auth-service memory usage is increasing by ~5% every hour despite flat request traffic. "
+                       "A slow object-reference leak in the session cache layer is the most likely cause.",
+    "evidence":        [
+        "auth-service RSS: 210 MB → 315 MB over 6 hours (flat traffic)",
+        "GC pause frequency up 3× in the last 2 hours",
+        "No corresponding spike in active sessions or request rate",
+        "Heap dump shows accumulation in SessionCacheManager.activeTokens map",
+    ],
+    "action_plan":     [
+        "1. Capture a heap dump immediately: kill -s SIGUSR1 <pid>",
+        "2. Increase JVM -XX:MaxHeapSize as a short-term buffer",
+        "3. Rolling restart of auth-service pods to clear current leak",
+        "4. Pin SessionCacheManager.activeTokens with a TTL eviction policy",
+        "5. Deploy fix and monitor for 2 hours before declaring stable",
+    ],
+    "commands":        [
+        "kubectl top pods -n auth --sort-by=memory",
+        "kubectl exec -it auth-service-<pod> -- kill -s SIGUSR1 1",
+        "kubectl rollout restart deployment/auth-service -n auth",
+        "kubectl logs -f deployment/auth-service -n auth | grep -i 'cache\\|leak\\|OOM'",
+    ],
+    "files_to_check":  [
+        "src/auth/cache/SessionCacheManager.java",
+        "k8s/auth-service/deployment.yaml  (resource limits)",
+        "config/auth/cache-config.properties",
+    ],
+    "validation_steps": [
+        "Memory growth should plateau within 15 min of rolling restart",
+        "GC pause frequency should return to baseline (<5 pauses/min)",
+        "Re-run heap dump after 1 hour; activeTokens map should be stable",
+    ],
+    "raw_logs":        "[anomaly-scanner] Predictive analysis triggered by background log scan.",
+    "model_used":      "Anomaly Scanner v1.0 (rule-based)",
+    "raw_response":    "",
+    "source":          "anomaly-scanner",
+}
+
+
+@app.post("/api/logs/scan-anomalies")
+async def scan_anomalies():
+    """Simulate a background log scan and create a predictive WARNING incident."""
+    await asyncio.sleep(3)
+
+    record = save_incident(ANOMALY_INCIDENT)
+
+    create_notification(
+        message="⚠️ Predictive anomaly detected: Gradual memory leak in auth-service (ETA to OOM: 4 h)",
+        type="warning",
+        incident_id=record.id,
+    )
+
+    return serialize_incident(record)

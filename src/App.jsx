@@ -1,123 +1,98 @@
-import { useState } from 'react'
-import { Settings, UserCircle2 } from 'lucide-react'
-import Sidebar from './components/Sidebar'
-import DashboardView from './components/DashboardView'
-import TriageView from './components/TriageView'
-import InfraBuilderView from './components/InfraBuilderView'
-import CICDView from './components/CICDView'
-import HistoryPanel from './components/HistoryPanel'
-import SettingsModal from './components/SettingsModal'
-import NotificationDropdown from './components/NotificationDropdown'
+import { useState, useRef, useCallback } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Settings } from 'lucide-react'
 
-const VIEW_LABELS = {
+import { RoleProvider, useRole, ROLES } from './contexts/RoleContext'
+
+import Sidebar              from './components/Sidebar'
+import OpsPortal            from './components/OpsPortal'
+import DeveloperPortal      from './components/DeveloperPortal'
+import DataEngineerPortal   from './components/DataEngineerPortal'
+import DatabasePortal       from './components/DatabasePortal'
+import SettingsModal        from './components/SettingsModal'
+import NotificationDropdown from './components/NotificationDropdown'
+import ChatBot              from './components/ChatBot'
+import UserMenu             from './components/UserMenu'
+import PersonaSwitcher      from './components/PersonaSwitcher'
+
+// ── Ops sub-view labels ───────────────────────────────────────────────────────
+const OPS_VIEW_LABELS = {
   dashboard: 'Dashboard',
   triage:    'Alert Triage',
   infra:     'Infra Builder',
   cicd:      'CI/CD Pipeline',
 }
 
-export default function App() {
-  const [currentView, setCurrentView] = useState('dashboard')
+// ── Per-role default portal path ──────────────────────────────────────────────
+function defaultPortalForRole(role) {
+  return ROLES[role]?.portal ?? '/ops'
+}
 
-  // Per-module version counters — bump to tell HistoryPanel to refresh that tab
-  const [versions, setVersions] = useState({ alerts: 0, infra: 0, cicd: 0 })
+// ── Inner layout (needs router context via useRole / useNavigate) ─────────────
+function AppLayout() {
+  const { role, setRole, roleInfo } = useRole()
 
-  // Per-module selected history records
-  const [selectedAlert, setSelectedAlert] = useState(null)
-  const [selectedInfra, setSelectedInfra]  = useState(null)
-  const [selectedCICD, setSelectedCICD]    = useState(null)
+  const [currentOpsView, setCurrentOpsView] = useState('dashboard')
+  const [opsBreadcrumb,  setOpsBreadcrumb]  = useState('Dashboard')
+  const [settingsOpen,   setSettingsOpen]   = useState(false)
+  const [isLoggedIn,     setIsLoggedIn]     = useState(true)
 
-  // Settings modal
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  // stable callback so OpsPortal doesn't re-render on every breadcrumb update
+  const handleBreadcrumb = useCallback((label) => {
+    setOpsBreadcrumb((prev) => (prev === label ? prev : label))
+  }, [])
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  function bumpVersion(tab) {
-    setVersions((v) => ({ ...v, [tab]: v[tab] + 1 }))
-  }
-
-  function handleNavigate(view) {
-    setCurrentView(view)
-  }
-
-  // Called by TriageView when a new analysis completes
-  function handleAnalysisComplete() {
-    bumpVersion('alerts')
-    setSelectedAlert(null)
-  }
-
-  // Called by InfraBuilderView when generation completes
-  function handleInfraComplete() {
-    bumpVersion('infra')
-    setSelectedInfra(null)
-  }
-
-  // Called by CICDView when generation completes
-  function handleCICDComplete() {
-    bumpVersion('cicd')
-    setSelectedCICD(null)
-  }
-
-  // Called by HistoryPanel when the user clicks any history item
-  function handleHistorySelect(tab, item) {
-    if (tab === 'alerts') {
-      setSelectedAlert(item)
-      setCurrentView('triage')
-    } else if (tab === 'infra') {
-      setSelectedInfra(item)
-      setCurrentView('infra')
-    } else if (tab === 'cicd') {
-      setSelectedCICD(item)
-      setCurrentView('cicd')
-    }
-  }
-
-  // Build the breadcrumb label
+  // Dynamic breadcrumb depending on which portal is active
   function breadcrumb() {
-    if (currentView === 'triage' && selectedAlert)
-      return `Incident #${selectedAlert.id}`
-    if (currentView === 'infra' && selectedInfra)
-      return `Infra Record #${selectedInfra.id}`
-    if (currentView === 'cicd' && selectedCICD)
-      return `Pipeline #${selectedCICD.id}`
-    return VIEW_LABELS[currentView]
+    if (role === 'Developer')       return 'Software Catalog'
+    if (role === 'DataEngineer')    return 'Pipeline Health'
+    if (role === 'NetworkEngineer') return opsBreadcrumb
+    return opsBreadcrumb   // Admin
   }
 
-  const selectedIds = {
-    alerts: selectedAlert?.id ?? null,
-    infra:  selectedInfra?.id  ?? null,
-    cicd:   selectedCICD?.id   ?? null,
-  }
+  // Nav items are portal-specific; only show for roles that use OpsPortal
+  const showOpsNav = role === 'Admin' || role === 'NetworkEngineer'
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface text-slate-200">
-      {/* Left Sidebar */}
-      <Sidebar activeView={currentView} onNavigate={handleNavigate} />
 
-      {/* Main Column */}
+      {/* Left Sidebar */}
+      <Sidebar
+        activeView={currentOpsView}
+        onNavigate={setCurrentOpsView}
+        role={role}
+        showOpsNav={showOpsNav}
+      />
+
+      {/* Main column */}
       <div className="flex flex-col flex-1 overflow-hidden">
 
-        {/* Top Header Bar */}
+        {/* ── Top Header ─────────────────────────────────────────────────── */}
         <header className="flex items-center justify-between px-6 py-3.5 border-b border-border bg-sidebar shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-500">Platform Engineering</span>
+            <span className="text-slate-700">/</span>
+            <span className={`text-xs font-semibold ${roleInfo.color}`}>{roleInfo.label}</span>
             <span className="text-slate-700">/</span>
             <span className="text-xs font-semibold text-white">{breadcrumb()}</span>
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Persona switcher — visible to all (Admin can switch, others see read-only) */}
+            <PersonaSwitcher />
+
             <NotificationDropdown
               onSelectIncident={(incidentId) => {
-                // Find the incident in history and navigate to it
-                fetch(`http://127.0.0.1:8000/api/incidents`)
+                fetch('http://127.0.0.1:8000/api/incidents')
                   .then((r) => r.json())
                   .then((incidents) => {
                     const found = incidents.find((i) => i.id === incidentId)
-                    if (found) { setSelectedAlert(found); setCurrentView('triage') }
+                    if (found) { setCurrentOpsView('triage') }
                   })
                   .catch(() => {})
               }}
             />
+
             <button
               onClick={() => setSettingsOpen(true)}
               className="p-2 rounded-lg hover:bg-card transition-colors group"
@@ -125,58 +100,75 @@ export default function App() {
             >
               <Settings className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" />
             </button>
-            <div className="flex items-center gap-2 pl-2 border-l border-border">
-              <div className="flex items-center justify-center w-7 h-7 rounded-full bg-accent/20 border border-accent/30">
-                <UserCircle2 className="w-4 h-4 text-accent" />
-              </div>
-              <span className="text-xs font-medium text-slate-300">Ops Engineer</span>
-            </div>
+
+            <UserMenu
+              isLoggedIn={isLoggedIn}
+              onLogin={() => setIsLoggedIn(true)}
+              onLogout={() => { setIsLoggedIn(false); setCurrentOpsView('dashboard') }}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
           </div>
         </header>
 
-        {/* Content Row */}
-        <div className="flex flex-1 overflow-hidden">
-          <main className="flex-1 overflow-y-auto px-8 py-8">
-            {currentView === 'dashboard' && (
-              <DashboardView />
-            )}
-            {currentView === 'triage' && (
-              <TriageView
-                selectedIncident={selectedAlert}
-                onSelectIncident={setSelectedAlert}
-                onAnalysisComplete={handleAnalysisComplete}
-              />
-            )}
-            {currentView === 'infra' && (
-              <InfraBuilderView
-                selectedRecord={selectedInfra}
-                onClearRecord={() => setSelectedInfra(null)}
-                onGenerateComplete={handleInfraComplete}
-              />
-            )}
-            {currentView === 'cicd' && (
-              <CICDView
-                selectedRecord={selectedCICD}
-                onClearRecord={() => setSelectedCICD(null)}
-                onGenerateComplete={handleCICDComplete}
-              />
-            )}
-          </main>
+        {/* ── Portal routes ───────────────────────────────────────────────── */}
+        <Routes>
+          {/* Default redirect: go to the portal that matches the current role */}
+          <Route
+            path="/"
+            element={<Navigate to={defaultPortalForRole(role)} replace />}
+          />
 
-          {/* Universal History Panel — hidden on dashboard */}
-          {currentView !== 'dashboard' && (
-            <HistoryPanel
-              versions={versions}
-              onSelect={handleHistorySelect}
-              selectedIds={selectedIds}
-              activeView={currentView}
-            />
-          )}
-        </div>
+          {/* Ops portal (Admin + NetworkEngineer) */}
+          <Route
+            path="/ops"
+            element={
+              <OpsPortal
+                currentView={currentOpsView}
+                onViewChange={setCurrentOpsView}
+                onBreadcrumb={handleBreadcrumb}
+              />
+            }
+          />
+
+          {/* Developer portal */}
+          <Route path="/developer" element={
+            <div className="flex-1 overflow-y-auto px-8 py-8">
+              <DeveloperPortal />
+            </div>
+          } />
+
+          {/* Data Engineer portal */}
+          <Route path="/data" element={
+            <div className="flex-1 overflow-y-auto px-8 py-8">
+              <DataEngineerPortal />
+            </div>
+          } />
+
+          {/* Database Developer portal */}
+          <Route path="/database" element={
+            <div className="flex-1 overflow-y-auto px-8 py-8">
+              <DatabasePortal />
+            </div>
+          } />
+
+          {/* Catch-all — redirect to role's default */}
+          <Route path="*" element={<Navigate to={defaultPortalForRole(role)} replace />} />
+        </Routes>
       </div>
 
-      {/* Settings Modal */}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      <ChatBot />
     </div>
+  )
+}
+
+// ── Root export ───────────────────────────────────────────────────────────────
+export default function App() {
+  return (
+    <BrowserRouter>
+      <RoleProvider>
+        <AppLayout />
+      </RoleProvider>
+    </BrowserRouter>
   )
 }

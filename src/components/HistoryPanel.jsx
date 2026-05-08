@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useRole } from '../contexts/RoleContext'
 import {
   History,
   AlertTriangle, AlertCircle, Info,
@@ -23,6 +24,7 @@ const SEVERITY_STYLES = {
   Critical: 'bg-red-500/15 border-red-500/40 text-red-400',
   High:     'bg-orange-500/15 border-orange-500/40 text-orange-400',
   Medium:   'bg-yellow-500/15 border-yellow-500/40 text-yellow-400',
+  Warning:  'bg-amber-500/15 border-amber-500/40 text-amber-400',
   Low:      'bg-blue-500/15 border-blue-500/40 text-blue-400',
   Unknown:  'bg-slate-500/15 border-slate-500/40 text-slate-400',
 }
@@ -30,6 +32,7 @@ const SEVERITY_STYLES = {
 const SEVERITY_ICONS = {
   Critical: AlertTriangle,
   High: AlertCircle, Medium: AlertCircle,
+  Warning: AlertCircle,
   Low: Info, Unknown: Info,
 }
 
@@ -133,6 +136,7 @@ function CICDRow({ item, selected, onClick }) {
 }
 
 export default function HistoryPanel({ versions, onSelect, selectedIds, activeView }) {
+  const { role }                    = useRole()
   const [activeTab, setActiveTab]   = useState('alerts')
   const [data, setData]             = useState({ alerts: [], infra: [], cicd: [] })
   const [loading, setLoading]       = useState(false)
@@ -141,14 +145,18 @@ export default function HistoryPanel({ versions, onSelect, selectedIds, activeVi
   const fetchTab = useCallback(async (tab) => {
     setLoading(true)
     try {
-      const res = await fetch(ENDPOINTS[tab])
+      // Append ?role= so the backend filters incidents for non-Admin roles
+      const url = tab === 'alerts' && role !== 'Admin'
+        ? `${ENDPOINTS[tab]}?role=${role}`
+        : ENDPOINTS[tab]
+      const res = await fetch(url)
       if (res.ok) {
         const json = await res.json()
         setData((prev) => ({ ...prev, [tab]: json }))
       }
     } catch (_err) { /* fail silently */ }
     finally { setLoading(false) }
-  }, [])
+  }, [role])
 
   // Re-fetch the active tab whenever its version bumps
   useEffect(() => { fetchTab(activeTab) }, [fetchTab, activeTab, versions[activeTab]])

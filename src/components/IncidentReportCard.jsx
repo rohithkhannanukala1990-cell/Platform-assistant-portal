@@ -17,6 +17,11 @@ import {
   Ticket,
   ExternalLink,
   Loader2,
+  PlayCircle,
+  BookOpen,
+  CircleDot,
+  CircleCheck,
+  ShieldX,
 } from 'lucide-react'
 
 const SEVERITY_CONFIG = {
@@ -36,6 +41,12 @@ const SEVERITY_CONFIG = {
     label: 'MEDIUM',
     icon: AlertCircle,
     badgeCls: 'bg-yellow-500/15 border-yellow-500/40 text-yellow-400',
+    glowCls: '',
+  },
+  Warning: {
+    label: 'WARNING',
+    icon: AlertCircle,
+    badgeCls: 'bg-amber-500/15 border-amber-500/40 text-amber-400',
     glowCls: '',
   },
   Low: {
@@ -63,19 +74,26 @@ export default function IncidentReportCard({
   filesToCheck,
   validationSteps,
   modelUsed,
+  status: initialStatus = 'OPEN',
+  executionLogs: initialLogs = null,
 }) {
-  const config  = SEVERITY_CONFIG[severity] ?? SEVERITY_CONFIG.Unknown
+  const config    = SEVERITY_CONFIG[severity] ?? SEVERITY_CONFIG.Unknown
   const BadgeIcon = config.icon
 
+  // Jira state
   const [jiraLoading, setJiraLoading] = useState(false)
-  const [jiraResult,  setJiraResult]  = useState(null)  // { ticket_key, ticket_url } | { error }
+  const [jiraResult,  setJiraResult]  = useState(null)
+
+  // Runbook state
+  const [runbookLoading, setRunbookLoading] = useState(false)
+  const [status,         setStatus]         = useState(initialStatus)
+  const [execLogs,       setExecLogs]       = useState(initialLogs)
 
   async function handleCreateJira() {
     if (!id) return
-    setJiraLoading(true)
-    setJiraResult(null)
+    setJiraLoading(true); setJiraResult(null)
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/incidents/${id}/jira`, { method: 'POST' })
+      const res  = await fetch(`http://127.0.0.1:8000/api/incidents/${id}/jira`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail ?? 'Jira API error')
       setJiraResult({ ticket_key: data.ticket_key, ticket_url: data.ticket_url })
@@ -86,19 +104,60 @@ export default function IncidentReportCard({
     }
   }
 
+  async function handleRemediate() {
+    if (!id) return
+    setRunbookLoading(true)
+    try {
+      const res  = await fetch(`http://127.0.0.1:8000/api/incidents/${id}/remediate`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail ?? 'Remediation failed')
+      setStatus(data.status)
+      setExecLogs(data.execution_logs)
+    } catch (err) {
+      setExecLogs(`ERROR: ${err.message}`)
+    } finally {
+      setRunbookLoading(false)
+    }
+  }
+
+  const isOpen            = status === 'OPEN'
+  const isResolved        = status === 'RESOLVED'
+  const isSecurityRisk    = status === 'ESCALATED_SECURITY_RISK'
+
   return (
     <div className="flex flex-col gap-4 mt-2">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <h2 className="text-base font-semibold text-white">Incident Report</h2>
+
+          {/* Severity badge */}
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border ${config.badgeCls} ${config.glowCls}`}>
             <BadgeIcon className="w-3 h-3" strokeWidth={2.5} />
             <span className="text-xs font-bold tracking-widest uppercase">{config.label}</span>
           </span>
+
+          {/* Status badge */}
+          {isSecurityRisk ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-red-500/60 bg-red-500/15 text-red-400 animate-pulse">
+              <ShieldX className="w-3 h-3" strokeWidth={2.5} />
+              <span className="text-xs font-bold tracking-widest">SECURITY RISK</span>
+            </span>
+          ) : isResolved ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-green-500/40 bg-green-500/10 text-green-400">
+              <CircleCheck className="w-3 h-3" strokeWidth={2.5} />
+              <span className="text-xs font-bold tracking-widest">RESOLVED</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-red-500/40 bg-red-500/10 text-red-400">
+              <CircleDot className="w-3 h-3" strokeWidth={2.5} />
+              <span className="text-xs font-bold tracking-widest">OPEN</span>
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-3 text-xs text-slate-500">
+
+        <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
           <span className="flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5" />Just now
           </span>
@@ -106,7 +165,8 @@ export default function IncidentReportCard({
             <Cpu className="w-3.5 h-3.5" />
             {modelUsed ?? 'Ollama / Gemma 3 4B (Local)'}
           </span>
-          {/* Jira button — only shown when we have a DB id */}
+
+          {/* Jira button */}
           {id && (
             <button
               onClick={handleCreateJira}
@@ -119,6 +179,32 @@ export default function IncidentReportCard({
                 : <><Ticket className="w-3 h-3" />Create Jira Ticket</>
               }
             </button>
+          )}
+
+          {/* Runbook buttons — only when OPEN (not security risk) and incident is persisted */}
+          {id && isOpen && !isSecurityRisk && (
+            <>
+              <button
+                onClick={handleRemediate}
+                disabled={runbookLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-accent/40 bg-accent/10 text-accent
+                  hover:bg-accent/20 hover:border-accent disabled:opacity-50 disabled:cursor-not-allowed transition-all font-semibold"
+              >
+                {runbookLoading
+                  ? <><Loader2 className="w-3 h-3 animate-spin" />Executing…</>
+                  : <><PlayCircle className="w-3 h-3" />Execute Automated Runbook</>
+                }
+              </button>
+              <a
+                href="https://wiki.internal.corp/runbooks/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-600 text-slate-400
+                  hover:border-slate-500 hover:text-slate-200 transition-all"
+              >
+                <BookOpen className="w-3 h-3" />View Internal Runbooks
+              </a>
+            </>
           )}
         </div>
       </div>
@@ -149,6 +235,21 @@ export default function IncidentReportCard({
               Open in Jira <ExternalLink className="w-3 h-3" />
             </a>
           )}
+        </div>
+      )}
+
+      {/* ── AI Safety Guardrail Banner ──────────────────────────────────────── */}
+      {isSecurityRisk && (
+        <div className="flex items-start gap-3 px-4 py-3.5 rounded-xl border border-red-500/50 bg-red-500/10">
+          <ShieldX className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-bold text-red-400">AI Safety Guardrail Triggered</p>
+            <p className="text-xs text-red-300 leading-relaxed">
+              The AI agent generated a potentially destructive command that was blocked by the safety
+              guardrail. The proposed remediation plan has been cleared.{' '}
+              <strong className="text-red-300">Manual intervention is required.</strong>
+            </p>
+          </div>
         </div>
       )}
 
@@ -244,12 +345,41 @@ export default function IncidentReportCard({
           <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
           Awaiting human confirmation before applying changes
         </div>
-        <button className="flex items-center gap-1.5 text-xs font-medium text-accent hover:text-white border border-accent/30 hover:border-accent/60 hover:bg-accent/10 px-3 py-1.5 rounded-lg transition-all duration-150">
-          <CheckCircle2 className="w-3.5 h-3.5" />
-          Mark Resolved
-          <ChevronRight className="w-3 h-3 opacity-60" />
-        </button>
+        {/* Only show Mark Resolved button when OPEN and no runbook active */}
+        {isOpen && !runbookLoading && (
+          <button
+            onClick={handleRemediate}
+            className="flex items-center gap-1.5 text-xs font-medium text-accent hover:text-white border border-accent/30 hover:border-accent/60 hover:bg-accent/10 px-3 py-1.5 rounded-lg transition-all duration-150"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            Mark Resolved
+            <ChevronRight className="w-3 h-3 opacity-60" />
+          </button>
+        )}
       </div>
+
+      {/* ── Execution Logs (terminal output) ───────────────────────────────── */}
+      {execLogs && (
+        <div className="flex flex-col rounded-xl border border-green-500/20 overflow-hidden animate-fade-in">
+          <div className="flex items-center gap-2.5 px-4 py-2.5 bg-black/60 border-b border-green-500/20">
+            <div className="flex gap-1.5">
+              <span className="w-3 h-3 rounded-full bg-red-500/70" />
+              <span className="w-3 h-3 rounded-full bg-yellow-500/70" />
+              <span className="w-3 h-3 rounded-full bg-green-500/70" />
+            </div>
+            <span className="text-xs font-mono text-green-400 font-semibold">
+              automated-runbook — incident-{id}
+            </span>
+            <span className="ml-auto flex items-center gap-1.5 text-[10px] text-green-500">
+              <CircleCheck className="w-3 h-3" />
+              EXECUTION COMPLETE
+            </span>
+          </div>
+          <pre className="p-4 bg-black text-xs font-mono text-green-400 leading-relaxed overflow-x-auto whitespace-pre">
+            {execLogs}
+          </pre>
+        </div>
+      )}
 
     </div>
   )

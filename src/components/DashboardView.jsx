@@ -4,20 +4,22 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Cell,
   PieChart, Pie,
   LineChart, Line, CartesianGrid,
-  Legend,
 } from 'recharts'
 import {
   AlertTriangle, ShieldAlert, Activity, Layers,
   Construction, Rocket, RefreshCw, TrendingUp,
-  Clock, Wifi,
+  Clock, Wifi, ScanEye, Loader2, CheckCircle2, X,
 } from 'lucide-react'
+import AgentApprovalsWidget from './AgentApprovalsWidget'
 
-const API = 'http://127.0.0.1:8000/api/analytics'
+const API       = 'http://127.0.0.1:8000/api/analytics'
+const SCAN_API  = 'http://127.0.0.1:8000/api/logs/scan-anomalies'
 
 const SEVERITY_COLORS = {
   Critical: '#ef4444',
   High:     '#f97316',
   Medium:   '#eab308',
+  Warning:  '#f59e0b',
   Low:      '#3b82f6',
   Unknown:  '#6b7280',
 }
@@ -83,10 +85,15 @@ function ChartCard({ title, icon: Icon, iconColor, children, className = '' }) {
 }
 
 export default function DashboardView() {
-  const [data, setData]     = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError]   = useState(null)
+  const [data, setData]         = useState(null)
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState(null)
   const [lastFetch, setLastFetch] = useState(null)
+
+  // Anomaly scan state
+  const [scanning, setScanning]         = useState(false)
+  const [scanResult, setScanResult]     = useState(null)   // incident dict on success
+  const [scanDismissed, setScanDismissed] = useState(false)
 
   async function fetchAnalytics() {
     setLoading(true)
@@ -101,6 +108,23 @@ export default function DashboardView() {
       setError(e.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function runScan() {
+    setScanning(true)
+    setScanResult(null)
+    setScanDismissed(false)
+    try {
+      const res  = await fetch(SCAN_API, { method: 'POST' })
+      if (!res.ok) throw new Error(`Scan failed: ${res.status}`)
+      const incident = await res.json()
+      setScanResult(incident)
+      fetchAnalytics()   // refresh charts so the new incident shows up
+    } catch (e) {
+      setScanResult({ error: e.message })
+    } finally {
+      setScanning(false)
     }
   }
 
@@ -158,6 +182,84 @@ export default function DashboardView() {
             Refresh
           </button>
         </div>
+      </div>
+
+      {/* ── Agent Pending Approvals ───────────────────────────────────────── */}
+      <AgentApprovalsWidget />
+
+      {/* ── Predictive Log Scan ───────────────────────────────────────────── */}
+      <div className="flex flex-col gap-3 p-5 rounded-2xl border border-amber-500/20 bg-amber-500/5">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 shrink-0">
+              <ScanEye className="w-5 h-5 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-white">Predictive Log Scanner</p>
+              <p className="text-xs text-slate-500">AI-powered anomaly detection across all service logs</p>
+            </div>
+          </div>
+          <button
+            onClick={runScan}
+            disabled={scanning}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all
+              disabled:opacity-50 disabled:cursor-not-allowed
+              bg-amber-500/20 border border-amber-500/40 text-amber-300
+              hover:bg-amber-500/30 hover:border-amber-400/60 hover:text-amber-200"
+          >
+            {scanning
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Scanning System Logs…</>
+              : <><ScanEye className="w-4 h-4" /> Run Predictive Log Scan</>
+            }
+          </button>
+        </div>
+
+        {/* Scan progress bar */}
+        {scanning && (
+          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div className="h-full bg-amber-400 rounded-full animate-pulse" style={{ width: '60%' }} />
+          </div>
+        )}
+
+        {/* Result callout */}
+        {scanResult && !scanDismissed && (
+          <div className={`relative flex flex-col gap-2 p-4 rounded-xl border text-sm
+            ${scanResult.error
+              ? 'border-red-500/30 bg-red-500/10'
+              : 'border-amber-500/30 bg-amber-500/10'
+            }`}
+          >
+            <button
+              onClick={() => setScanDismissed(true)}
+              className="absolute top-3 right-3 text-slate-600 hover:text-slate-300 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {scanResult.error ? (
+              <p className="text-red-400 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                {scanResult.error}
+              </p>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 font-semibold text-amber-300">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  Anomaly Detected — Incident #{scanResult.id} Created
+                </div>
+                <p className="text-slate-300 leading-relaxed">{scanResult.summary}</p>
+                <p className="text-slate-500 text-xs">{scanResult.root_cause}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold
+                    bg-amber-500/20 border border-amber-500/40 text-amber-300">
+                    ⚠ WARNING
+                  </span>
+                  <span className="text-xs text-slate-600">via Anomaly Scanner · check Alert Triage for the full report</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Summary cards ─────────────────────────────────────────────────── */}

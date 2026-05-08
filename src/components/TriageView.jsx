@@ -222,6 +222,8 @@ export default function TriageView({ selectedIncident, onSelectIncident, onAnaly
               filesToCheck={displayResult.files_to_check}
               validationSteps={displayResult.validation_steps}
               modelUsed={displayResult.model_used}
+              status={displayResult.status ?? 'OPEN'}
+              executionLogs={displayResult.execution_logs ?? null}
             />
           </div>
         </div>

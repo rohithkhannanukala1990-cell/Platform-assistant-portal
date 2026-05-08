@@ -1,4 +1,4 @@
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
@@ -9,36 +9,46 @@ dist/
 build/
 .eggs/
 
-# Environment & secrets
+# ── Secrets & environment ─────────────────────────────────────────────────────
 backend/.env
 *.env
+.env.*
+# Whitelist example/template files so they are always committed
+!*.env.example
+!**/.env.example
 
-# SQLite database (local data — not for version control)
+# ── Databases ─────────────────────────────────────────────────────────────────
 backend/*.db
 backend/*.db-shm
 backend/*.db-wal
 
-# Virtual environments
+# ── Virtual environments ───────────────────────────────────────────────────────
 .venv/
 venv/
 env/
 
-# Node
+# ── Node ──────────────────────────────────────────────────────────────────────
 node_modules/
 dist/
 .vite/
 
-# OS
+# ── Docker volumes (created at runtime, not source) ──────────────────────────
+postgres_data/
+redis_data/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Editor
+# ── Editor ────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Logs
+# ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
 npm-debug.log*
+celerybeat-schedule
+celerybeat.pid

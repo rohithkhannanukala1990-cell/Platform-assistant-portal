@@ -1,10 +1,33 @@
 import json
+import os
 from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field, create_engine, Session, select
+from sqlalchemy import text as sa_text
 
-DATABASE_URL = "sqlite:///./incidents.db"
-engine = create_engine(DATABASE_URL, echo=False)
+# Default to PostgreSQL; falls back gracefully if the env var is set to SQLite for local dev
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://postgres:password@localhost:5432/aiops",
+)
+
+# psycopg2 needs the scheme "postgresql+psycopg2://" — normalise the common short form
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+elif DATABASE_URL.startswith("postgresql://") and "+psycopg2" not in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+_is_postgres = DATABASE_URL.startswith("postgresql")
+
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,
+    # PostgreSQL connection pool tuning
+    pool_pre_ping=True,       # drop stale connections before use
+    pool_size=10,
+    max_overflow=20,
+    connect_args={"connect_timeout": 10} if _is_postgres else {},
+)
 
 
 # ── Tables ────────────────────────────────────────────────────────────────────
@@ -23,7 +46,13 @@ class Incident(SQLModel, table=True):
     raw_logs: str
     model_used: str
     raw_response: str
-    source: str = Field(default="manual")   # "manual" | "webhook:<source-name>"
+    source: str = Field(default="manual")        # "manual" | "webhook:<source-name>"
+    status: str = Field(default="OPEN")
+    # OPEN | RESOLVED | AWAITING_APPROVAL | RESOLVED_BY_AGENT | REJECTED
+    execution_logs: Optional[str] = Field(default=None)
+    owner_role: str = Field(default="Admin")     # Admin | Developer | DataEngineer | NetworkEngineer
+    proposed_remediation_plan: Optional[str] = Field(default=None)  # JSON array of steps
+    agent_execution_logs: Optional[str] = Field(default=None)
 
 
 class InfraGeneration(SQLModel, table=True):
@@ -64,6 +93,18 @@ class UserSetting(SQLModel, table=True):
     value: str = Field(default="")
 
 
+class WebhookEvent(SQLModel, table=True):
+    id: Optional[int]   = Field(default=None, primary_key=True)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    source: str                              # github | airflow | snowflake | aws | datadog | …
+    event_type: str    = Field(default="")  # push | alert | dag_failure | …
+    owner_role: str    = Field(default="Admin")
+    status: str        = Field(default="accepted")   # accepted | processed | error
+    incident_id: Optional[int] = Field(default=None)
+    raw_payload: str   = Field(default="{}")         # JSON-encoded original body
+    cloud_event_id: str = Field(default="")          # generated CE id
+
+
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 DEFAULT_SETTINGS = {
@@ -85,24 +126,46 @@ def create_db_and_tables():
     _seed_settings()
 
 
+def _column_exists(session: Session, table: str, column: str) -> bool:
+    """Works for both PostgreSQL (information_schema) and SQLite (PRAGMA)."""
+    if _is_postgres:
+        row = session.exec(sa_text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = :t AND column_name = :c"
+        ).bindparams(t=table, c=column)).first()
+        return row is not None
+    else:
+        rows = session.exec(sa_text(f"PRAGMA table_info({table})")).all()
+        return any(r[1] == column for r in rows)
+
+
 def _migrate():
-    """Add columns that were introduced after the initial schema."""
-    from sqlalchemy import text
+    """
+    Idempotently add columns introduced after the initial schema.
+    Uses information_schema on PostgreSQL, PRAGMA on SQLite.
+    """
     migrations = [
-        ("incident",     "source",    "TEXT",    "'manual'"),
-        ("notification", "incident_id","INTEGER", "NULL"),
+        # (table,         column,                       pg_type,   default_expr)
+        ("incident",     "source",                      "TEXT",    "'manual'"),
+        ("incident",     "status",                      "TEXT",    "'OPEN'"),
+        ("incident",     "execution_logs",              "TEXT",    "NULL"),
+        ("incident",     "owner_role",                  "TEXT",    "'Admin'"),
+        ("incident",     "proposed_remediation_plan",   "TEXT",    "NULL"),
+        ("incident",     "agent_execution_logs",        "TEXT",    "NULL"),
+        ("notification", "incident_id",                 "INTEGER", "NULL"),
     ]
     with Session(engine) as session:
         for table, col, col_type, default in migrations:
             try:
-                rows = session.exec(text(f"PRAGMA table_info({table})")).all()
-                existing = [r[1] for r in rows]
-                if col not in existing:
-                    session.exec(text(
-                        f"ALTER TABLE {table} ADD COLUMN {col} {col_type} DEFAULT {default}"
+                if not _column_exists(session, table, col):
+                    default_clause = f"DEFAULT {default}" if default != "NULL" else ""
+                    session.exec(sa_text(
+                        f'ALTER TABLE "{table}" ADD COLUMN "{col}" {col_type} {default_clause}'
                     ))
                     session.commit()
+                    print(f"[migrate] added {table}.{col}")
             except Exception as exc:
+                session.rollback()
                 print(f"[migrate] {table}.{col}: {exc}")
 
 
@@ -132,6 +195,7 @@ def save_incident(data: dict) -> Incident:
         model_used=data["model_used"],
         raw_response=data["raw_response"],
         source=data.get("source", "manual"),
+        owner_role=data.get("owner_role", "Admin"),
     )
     with Session(engine) as session:
         session.add(incident)
@@ -143,10 +207,14 @@ def save_incident(data: dict) -> Incident:
 def get_all_incidents() -> list[dict]:
     with Session(engine) as session:
         rows = session.exec(select(Incident).order_by(Incident.timestamp.desc())).all()
-    return [_serialize_incident(r) for r in rows]
+    return [serialize_incident(r) for r in rows]
 
 
 def _serialize_incident(i: Incident) -> dict:
+    return serialize_incident(i)
+
+
+def serialize_incident(i: Incident) -> dict:
     return {
         "id": i.id,
         "timestamp": i.timestamp.isoformat(),
@@ -161,8 +229,59 @@ def _serialize_incident(i: Incident) -> dict:
         "raw_logs": i.raw_logs,
         "model_used": i.model_used,
         "raw_response": i.raw_response,
-        "source": getattr(i, "source", "manual") or "manual",
+        "source":                    getattr(i, "source",                    "manual") or "manual",
+        "status":                    getattr(i, "status",                    "OPEN")   or "OPEN",
+        "execution_logs":            getattr(i, "execution_logs",            None),
+        "owner_role":                getattr(i, "owner_role",                "Admin")  or "Admin",
+        "proposed_remediation_plan": json.loads(getattr(i, "proposed_remediation_plan", None) or "[]"),
+        "agent_execution_logs":      getattr(i, "agent_execution_logs",      None),
     }
+
+
+def update_incident_status(
+    incident_id: int,
+    status: str,
+    execution_logs: str | None = None,
+    proposed_remediation_plan: str | None = None,
+    agent_execution_logs: str | None = None,
+) -> dict | None:
+    with Session(engine) as session:
+        row = session.get(Incident, incident_id)
+        if not row:
+            return None
+        row.status = status
+        if execution_logs is not None:
+            row.execution_logs = execution_logs
+        if proposed_remediation_plan is not None:
+            row.proposed_remediation_plan = proposed_remediation_plan
+        if agent_execution_logs is not None:
+            row.agent_execution_logs = agent_execution_logs
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+    return _serialize_incident(row)
+
+
+_APPROVAL_STATUSES = ("AWAITING_APPROVAL", "ESCALATED_SECURITY_RISK")
+
+
+def get_pending_approvals(role: str | None = None) -> list[dict]:
+    """
+    Return incidents that require human attention:
+      - AWAITING_APPROVAL       → needs approve/reject
+      - ESCALATED_SECURITY_RISK → needs manual intervention (guardrail fired)
+    Optionally filtered by owner_role.
+    """
+    with Session(engine) as session:
+        rows = session.exec(
+            select(Incident)
+            .where(Incident.status.in_(_APPROVAL_STATUSES))
+            .order_by(Incident.timestamp.desc())
+        ).all()
+    results = [_serialize_incident(r) for r in rows]
+    if role and role != "Admin":
+        results = [r for r in results if r["owner_role"] == role]
+    return results
 
 
 # ── Infra Generations ─────────────────────────────────────────────────────────
@@ -300,3 +419,54 @@ def update_settings(updates: dict) -> dict:
                 session.add(UserSetting(key=key, value=str(value)))
         session.commit()
     return get_settings()
+
+
+# ── Webhook Events ─────────────────────────────────────────────────────────────
+
+def save_webhook_event(data: dict) -> WebhookEvent:
+    ev = WebhookEvent(
+        source=data["source"],
+        event_type=data.get("event_type", ""),
+        owner_role=data.get("owner_role", "Admin"),
+        status=data.get("status", "accepted"),
+        incident_id=data.get("incident_id"),
+        raw_payload=data.get("raw_payload", "{}"),
+        cloud_event_id=data.get("cloud_event_id", ""),
+    )
+    with Session(engine) as session:
+        session.add(ev)
+        session.commit()
+        session.refresh(ev)
+    return ev
+
+
+def update_webhook_event(event_id: int, status: str, incident_id: int | None = None):
+    with Session(engine) as session:
+        ev = session.get(WebhookEvent, event_id)
+        if ev:
+            ev.status = status
+            if incident_id is not None:
+                ev.incident_id = incident_id
+            session.add(ev)
+            session.commit()
+
+
+def get_recent_webhook_events(limit: int = 40) -> list[dict]:
+    with Session(engine) as session:
+        rows = session.exec(
+            select(WebhookEvent).order_by(WebhookEvent.timestamp.desc()).limit(limit)
+        ).all()
+    return [_serialize_webhook_event(r) for r in rows]
+
+
+def _serialize_webhook_event(e: WebhookEvent) -> dict:
+    return {
+        "id":             e.id,
+        "timestamp":      e.timestamp.isoformat(),
+        "source":         e.source,
+        "event_type":     e.event_type,
+        "owner_role":     e.owner_role,
+        "status":         e.status,
+        "incident_id":    e.incident_id,
+        "cloud_event_id": e.cloud_event_id,
+    }
