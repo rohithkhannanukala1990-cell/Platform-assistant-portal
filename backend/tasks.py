@@ -130,3 +130,71 @@ def process_webhook_log(self, log_text: str, source: str):
             "[celery] Webhook log triage failed source=%s: %s", source, exc, exc_info=True
         )
         raise self.retry(exc=exc)
+
+
+# ── Task: CI/CD pipeline monitor ───────────────────────────────────────────────
+
+@celery_app.task(
+    bind=True,
+    name="tasks.monitor_cicd_pipelines",
+    max_retries=1,
+    acks_late=True,
+)
+def monitor_cicd_pipelines(self):
+    """
+    Simulates a CI/CD pipeline monitoring scan.
+
+    Picks a random failure scenario, creates an Incident, and routes it to
+    the owner role that owns that pipeline stage:
+      - Security Scan  → NetworkEngineer
+      - Test / Build   → Developer
+      - Deploy         → Developer
+    The incident is then evaluated by the HITL processor.
+    """
+    import random as _rand
+    from database import save_incident, create_notification
+    from main import _hitl_evaluate, _CICD_MONITOR_SCENARIOS
+
+    logger.info("[celery] monitor_cicd_pipelines: starting scan")
+
+    try:
+        scenario = _rand.choice(_CICD_MONITOR_SCENARIOS)
+        logger.info("[celery] monitor_cicd_pipelines: detected failure stage=%s owner=%s",
+                    scenario["stage"], scenario["owner_role"])
+
+        record = save_incident({
+            "title":      scenario["title"],
+            "severity":   scenario["severity"],
+            "summary":    scenario["summary"],
+            "root_cause": f"CI/CD monitor detected a failure in the {scenario['stage']} stage.",
+            "action_plan": scenario["action_plan"],
+            "commands":   scenario["commands"],
+            "evidence":   [f"Pipeline stage: {scenario['stage']}", f"Service: {scenario['service']}"],
+            "status":     "OPEN",
+            "source":     "cicd-monitor",
+            "owner_role": scenario["owner_role"],
+        })
+
+        create_notification(
+            message=f"🔴 CI/CD Monitor: {scenario['title']}",
+            type="critical" if scenario["severity"] in ("High", "Critical") else "warning",
+            incident_id=record.id,
+        )
+
+        parsed = {
+            "summary":     scenario["summary"],
+            "action_plan": scenario["action_plan"],
+            "commands":    scenario["commands"],
+        }
+
+        async def _run():
+            await _hitl_evaluate(record.id, scenario["severity"], parsed, scenario["owner_role"])
+
+        _run_async(_run())
+
+        logger.info("[celery] monitor_cicd_pipelines: Incident #%s created → %s", record.id, scenario["owner_role"])
+        return {"incident_id": record.id, "stage": scenario["stage"], "owner_role": scenario["owner_role"]}
+
+    except Exception as exc:
+        logger.error("[celery] monitor_cicd_pipelines failed: %s", exc, exc_info=True)
+        raise self.retry(exc=exc)

@@ -9,11 +9,13 @@ import {
   AlertTriangle, ShieldAlert, Activity, Layers,
   Construction, Rocket, RefreshCw, TrendingUp,
   Clock, Wifi, ScanEye, Loader2, CheckCircle2, X,
+  Gauge, ArrowUpRight, ArrowDownRight, Minus,
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
 
-const API       = 'http://127.0.0.1:8000/api/analytics'
-const SCAN_API  = 'http://127.0.0.1:8000/api/logs/scan-anomalies'
+const API        = 'http://127.0.0.1:8000/api/analytics'
+const SCAN_API   = 'http://127.0.0.1:8000/api/logs/scan-anomalies'
+const DORA_API   = 'http://127.0.0.1:8000/api/cicd/dora-metrics'
 
 const SEVERITY_COLORS = {
   Critical: '#ef4444',
@@ -71,6 +73,44 @@ function StatCard({ icon: Icon, iconBg, label, value, sub, border }) {
   )
 }
 
+// ── DORA Metrics row ───────────────────────────────────────────────────────────
+const DORA_LEVEL_COLORS = {
+  Elite:  { text: 'text-emerald-400', bg: 'bg-emerald-500/15', border: 'border-emerald-500/30' },
+  High:   { text: 'text-blue-400',    bg: 'bg-blue-500/15',    border: 'border-blue-500/30'    },
+  Medium: { text: 'text-amber-400',   bg: 'bg-amber-500/15',   border: 'border-amber-500/30'   },
+  Low:    { text: 'text-red-400',     bg: 'bg-red-500/15',     border: 'border-red-500/30'     },
+}
+
+function DoraCard({ metricKey, label, icon: Icon, iconColor, metric }) {
+  if (!metric) return null
+  const lvl = DORA_LEVEL_COLORS[metric.level] ?? DORA_LEVEL_COLORS.High
+  const TrendIcon =
+    metric.trend_dir === 'up'       ? ArrowUpRight :
+    metric.trend_dir === 'down_good'? ArrowDownRight : Minus
+
+  return (
+    <div className={`flex flex-col gap-2 p-4 rounded-2xl border ${lvl.border} ${lvl.bg}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Icon size={14} className={iconColor} />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</span>
+        </div>
+        <span className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${lvl.bg} ${lvl.text} border ${lvl.border}`}>
+          {metric.level}
+        </span>
+      </div>
+      <p className={`text-2xl font-extrabold ${lvl.text} leading-none`}>{metric.value}</p>
+      <div className="flex items-center gap-1 text-[10px] text-slate-500">
+        <TrendIcon size={11} className={
+          metric.trend_dir === 'down_good' ? 'text-emerald-400' :
+          metric.trend_dir === 'up'        ? 'text-emerald-400' : 'text-slate-500'
+        } />
+        {metric.trend}
+      </div>
+    </div>
+  )
+}
+
 // ── Chart card wrapper ─────────────────────────────────────────────────────────
 function ChartCard({ title, icon: Icon, iconColor, children, className = '' }) {
   return (
@@ -90,20 +130,24 @@ export default function DashboardView() {
   const [error, setError]       = useState(null)
   const [lastFetch, setLastFetch] = useState(null)
 
+  // DORA metrics state
+  const [dora, setDora] = useState(null)
+
   // Anomaly scan state
   const [scanning, setScanning]         = useState(false)
-  const [scanResult, setScanResult]     = useState(null)   // incident dict on success
+  const [scanResult, setScanResult]     = useState(null)
   const [scanDismissed, setScanDismissed] = useState(false)
 
   async function fetchAnalytics() {
     setLoading(true)
     setError(null)
     try {
-      const res  = await fetch(API)
+      const [res, doraRes] = await Promise.all([fetch(API), fetch(DORA_API)])
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const json = await res.json()
       setData(json)
       setLastFetch(new Date())
+      if (doraRes.ok) setDora(await doraRes.json())
     } catch (e) {
       setError(e.message)
     } finally {
@@ -183,6 +227,23 @@ export default function DashboardView() {
           </button>
         </div>
       </div>
+
+      {/* ── DORA Metrics ─────────────────────────────────────────────────── */}
+      {dora && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <Gauge size={15} className="text-violet-400" />
+            <h2 className="text-sm font-bold text-white">DORA Metrics</h2>
+            <span className="text-[10px] text-slate-500 ml-1">— Engineering delivery performance</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <DoraCard metricKey="deployment_frequency" label="Deploy Frequency" icon={Rocket}       iconColor="text-emerald-400" metric={dora.deployment_frequency} />
+            <DoraCard metricKey="lead_time"            label="Lead Time"        icon={Clock}        iconColor="text-blue-400"    metric={dora.lead_time} />
+            <DoraCard metricKey="change_failure_rate"  label="Change Failure"   icon={AlertTriangle} iconColor="text-amber-400"  metric={dora.change_failure_rate} />
+            <DoraCard metricKey="mttr"                 label="MTTR"             icon={RefreshCw}    iconColor="text-violet-400"  metric={dora.mttr} />
+          </div>
+        </div>
+      )}
 
       {/* ── Agent Pending Approvals ───────────────────────────────────────── */}
       <AgentApprovalsWidget />

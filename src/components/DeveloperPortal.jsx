@@ -4,8 +4,9 @@ import {
   Rocket, ExternalLink, Package, AlertTriangle, Loader2,
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
-import DeploymentsView from './DeploymentsView'
-import RunbooksView    from './RunbooksView'
+import DeploymentsView   from './DeploymentsView'
+import RunbooksView      from './RunbooksView'
+import LivePipelinesView from './LivePipelinesView'
 
 const SERVICES = [
   {
@@ -100,8 +101,13 @@ function CoverageBadge({ pct }) {
 }
 
 export default function DeveloperPortal({ currentView = 'catalog' }) {
-  if (currentView === 'deploys')  return <DeploymentsView />
-  if (currentView === 'runbooks') return <RunbooksView />
+  if (currentView === 'deploys')    return <DeploymentsView />
+  if (currentView === 'runbooks')   return <RunbooksView />
+  if (currentView === 'livepipes')  return (
+    <div className="flex flex-col gap-0 max-w-6xl mx-auto pb-16 animate-fade-in h-full">
+      <LivePipelinesView />
+    </div>
+  )
   const [deploying, setDeploying] = useState(null)
   const [deployed, setDeployed]   = useState(new Set())
 

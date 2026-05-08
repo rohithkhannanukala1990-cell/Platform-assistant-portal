@@ -12,9 +12,10 @@ const OPS_NAV = [
 ]
 
 const DEV_NAV = [
-  { id: 'catalog',   label: 'Software Catalog', emoji: '📦' },
-  { id: 'deploys',   label: 'Deployments',       emoji: '🚀' },
-  { id: 'runbooks',  label: 'Runbooks',          emoji: '📋' },
+  { id: 'catalog',    label: 'Software Catalog', emoji: '📦' },
+  { id: 'deploys',    label: 'Deployments',       emoji: '🚀' },
+  { id: 'livepipes',  label: 'Live Pipelines',    emoji: '🔄' },
+  { id: 'runbooks',   label: 'Runbooks',          emoji: '📋' },
 ]
 
 const DATA_NAV = [

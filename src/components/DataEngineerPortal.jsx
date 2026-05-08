@@ -1,12 +1,163 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Database, CheckCircle2, XCircle, Clock, PlayCircle,
   AlertTriangle, TrendingUp, HardDrive, RefreshCw,
-  BarChart3, Loader2, Pause,
+  BarChart3, Loader2, Pause, GitBranch, Zap,
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
 import StorageView     from './StorageView'
 import DataLineageView from './DataLineageView'
+
+const CICD_API = 'http://127.0.0.1:8000/api/cicd/active-runs'
+
+const DBT_RUNS = [
+  { id: 'dbt-001', model: 'marts.fct_orders',          status: 'success', duration: '1m 22s', tests: 14,  testsPassed: 14, trigger: 'schedule', time: '5 min ago' },
+  { id: 'dbt-002', model: 'marts.dim_customers',       status: 'success', duration: '0m 48s', tests: 8,   testsPassed: 8,  trigger: 'ci-push',  time: '12 min ago' },
+  { id: 'dbt-003', model: 'staging.stg_clickstream',   status: 'failed',  duration: '—',      tests: 5,   testsPassed: 2,  trigger: 'ci-push',  time: '31 min ago' },
+  { id: 'dbt-004', model: 'marts.fct_revenue_daily',   status: 'running', duration: '0m 37s', tests: 12,  testsPassed: 0,  trigger: 'schedule', time: '1 min ago' },
+  { id: 'dbt-005', model: 'intermediate.int_sessions', status: 'success', duration: '2m 01s', tests: 6,   testsPassed: 6,  trigger: 'manual',   time: '1 h ago' },
+]
+
+const AIRFLOW_DAGS = [
+  { id: 'af-001', dag: 'data_quality_check_ci',       status: 'success', runs: 48,  successRate: 97, lastRun: '10 min ago', env: 'prod' },
+  { id: 'af-002', dag: 'schema_migration_validation', status: 'running', runs: 12,  successRate: 100, lastRun: '2 min ago',  env: 'staging' },
+  { id: 'af-003', dag: 'dbt_ci_smoke_tests',          status: 'failed',  runs: 120, successRate: 84,  lastRun: '1 h ago',    env: 'prod' },
+  { id: 'af-004', dag: 'pipeline_regression_suite',   status: 'success', runs: 23,  successRate: 96,  lastRun: '45 min ago', env: 'staging' },
+]
+
+const CI_STATUS_CFG = {
+  success: { label: 'Passed',  cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25', icon: CheckCircle2, spin: false },
+  running: { label: 'Running', cls: 'text-blue-400    bg-blue-500/10    border-blue-500/25',    icon: RefreshCw,    spin: true  },
+  failed:  { label: 'Failed',  cls: 'text-red-400     bg-red-500/10     border-red-500/25',     icon: XCircle,      spin: false },
+}
+
+function CIPipelineWidget() {
+  const [tab, setTab] = useState('dbt')
+  const [activePipes, setActivePipes] = useState([])
+
+  useEffect(() => {
+    fetch(CICD_API)
+      .then(r => r.json())
+      .then(data => setActivePipes(data.filter(r => r.status === 'running')))
+      .catch(() => {})
+  }, [])
+
+  return (
+    <div className="flex flex-col gap-4 p-5 rounded-2xl border border-border bg-card">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Zap size={15} className="text-violet-400" />
+          <h3 className="text-sm font-bold text-white">dbt / Airflow CI Pipeline Runs</h3>
+        </div>
+        <div className="flex items-center gap-1 p-0.5 rounded-lg bg-slate-800/60 border border-slate-700/40">
+          {['dbt', 'airflow', 'active'].map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition-all capitalize
+                ${tab === t ? 'bg-violet-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              {t === 'active' ? `Live (${activePipes.length})` : t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* dbt tab */}
+      {tab === 'dbt' && (
+        <div className="flex flex-col gap-2">
+          <p className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">dbt Model Runs</p>
+          {DBT_RUNS.map(run => {
+            const cfg  = CI_STATUS_CFG[run.status] ?? CI_STATUS_CFG.success
+            const Icon = cfg.icon
+            const pct  = run.tests > 0 ? Math.round((run.testsPassed / run.tests) * 100) : 100
+            return (
+              <div key={run.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-slate-700/40 bg-slate-800/40 hover:bg-slate-800/60 transition-colors">
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-semibold shrink-0 ${cfg.cls}`}>
+                  <Icon size={10} className={cfg.spin ? 'animate-spin' : ''} />
+                  {cfg.label}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-mono text-slate-200 truncate">{run.model}</p>
+                  <p className="text-[10px] text-slate-500">
+                    {run.trigger} · {run.time}
+                    {run.duration !== '—' && ` · ${run.duration}`}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className={`text-xs font-bold ${pct === 100 ? 'text-emerald-400' : pct > 50 ? 'text-amber-400' : 'text-red-400'}`}>
+                    {run.testsPassed}/{run.tests} tests
+                  </p>
+                  <div className="mt-1 h-1 w-16 bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${pct === 100 ? 'bg-emerald-500' : pct > 50 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Airflow tab */}
+      {tab === 'airflow' && (
+        <div className="flex flex-col gap-2">
+          <p className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Airflow CI DAGs</p>
+          {AIRFLOW_DAGS.map(dag => {
+            const cfg  = CI_STATUS_CFG[dag.status] ?? CI_STATUS_CFG.success
+            const Icon = cfg.icon
+            const good = dag.successRate >= 95
+            return (
+              <div key={dag.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-slate-700/40 bg-slate-800/40 hover:bg-slate-800/60 transition-colors">
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-semibold shrink-0 ${cfg.cls}`}>
+                  <Icon size={10} className={cfg.spin ? 'animate-spin' : ''} />
+                  {cfg.label}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-mono text-slate-200 truncate">{dag.dag}</p>
+                  <p className="text-[10px] text-slate-500">{dag.env} · {dag.runs} total runs · {dag.lastRun}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className={`text-xs font-bold ${good ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {dag.successRate}%
+                  </p>
+                  <p className="text-[10px] text-slate-500">success rate</p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Live active pipelines from backend */}
+      {tab === 'active' && (
+        <div className="flex flex-col gap-2">
+          <p className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Currently Running Pipelines</p>
+          {activePipes.length === 0 ? (
+            <p className="text-center text-sm text-slate-600 py-6">No active pipeline runs</p>
+          ) : activePipes.map(run => (
+            <div key={run.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-blue-500/25 bg-blue-500/10">
+              <RefreshCw size={13} className="animate-spin text-blue-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-slate-200 truncate">{run.repository}</p>
+                <p className="text-[10px] text-slate-500">
+                  {run.branch} · Stage: <span className="text-blue-300 font-semibold">{run.current_stage}</span>
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-xs text-blue-300 font-semibold">{run.elapsed_time}</p>
+                <p className="text-[10px] text-slate-500">by {run.trigger_user}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const ETL_JOBS = [
   { id: 'etl-001', name: 'Customer Events → Warehouse',  schedule: '*/15 * * * *', status: 'running',  lastRun: '2 min ago', duration: '1m 12s', records: '1.2M', owner: 'DataEngineer' },
@@ -184,6 +335,9 @@ export default function DataEngineerPortal({ currentView = 'pipelines' }) {
           </div>
         </div>
       </div>
+
+      {/* CI/CD Pipeline Widget */}
+      <CIPipelineWidget />
     </div>
   )
 }

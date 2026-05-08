@@ -62,7 +62,7 @@ function AppLayout() {
     setOpsBreadcrumb((prev) => (prev === label ? prev : label))
   }, [])
 
-  const DEV_LABELS  = { catalog: 'Software Catalog', deploys: 'Deployments', runbooks: 'Runbooks' }
+  const DEV_LABELS  = { catalog: 'Software Catalog', deploys: 'Deployments', livepipes: 'Live Pipelines', runbooks: 'Runbooks' }
   const DATA_LABELS = { pipelines: 'Pipeline Health', storage: 'Storage', lineage: 'Data Lineage' }
   const DB_LABELS   = { dbhealth: 'Database Health', queries: 'Query Analyzer', schemas: 'Schema Browser' }
 

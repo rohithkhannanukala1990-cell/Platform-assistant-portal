@@ -1613,6 +1613,205 @@ async def scan_anomalies():
     return serialize_incident(record)
 
 
+# ── CI/CD Active Monitoring & DORA Metrics ────────────────────────────────────
+
+_CICD_ACTIVE_RUNS = [
+    {
+        "id": "run-a1b2",
+        "repository": "platform/auth-service",
+        "branch": "main",
+        "trigger_user": "rohit.k",
+        "trigger_event": "push",
+        "commit": "a3f91bc",
+        "commit_message": "fix: token refresh race condition",
+        "stages": ["Build", "Test", "Security Scan", "Deploy"],
+        "current_stage": "Test",
+        "status": "running",
+        "elapsed_time": "3m 12s",
+        "stage_statuses": {"Build": "success", "Test": "running", "Security Scan": "pending", "Deploy": "pending"},
+    },
+    {
+        "id": "run-c3d4",
+        "repository": "platform/api-gateway",
+        "branch": "feature/rate-limiting",
+        "trigger_user": "priya.m",
+        "trigger_event": "pull_request",
+        "commit": "d7e22fa",
+        "commit_message": "feat: per-endpoint rate limiting",
+        "stages": ["Build", "Test", "Security Scan", "Deploy"],
+        "current_stage": "Security Scan",
+        "status": "running",
+        "elapsed_time": "8m 44s",
+        "stage_statuses": {"Build": "success", "Test": "success", "Security Scan": "running", "Deploy": "pending"},
+    },
+    {
+        "id": "run-e5f6",
+        "repository": "platform/data-ingestion",
+        "branch": "feature/v2-refactor",
+        "trigger_user": "james.t",
+        "trigger_event": "push",
+        "commit": "c14a3b2",
+        "commit_message": "refactor: switch to async queue",
+        "stages": ["Build", "Test", "Security Scan", "Deploy"],
+        "current_stage": "Test",
+        "status": "failed",
+        "elapsed_time": "5m 01s",
+        "stage_statuses": {"Build": "success", "Test": "failed", "Security Scan": "pending", "Deploy": "pending"},
+    },
+    {
+        "id": "run-g7h8",
+        "repository": "platform/frontend-web",
+        "branch": "release/2026-q2",
+        "trigger_user": "ci-bot",
+        "trigger_event": "schedule",
+        "commit": "f80d91e",
+        "commit_message": "chore: bump dependency versions",
+        "stages": ["Build", "Test", "Security Scan", "Deploy"],
+        "current_stage": "Deploy",
+        "status": "running",
+        "elapsed_time": "11m 22s",
+        "stage_statuses": {"Build": "success", "Test": "success", "Security Scan": "success", "Deploy": "running"},
+    },
+    {
+        "id": "run-i9j0",
+        "repository": "platform/ml-inference",
+        "branch": "main",
+        "trigger_user": "ana.v",
+        "trigger_event": "push",
+        "commit": "b55aec1",
+        "commit_message": "perf: model quantisation",
+        "stages": ["Build", "Test", "Security Scan", "Deploy"],
+        "current_stage": "Deploy",
+        "status": "success",
+        "elapsed_time": "14m 05s",
+        "stage_statuses": {"Build": "success", "Test": "success", "Security Scan": "success", "Deploy": "success"},
+    },
+]
+
+_DORA_METRICS = {
+    "deployment_frequency": {
+        "value": "14 per day",
+        "level": "Elite",
+        "trend": "+2 vs last week",
+        "trend_dir": "up",
+    },
+    "lead_time": {
+        "value": "45 mins",
+        "level": "Elite",
+        "trend": "-8 min vs last week",
+        "trend_dir": "down_good",
+    },
+    "change_failure_rate": {
+        "value": "2.4%",
+        "level": "Elite",
+        "trend": "-0.3% vs last week",
+        "trend_dir": "down_good",
+    },
+    "mttr": {
+        "value": "12 mins",
+        "level": "Elite",
+        "trend": "-4 min vs last week",
+        "trend_dir": "down_good",
+    },
+}
+
+# Stage → owner role for HITL routing
+_CICD_STAGE_ROLES: dict[str, str] = {
+    "Build":         "Developer",
+    "Lint":          "Developer",
+    "Test":          "Developer",
+    "Unit Test":     "Developer",
+    "Security Scan": "NetworkEngineer",
+    "SAST":          "NetworkEngineer",
+    "Deploy":        "Developer",
+    "Release":       "Developer",
+}
+
+# Monitor scenarios
+_CICD_MONITOR_SCENARIOS = [
+    {
+        "stage":      "Security Scan",
+        "service":    "api-gateway",
+        "severity":   "High",
+        "title":      "CI/CD Alert: Security Scan failed — CVE detected in api-gateway",
+        "summary":    "CVE-2026-4127 (CVSS 8.9) detected in api-gateway:log4j-core:2.17.0 during Security Scan stage. Immediate patching required.",
+        "action_plan":["Update log4j-core to >= 2.23.1", "Re-run SAST scan to confirm remediation", "Merge security patch to release branch"],
+        "commands":   ["mvn versions:set-property -Dproperty=log4j.version -DnewVersion=2.23.1", "mvn dependency-check:check"],
+        "owner_role": "NetworkEngineer",
+    },
+    {
+        "stage":      "Test",
+        "service":    "auth-service",
+        "severity":   "Medium",
+        "title":      "CI/CD Alert: Flaky tests detected — auth-service integration suite",
+        "summary":    "3 of 47 integration tests failed intermittently in auth-service CI. Tests: TokenRefreshTest, SessionExpiry, ConcurrentLoginTest.",
+        "action_plan":["Isolate flaky tests and run in --retry mode", "Add test retries for async timing issues", "Pin external mock server version"],
+        "commands":   ["pytest tests/integration -k 'TokenRefresh or SessionExpiry' --reruns 3", "git blame tests/integration/test_auth.py"],
+        "owner_role": "Developer",
+    },
+    {
+        "stage":      "Deploy",
+        "service":    "data-ingestion",
+        "severity":   "High",
+        "title":      "CI/CD Alert: Deployment rollback required — data-ingestion v3.1.0",
+        "summary":    "data-ingestion v3.1.0 deployment to production failed health check after 3 minutes. P99 latency jumped from 120ms to 4.2s. Automatic rollback triggered.",
+        "action_plan":["Rollback to v3.0.9 via ArgoCD", "Investigate latency regression in async queue implementation", "Run load test against staging before re-deploying"],
+        "commands":   ["argocd app rollback data-ingestion", "kubectl rollout history deployment/data-ingestion -n production"],
+        "owner_role": "Developer",
+    },
+]
+
+
+@app.get("/api/cicd/active-runs")
+def get_cicd_active_runs():
+    """Return list of currently executing CI/CD pipeline runs."""
+    return _CICD_ACTIVE_RUNS
+
+
+@app.get("/api/cicd/dora-metrics")
+def get_dora_metrics():
+    """Return DORA metrics for the organisation."""
+    return _DORA_METRICS
+
+
+@app.post("/api/cicd/monitor", status_code=202)
+async def trigger_cicd_monitor():
+    """Dispatch the CI/CD monitor Celery task (or in-process fallback)."""
+    from tasks import monitor_cicd_pipelines as _monitor_task
+    try:
+        task = _monitor_task.delay()
+        return {"status": "accepted", "task_id": task.id, "message": "CI/CD monitor scan dispatched."}
+    except Exception:
+        asyncio.create_task(_cicd_monitor_fallback())
+        return {"status": "accepted", "task_id": "local-fallback", "message": "CI/CD monitor scan running in-process."}
+
+
+async def _cicd_monitor_fallback():
+    """In-process fallback for monitor when Redis/Celery is unavailable."""
+    import random as _rand
+    await asyncio.sleep(2)
+    scenario = _rand.choice(_CICD_MONITOR_SCENARIOS)
+    record = save_incident({
+        "title":      scenario["title"],
+        "severity":   scenario["severity"],
+        "summary":    scenario["summary"],
+        "root_cause": f"CI/CD monitor detected a failure in the {scenario['stage']} stage.",
+        "action_plan": scenario["action_plan"],
+        "commands":   scenario["commands"],
+        "evidence":   [f"Pipeline stage: {scenario['stage']}", f"Service: {scenario['service']}"],
+        "status":     "OPEN",
+        "source":     "cicd-monitor",
+        "owner_role": scenario["owner_role"],
+    })
+    create_notification(
+        message=f"🔴 CI/CD Monitor: {scenario['title']}",
+        type="critical" if scenario["severity"] == "High" else "warning",
+        incident_id=record.id,
+    )
+    parsed = {"summary": scenario["summary"], "action_plan": scenario["action_plan"], "commands": scenario["commands"]}
+    asyncio.create_task(_hitl_evaluate(record.id, scenario["severity"], parsed, scenario["owner_role"]))
+
+
 # ── DB Query Analyzer ──────────────────────────────────────────────────────────
 
 class QueryAnalyzeRequest(BaseModel):
