@@ -26,6 +26,12 @@ Built to demonstrate production-grade platform engineering: local/cloud LLM orch
 | 14 | AI Safety Guardrail (`CommandValidator` — 35+ blocklist patterns) |
 | 15 | PostgreSQL migration (from SQLite) + Docker Compose stack |
 | 16 | Celery + Redis async task queue for webhook processing |
+| 17 | Deployments view — history table, trigger deploy, rollback, live logs |
+| 18 | Runbooks view — categorised executable playbooks with step animation |
+| 19 | Storage view — bucket usage, cost breakdown, MoM trends |
+| 20 | Data Lineage view — interactive SVG DAG (Sources → Transforms → Destinations → Consumers) |
+| 21 | Query Analyzer — AI-powered SQL EXPLAIN, index recommendations, rewrite (`POST /api/db/analyze-query`) |
+| 22 | Schema Browser — table explorer with columns, types, PK/FK badges, DDL copy |
 
 ---
 
@@ -113,13 +119,13 @@ Built to demonstrate production-grade platform engineering: local/cloud LLM orch
 
 ## Role-Based Portals
 
-| Role | Portal Route | Features |
+| Role | Portal Route | Modules |
 |---|---|---|
-| Admin | `/` (all routes) | Full access + Persona Switcher + Integrations page |
-| Developer | `/dev` | Software Catalog, repo deployments, CI/CD status |
-| Data Engineer | `/data` | Pipeline Health, Airflow/Snowflake/dbt DAGs |
-| Network Engineer | `/ops` | Alert Triage, Infra Builder, CI/CD, runbooks |
-| Database Developer | `/database` | DB Health dashboard, slow queries, connections |
+| Admin | `/ops` | Full access to all portals + Persona Switcher + Integrations page |
+| Network Engineer | `/ops` | Dashboard · Alert Triage · Infra Builder · CI/CD Pipeline · Integrations |
+| Developer | `/developer` | Software Catalog · **Deployments** · **Runbooks** |
+| Data Engineer | `/data` | Pipeline Health · **Storage** · **Data Lineage** |
+| Database Developer | `/database` | DB Health · **Query Analyzer** · **Schema Browser** |
 
 ---
 
@@ -183,7 +189,7 @@ Platform asistant/
 │   ├── Dockerfile
 │   └── .env                  # (gitignored — copy from .env.example)
 ├── src/
-│   ├── App.jsx               # React Router setup, layout
+│   ├── App.jsx               # React Router setup, layout, sub-view state
 │   ├── contexts/
 │   │   └── RoleContext.jsx   # Global role state (RBAC)
 │   └── components/
@@ -193,8 +199,14 @@ Platform asistant/
 │       ├── CICDView.jsx
 │       ├── OpsPortal.jsx
 │       ├── DeveloperPortal.jsx
+│       ├── DeploymentsView.jsx      # Deployment history, trigger, rollback
+│       ├── RunbooksView.jsx         # Executable runbook library
 │       ├── DataEngineerPortal.jsx
+│       ├── StorageView.jsx          # Bucket usage, cost, MoM trends
+│       ├── DataLineageView.jsx      # Interactive SVG DAG
 │       ├── DatabasePortal.jsx
+│       ├── QueryAnalyzerView.jsx    # AI-powered SQL analyzer
+│       ├── SchemaBrowserView.jsx    # Table/column/DDL explorer
 │       ├── AgentApprovalsWidget.jsx
 │       ├── IntegrationsPage.jsx
 │       ├── IncidentReportCard.jsx
@@ -292,7 +304,7 @@ JIRA_PROJECT_KEY=
 |---|---|---|
 | POST | `/api/triage` | Run AI log analysis |
 | GET | `/api/incidents` | List incidents (RBAC-filtered) |
-| GET | `/api/incidents/approvals` | HITL approval queue |
+| GET | `/api/incidents/approvals` | HITL approval queue (AWAITING + ESCALATED) |
 | POST | `/api/incidents/{id}/approve` | Approve agent execution |
 | POST | `/api/incidents/{id}/reject` | Reject agent plan |
 | POST | `/api/incidents/{id}/remediate` | Execute automated runbook |
@@ -302,7 +314,9 @@ JIRA_PROJECT_KEY=
 | GET | `/api/analytics` | Aggregated dashboard metrics |
 | POST | `/api/webhooks/inbound` | Inbound webhook gateway (202 + Celery) |
 | POST | `/api/webhooks/logs` | Raw log ingestion (202 + Celery) |
+| GET | `/api/webhooks/activity` | Recent webhook event feed |
 | POST | `/api/logs/scan-anomalies` | Predictive anomaly detection |
+| POST | `/api/db/analyze-query` | AI SQL EXPLAIN + index recommendations + rewrite |
 | POST | `/api/chat` | Context-aware SRE chatbot |
 | GET | `/api/notifications` | All notifications |
 | GET/POST | `/api/settings` | User preferences |
