@@ -5,13 +5,15 @@ import asyncio
 import ollama
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google import genai
 from sqlmodel import Session
 from sqlalchemy import text as sa_text
 from database import engine as db_engine
+from auth import auth_router, get_current_user, write_audit, User
+from auth import seed_default_admin, seed_default_llm_config
 from command_validator import CommandValidator
 from tasks import process_inbound_webhook, process_webhook_log
 from database import (
@@ -28,15 +30,19 @@ from database import (
 load_dotenv()
 
 # ── Provider config ──────────────────────────────────────────────────────────
-AI_PROVIDER  = os.getenv("AI_PROVIDER", "gemini").lower()
+# Default to Ollama so the backend can boot without cloud credentials.
+AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").lower()
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")
 
 gemini_client = None
 if AI_PROVIDER == "gemini":
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     if not GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY is not set. Please add it to backend/.env")
-    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        # Don't crash the whole API for local/dev usage; fall back to Ollama.
+        print("[ai] GEMINI_API_KEY not set — falling back to AI_PROVIDER=ollama")
+        AI_PROVIDER = "ollama"
+    else:
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 async def _wait_for_db(retries: int = 30, delay: float = 2.0):
     """
@@ -63,11 +69,17 @@ async def _wait_for_db(retries: int = 30, delay: float = 2.0):
 async def lifespan(app: FastAPI):
     await _wait_for_db()
     create_db_and_tables()
+    from sqlmodel import SQLModel
+    from database import engine as db_engine_ref
+    SQLModel.metadata.create_all(db_engine_ref)
+    seed_default_admin()
+    seed_default_llm_config()
     yield
     # (cleanup on shutdown goes here if needed)
 
 
 app = FastAPI(title="AIOps Portal API", version="0.1.0", lifespan=lifespan)
+app.include_router(auth_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -224,6 +236,11 @@ async def call_gemini(logs: str, system_prompt: str = SYSTEM_PROMPT) -> str:
 
 
 # ── Shared triage core ────────────────────────────────────────────────────────
+
+async def _ask_ai(prompt: str) -> str:
+    if AI_PROVIDER == "ollama":
+        return await call_ollama(prompt)
+    return await call_gemini(prompt)
 
 async def _run_triage(log_text: str, source: str = "manual", owner_role: str = "Admin") -> dict:
     """
@@ -550,7 +567,7 @@ async def _mock_hitl_slack_notify(incident_id: int, severity: str, owner_role: s
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @app.post("/api/triage", response_model=TriageResponse)
-async def triage_logs(request: TriageRequest):
+async def triage_logs(request: TriageRequest, current_user: User = Depends(get_current_user)):
     if not request.logs.strip():
         raise HTTPException(status_code=400, detail="Log text cannot be empty.")
     try:
@@ -561,7 +578,7 @@ async def triage_logs(request: TriageRequest):
 
 
 @app.get("/api/incidents", response_model=list[IncidentSummary])
-def list_incidents(role: str | None = None):
+def list_incidents(role: str | None = None, current_user: User = Depends(get_current_user)):
     """Return all incidents. If ?role=<X> is provided and role != Admin,
     only incidents where owner_role matches are returned."""
     incidents = get_all_incidents()
@@ -587,7 +604,7 @@ MOCK_RUNBOOK_LOGS = """\
 
 
 @app.post("/api/incidents/{incident_id}/remediate")
-async def remediate_incident(incident_id: int):
+async def remediate_incident(incident_id: int, current_user: User = Depends(get_current_user)):
     all_incidents = get_all_incidents()
     incident = next((i for i in all_incidents if i["id"] == incident_id), None)
     if not incident:
@@ -636,7 +653,7 @@ class ApprovalRequest(BaseModel):
 
 
 @app.post("/api/incidents/{incident_id}/approve")
-async def approve_incident(incident_id: int, body: ApprovalRequest):
+async def approve_incident(incident_id: int, body: ApprovalRequest, current_user: User = Depends(get_current_user)):
     import json as _json
     all_incidents = get_all_incidents()
     incident = next((i for i in all_incidents if i["id"] == incident_id), None)
@@ -651,7 +668,7 @@ async def approve_incident(incident_id: int, body: ApprovalRequest):
     await asyncio.sleep(3)   # simulate execution
 
     logs = _AGENT_APPROVED_LOGS.format(
-        role=body.approved_by_role,
+        role=current_user.role,
         id=incident_id,
         step1=steps[0] if len(steps) > 0 else "Isolating affected service",
         step2=steps[1] if len(steps) > 1 else "Applying remediation patch",
@@ -664,9 +681,16 @@ async def approve_incident(incident_id: int, body: ApprovalRequest):
         status="RESOLVED_BY_AGENT",
         agent_execution_logs=logs,
     )
+    write_audit(
+        actor=current_user.username,
+        actor_role=current_user.role,
+        event_type="APPROVE",
+        resource=f"incident:{incident_id}",
+        detail="plan approved"
+    )
 
     create_notification(
-        message=f"✅ Incident #{incident_id} resolved by agent after approval by {body.approved_by_role}",
+        message=f"✅ Incident #{incident_id} resolved by agent after approval by {current_user.role}",
         type="info",
         incident_id=incident_id,
     )
@@ -678,7 +702,7 @@ async def approve_incident(incident_id: int, body: ApprovalRequest):
 
 
 @app.post("/api/incidents/{incident_id}/reject")
-async def reject_incident(incident_id: int):
+async def reject_incident(incident_id: int, current_user: User = Depends(get_current_user)):
     all_incidents = get_all_incidents()
     incident = next((i for i in all_incidents if i["id"] == incident_id), None)
     if not incident:
@@ -687,6 +711,13 @@ async def reject_incident(incident_id: int):
         raise HTTPException(status_code=400, detail="Incident is not awaiting approval")
 
     updated = update_incident_status(incident_id, status="REJECTED")
+    write_audit(
+        actor=current_user.username,
+        actor_role=current_user.role,
+        event_type="REJECT",
+        resource=f"incident:{incident_id}",
+        detail="plan rejected"
+    )
     create_notification(
         message=f"🚫 Incident #{incident_id} agent execution rejected by operator",
         type="warning",
@@ -696,7 +727,7 @@ async def reject_incident(incident_id: int):
 
 
 @app.get("/api/incidents/approvals")
-def list_pending_approvals(role: str | None = None):
+def list_pending_approvals(role: str | None = None, current_user: User = Depends(get_current_user)):
     return get_pending_approvals(role=role)
 
 
@@ -917,12 +948,12 @@ async def _send_slack_alert(webhook: str, severity: str, summary: str, root_caus
 # ── Notifications ──────────────────────────────────────────────────────────────
 
 @app.get("/api/notifications")
-def fetch_notifications():
+def fetch_notifications(current_user: User = Depends(get_current_user)):
     return get_all_notifications()
 
 
 @app.put("/api/notifications/{notification_id}/read")
-def read_notification(notification_id: int):
+def read_notification(notification_id: int, current_user: User = Depends(get_current_user)):
     result = mark_notification_read(notification_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Notification not found")
@@ -954,7 +985,7 @@ def _to_adf(text: str) -> dict:
 
 
 @app.post("/api/incidents/{incident_id}/jira")
-async def create_jira_ticket(incident_id: int):
+async def create_jira_ticket(incident_id: int, current_user: User = Depends(get_current_user)):
     # Load incident
     all_incidents = get_all_incidents()
     incident = next((i for i in all_incidents if i["id"] == incident_id), None)
@@ -1169,7 +1200,7 @@ def parse_infra_response(text: str, provider: str) -> dict:
 
 
 @app.post("/api/infra/generate", response_model=InfraResponse)
-async def generate_infra(request: InfraRequest):
+async def generate_infra(request: InfraRequest, current_user: User = Depends(get_current_user)):
     if not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
 
@@ -1215,7 +1246,7 @@ async def generate_infra(request: InfraRequest):
 
 
 @app.get("/api/infra/history")
-def list_infra():
+def list_infra(current_user: User = Depends(get_current_user)):
     return get_all_infra()
 
 
@@ -1313,7 +1344,7 @@ def parse_cicd_response(text: str, tool: str) -> dict:
 
 
 @app.post("/api/cicd/generate", response_model=CICDResponse)
-async def generate_cicd(request: CICDRequest):
+async def generate_cicd(request: CICDRequest, current_user: User = Depends(get_current_user)):
     if not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
 
@@ -1369,22 +1400,22 @@ async def generate_cicd(request: CICDRequest):
 
 
 @app.get("/api/cicd/history")
-def list_cicd():
+def list_cicd(current_user: User = Depends(get_current_user)):
     return get_all_cicd()
 
 
 @app.get("/api/settings")
-def fetch_settings():
+def fetch_settings(current_user: User = Depends(get_current_user)):
     return get_settings()
 
 
 @app.post("/api/settings")
-def save_settings(body: dict):
+def save_settings(body: dict, current_user: User = Depends(get_current_user)):
     return update_settings(body)
 
 
 @app.get("/api/analytics")
-def get_analytics():
+def get_analytics(current_user: User = Depends(get_current_user)):
     from collections import Counter
     from datetime import datetime, timezone, timedelta
 
@@ -1536,7 +1567,7 @@ def _build_context() -> str:
 
 
 @app.post("/api/chat")
-async def platform_chat(request: ChatRequest):
+async def platform_chat(request: ChatRequest, current_user: User = Depends(get_current_user)):
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
@@ -1598,7 +1629,7 @@ ANOMALY_INCIDENT = {
 
 
 @app.post("/api/logs/scan-anomalies")
-async def scan_anomalies():
+async def scan_anomalies(current_user: User = Depends(get_current_user)):
     """Simulate a background log scan and create a predictive WARNING incident."""
     await asyncio.sleep(3)
 
@@ -1763,19 +1794,19 @@ _CICD_MONITOR_SCENARIOS = [
 
 
 @app.get("/api/cicd/active-runs")
-def get_cicd_active_runs():
+def get_cicd_active_runs(current_user: User = Depends(get_current_user)):
     """Return list of currently executing CI/CD pipeline runs."""
     return _CICD_ACTIVE_RUNS
 
 
 @app.get("/api/cicd/dora-metrics")
-def get_dora_metrics():
+def get_dora_metrics(current_user: User = Depends(get_current_user)):
     """Return DORA metrics for the organisation."""
     return _DORA_METRICS
 
 
 @app.post("/api/cicd/monitor", status_code=202)
-async def trigger_cicd_monitor():
+async def trigger_cicd_monitor(current_user: User = Depends(get_current_user)):
     """Dispatch the CI/CD monitor Celery task (or in-process fallback)."""
     from tasks import monitor_cicd_pipelines as _monitor_task
     try:
@@ -1834,7 +1865,7 @@ Return ONLY the JSON. No markdown, no code fences, no explanation."""
 
 
 @app.post("/api/db/analyze-query")
-async def analyze_query(req: QueryAnalyzeRequest):
+async def analyze_query(req: QueryAnalyzeRequest, current_user: User = Depends(get_current_user)):
     """AI-powered SQL query analysis: EXPLAIN plan, index recommendations, rewrite suggestions."""
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="query cannot be empty.")
