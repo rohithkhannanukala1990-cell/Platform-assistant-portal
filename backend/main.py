@@ -84,11 +84,9 @@ app.include_router(auth_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175",
         "http://frontend:5173",  # Docker service name
     ],
+    allow_origin_regex=r"^http://localhost:517\d+$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
