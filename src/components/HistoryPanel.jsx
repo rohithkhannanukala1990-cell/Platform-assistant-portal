@@ -8,10 +8,12 @@ import {
   Zap, Construction, Rocket,
 } from 'lucide-react'
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
 const ENDPOINTS = {
-  alerts: 'http://127.0.0.1:8000/api/incidents',
-  infra:  'http://127.0.0.1:8000/api/infra/history',
-  cicd:   'http://127.0.0.1:8000/api/cicd/history',
+  alerts: `${API_BASE}/api/incidents`,
+  infra:  `${API_BASE}/api/infra/history`,
+  cicd:   `${API_BASE}/api/cicd/history`,
 }
 
 const TABS = [

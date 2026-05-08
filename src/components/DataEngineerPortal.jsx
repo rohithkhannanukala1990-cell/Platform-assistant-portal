@@ -8,7 +8,8 @@ import AgentApprovalsWidget from './AgentApprovalsWidget'
 import StorageView     from './StorageView'
 import DataLineageView from './DataLineageView'
 
-const CICD_API = 'http://127.0.0.1:8000/api/cicd/active-runs'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const CICD_API = `${API_BASE}/api/cicd/active-runs`
 
 const DBT_RUNS = [
   { id: 'dbt-001', model: 'marts.fct_orders',          status: 'success', duration: '1m 22s', tests: 14,  testsPassed: 14, trigger: 'schedule', time: '5 min ago' },

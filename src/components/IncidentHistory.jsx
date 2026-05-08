@@ -10,7 +10,8 @@ import {
   Inbox,
 } from 'lucide-react'
 
-const API = 'http://127.0.0.1:8000/api/incidents'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const API = `${API_BASE}/api/incidents`
 
 const SEVERITY_STYLES = {
   Critical: 'bg-red-500/15 border-red-500/40 text-red-400',

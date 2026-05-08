@@ -24,6 +24,8 @@ import {
   ShieldX,
 } from 'lucide-react'
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
 const SEVERITY_CONFIG = {
   Critical: {
     label: 'CRITICAL',
@@ -93,7 +95,7 @@ export default function IncidentReportCard({
     if (!id) return
     setJiraLoading(true); setJiraResult(null)
     try {
-      const res  = await fetch(`http://127.0.0.1:8000/api/incidents/${id}/jira`, { method: 'POST' })
+      const res  = await fetch(`${API_BASE}/api/incidents/${id}/jira`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail ?? 'Jira API error')
       setJiraResult({ ticket_key: data.ticket_key, ticket_url: data.ticket_url })
@@ -108,7 +110,7 @@ export default function IncidentReportCard({
     if (!id) return
     setRunbookLoading(true)
     try {
-      const res  = await fetch(`http://127.0.0.1:8000/api/incidents/${id}/remediate`, { method: 'POST' })
+      const res  = await fetch(`${API_BASE}/api/incidents/${id}/remediate`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail ?? 'Remediation failed')
       setStatus(data.status)

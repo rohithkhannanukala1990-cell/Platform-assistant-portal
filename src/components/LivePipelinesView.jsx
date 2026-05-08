@@ -4,8 +4,9 @@ import {
   Clock, AlertTriangle, Loader2, User, Zap,
 } from 'lucide-react'
 
-const ACTIVE_API   = 'http://127.0.0.1:8000/api/cicd/active-runs'
-const MONITOR_API  = 'http://127.0.0.1:8000/api/cicd/monitor'
+const API_BASE     = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const ACTIVE_API   = `${API_BASE}/api/cicd/active-runs`
+const MONITOR_API  = `${API_BASE}/api/cicd/monitor`
 
 const STAGES = ['Build', 'Test', 'Security Scan', 'Deploy']
 

@@ -17,7 +17,8 @@ Example:
 [2024-06-10 03:41:22] FATAL  connection to server failed: FATAL: remaining connection slots reserved
 [2024-06-10 03:41:25] WARN   pod/api-gateway-7d9f8b: CrashLoopBackOff — exit code 1`
 
-const API_URL = 'http://127.0.0.1:8000/api/triage'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const API_URL = `${API_BASE}/api/triage`
 
 export default function TriageView({ selectedIncident, onSelectIncident, onAnalysisComplete }) {
   const [logs, setLogs]     = useState('')

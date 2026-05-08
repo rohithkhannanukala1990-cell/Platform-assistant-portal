@@ -4,7 +4,8 @@ import {
   AlertTriangle, AlertCircle, Info, Zap,
 } from 'lucide-react'
 
-const API_BASE = 'http://127.0.0.1:8000/api/notifications'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const API_NOTIFICATIONS = `${API_BASE}/api/notifications`
 
 const TYPE_CONFIG = {
   critical: { icon: AlertTriangle, color: 'text-red-400',    bg: 'bg-red-500/10 border-red-500/30',    dot: 'bg-red-500' },
@@ -30,7 +31,7 @@ export default function NotificationDropdown({ onSelectIncident }) {
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const res = await fetch(API_BASE)
+      const res = await fetch(API_NOTIFICATIONS)
       if (res.ok) {
         const data = await res.json()
         setNots(data)

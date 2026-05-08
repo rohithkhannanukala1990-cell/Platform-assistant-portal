@@ -4,7 +4,8 @@ import {
   Loader2, AlertCircle, Sparkles,
 } from 'lucide-react'
 
-const API = 'http://127.0.0.1:8000/api/chat'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const API = `${API_BASE}/api/chat`
 
 const SUGGESTIONS = [
   'How many open incidents do I have?',

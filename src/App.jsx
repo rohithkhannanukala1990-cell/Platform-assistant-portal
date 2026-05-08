@@ -17,6 +17,8 @@ import ChatBot              from './components/ChatBot'
 import UserMenu             from './components/UserMenu'
 import PersonaSwitcher      from './components/PersonaSwitcher'
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
 // ── Ops sub-view labels ───────────────────────────────────────────────────────
 const OPS_VIEW_LABELS = {
   dashboard: 'Dashboard',
@@ -126,7 +128,7 @@ function AppLayout() {
 
             <NotificationDropdown
               onSelectIncident={(incidentId) => {
-                fetch('http://127.0.0.1:8000/api/incidents')
+                fetch(`${API_BASE}/api/incidents`)
                   .then((r) => r.json())
                   .then((incidents) => {
                     const found = incidents.find((i) => i.id === incidentId)

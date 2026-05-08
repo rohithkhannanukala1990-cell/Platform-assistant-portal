@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { useRole } from '../contexts/RoleContext'
 
-const BASE = 'http://127.0.0.1:8000'
+const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 const SEV_CFG = {
   Critical: { cls: 'bg-red-500/15 border-red-500/40 text-red-400',    dot: 'bg-red-400'    },

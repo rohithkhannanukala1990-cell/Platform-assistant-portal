@@ -18,7 +18,8 @@ import {
   Check,
 } from 'lucide-react'
 
-const API = 'http://127.0.0.1:8000/api/settings'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const API = `${API_BASE}/api/settings`
 
 const CLOUD_OPTIONS    = ['GCP', 'AWS', 'Azure', 'DigitalOcean']
 const CICD_OPTIONS     = ['GitHub Actions', 'GitLab CI', 'Jenkins']
@@ -279,7 +280,7 @@ function SelectField({ label, value, options, onChange }) {
   )
 }
 
-const CURL_EXAMPLE = `curl -X POST http://127.0.0.1:8000/api/webhooks/logs \\
+const CURL_EXAMPLE = `curl -X POST http://localhost:8000/api/webhooks/logs \\
   -H "Content-Type: application/json" \\
   -d '{
     "source": "my-server",
@@ -287,7 +288,7 @@ const CURL_EXAMPLE = `curl -X POST http://127.0.0.1:8000/api/webhooks/logs \\
   }'`
 
 const PYTHON_EXAMPLE = `import requests
-requests.post("http://127.0.0.1:8000/api/webhooks/logs", json={
+requests.post("http://localhost:8000/api/webhooks/logs", json={
     "source": "my-server",
     "log_text": "ERROR: OOM killer invoked on pod worker-7",
 })`

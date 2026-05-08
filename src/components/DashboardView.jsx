@@ -13,9 +13,10 @@ import {
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
 
-const API        = 'http://127.0.0.1:8000/api/analytics'
-const SCAN_API   = 'http://127.0.0.1:8000/api/logs/scan-anomalies'
-const DORA_API   = 'http://127.0.0.1:8000/api/cicd/dora-metrics'
+const API_BASE   = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const API        = `${API_BASE}/api/analytics`
+const SCAN_API   = `${API_BASE}/api/logs/scan-anomalies`
+const DORA_API   = `${API_BASE}/api/cicd/dora-metrics`
 
 const SEVERITY_COLORS = {
   Critical: '#ef4444',
