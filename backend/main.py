@@ -39,7 +39,14 @@ if AI_PROVIDER == "gemini":
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 async def _wait_for_db(retries: int = 30, delay: float = 2.0):
-    """Block startup until PostgreSQL accepts connections."""
+    """
+    Block startup until the database accepts connections.
+    SQLite is always ready immediately; only PostgreSQL needs a retry loop.
+    """
+    from database import _is_sqlite
+    if _is_sqlite:
+        print("[db] SQLite mode — skipping readiness wait.")
+        return
     for attempt in range(1, retries + 1):
         try:
             with Session(db_engine) as session:
@@ -707,6 +714,26 @@ async def _close_servicenow_ticket(incident_id: int):
 
 # ── Webhook Ingestion ──────────────────────────────────────────────────────────
 
+async def _webhook_background_fallback(log_text: str, source: str):
+    """In-process fallback used when Redis/Celery is unavailable (local dev)."""
+    try:
+        await _run_triage(log_text, source=f"webhook:{source}")
+    except Exception as exc:
+        print(f"[webhook-fallback] triage failed for source={source}: {exc}")
+
+
+async def _inbound_webhook_background_fallback(payload: dict, source: str, event_id: int):
+    """In-process fallback for the inbound gateway when Redis/Celery is unavailable."""
+    try:
+        _event_type, log_text, _ = _map_to_cloud_event(payload, source)
+        owner_role = _route_owner(source)
+        result = await _run_triage(log_text, source=f"webhook:{source}", owner_role=owner_role)
+        update_webhook_event(event_id, status="processed", incident_id=result.get("id"))
+    except Exception as exc:
+        update_webhook_event(event_id, status="error")
+        print(f"[webhook-fallback] inbound event {event_id} failed: {exc}")
+
+
 class WebhookLogRequest(BaseModel):
     source:    str
     log_text:  str
@@ -721,11 +748,17 @@ async def ingest_webhook_log(request: WebhookLogRequest):
     if not request.source.strip():
         raise HTTPException(status_code=400, detail="source cannot be empty.")
 
-    task = process_webhook_log.delay(request.log_text, request.source.strip())
+    try:
+        task = process_webhook_log.delay(request.log_text, request.source.strip())
+        task_id = task.id
+    except Exception:
+        # Redis not available in local dev — fall back to in-process background task
+        asyncio.create_task(_webhook_background_fallback(request.log_text, request.source.strip()))
+        task_id = "local-fallback"
 
     return {
         "status":  "accepted",
-        "task_id": task.id,
+        "task_id": task_id,
         "message": f"Log from '{request.source}' queued for triage.",
     }
 
@@ -831,11 +864,17 @@ async def inbound_webhook_gateway(request: InboundWebhookRequest):
         "cloud_event_id": ce_id,
     })
 
-    task = process_inbound_webhook.delay(payload, source, ev.id)
+    try:
+        task = process_inbound_webhook.delay(payload, source, ev.id)
+        task_id = task.id
+    except Exception:
+        # Redis not available in local dev — fall back to in-process coroutine
+        asyncio.create_task(_inbound_webhook_background_fallback(payload, source, ev.id))
+        task_id = "local-fallback"
 
     return {
         "status":         "accepted",
-        "task_id":        task.id,
+        "task_id":        task_id,
         "cloud_event_id": ce_id,
         "routed_to":      owner_role,
         "message":        f"Event from '{source}' accepted and queued for processing.",

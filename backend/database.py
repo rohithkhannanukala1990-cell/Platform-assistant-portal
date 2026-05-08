@@ -5,29 +5,34 @@ from typing import Optional
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from sqlalchemy import text as sa_text
 
-# Default to PostgreSQL; falls back gracefully if the env var is set to SQLite for local dev
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:password@localhost:5432/aiops",
-)
+# Use DATABASE_URL from env.
+# - Docker / production: set to postgresql://...
+# - Local dev without Docker: defaults to SQLite so the server starts immediately
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./incidents.db")
 
-# psycopg2 needs the scheme "postgresql+psycopg2://" — normalise the common short form
+# Normalise PostgreSQL scheme so psycopg2 driver is used
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 elif DATABASE_URL.startswith("postgresql://") and "+psycopg2" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 _is_postgres = DATABASE_URL.startswith("postgresql")
+_is_sqlite   = DATABASE_URL.startswith("sqlite")
 
-engine = create_engine(
-    DATABASE_URL,
-    echo=False,
-    # PostgreSQL connection pool tuning
-    pool_pre_ping=True,       # drop stale connections before use
-    pool_size=10,
-    max_overflow=20,
-    connect_args={"connect_timeout": 10} if _is_postgres else {},
-)
+_engine_kwargs: dict = {"echo": False, "pool_pre_ping": True}
+if _is_postgres:
+    _engine_kwargs.update({
+        "pool_size": 10,
+        "max_overflow": 20,
+        "connect_args": {"connect_timeout": 10},
+    })
+elif _is_sqlite:
+    # SQLite doesn't support multi-threaded connection pools the same way
+    _engine_kwargs.update({
+        "connect_args": {"check_same_thread": False},
+    })
+
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 
 # ── Tables ────────────────────────────────────────────────────────────────────
