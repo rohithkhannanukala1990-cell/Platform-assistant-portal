@@ -12,6 +12,7 @@ import {
   Gauge, ArrowUpRight, ArrowDownRight, Minus,
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
+import { useAuth } from '../contexts/AuthContext'
 
 const API_BASE   = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const API        = `${API_BASE}/api/analytics`
@@ -126,6 +127,7 @@ function ChartCard({ title, icon: Icon, iconColor, children, className = '' }) {
 }
 
 export default function DashboardView() {
+  const { authFetch } = useAuth()
   const [data, setData]         = useState(null)
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState(null)
@@ -143,7 +145,7 @@ export default function DashboardView() {
     setLoading(true)
     setError(null)
     try {
-      const [res, doraRes] = await Promise.all([fetch(API), fetch(DORA_API)])
+      const [res, doraRes] = await Promise.all([authFetch(API), authFetch(DORA_API)])
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const json = await res.json()
       setData(json)
@@ -161,7 +163,7 @@ export default function DashboardView() {
     setScanResult(null)
     setScanDismissed(false)
     try {
-      const res  = await fetch(SCAN_API, { method: 'POST' })
+      const res  = await authFetch(SCAN_API, { method: 'POST' })
       if (!res.ok) throw new Error(`Scan failed: ${res.status}`)
       const incident = await res.json()
       setScanResult(incident)

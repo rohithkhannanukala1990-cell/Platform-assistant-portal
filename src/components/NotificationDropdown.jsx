@@ -3,9 +3,11 @@ import {
   Bell, X, CheckCheck, Inbox,
   AlertTriangle, AlertCircle, Info, Zap,
 } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const API_NOTIFICATIONS = `${API_BASE}/api/notifications`
+const API_MARK_READ = (id) => `${API_BASE}/api/notifications/${id}/read`
 
 const TYPE_CONFIG = {
   critical: { icon: AlertTriangle, color: 'text-red-400',    bg: 'bg-red-500/10 border-red-500/30',    dot: 'bg-red-500' },
@@ -25,19 +27,20 @@ function timeAgo(iso) {
 }
 
 export default function NotificationDropdown({ onSelectIncident }) {
+  const { authFetch } = useAuth()
   const [open, setOpen]           = useState(false)
   const [notifications, setNots]  = useState([])
   const ref                       = useRef(null)
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const res = await fetch(API_NOTIFICATIONS)
+      const res = await authFetch(API_NOTIFICATIONS)
       if (res.ok) {
         const data = await res.json()
         setNots(data)
       }
     } catch (_err) { /* backend not running yet */ }
-  }, [])
+  }, [authFetch])
 
   // Poll every 30 s
   useEffect(() => {
@@ -62,14 +65,14 @@ export default function NotificationDropdown({ onSelectIncident }) {
 
   async function markRead(id) {
     try {
-      await fetch(`${API_BASE}/${id}/read`, { method: 'PUT' })
+      await authFetch(API_MARK_READ(id), { method: 'PUT' })
       setNots((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n))
     } catch (_err) { /* noop */ }
   }
 
   async function markAllRead() {
     const unreadOnes = notifications.filter((n) => !n.is_read)
-    await Promise.all(unreadOnes.map((n) => fetch(`${API_BASE}/${n.id}/read`, { method: 'PUT' })))
+    await Promise.all(unreadOnes.map((n) => authFetch(API_MARK_READ(n.id), { method: 'PUT' })))
     setNots((prev) => prev.map((n) => ({ ...n, is_read: true })))
   }
 
