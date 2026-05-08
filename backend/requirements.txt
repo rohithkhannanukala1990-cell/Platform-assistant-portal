@@ -8,3 +8,7 @@ sqlmodel>=0.0.21
 psycopg2-binary>=2.9.9
 celery[redis]>=5.4.0
 redis>=5.0.0
+
+# Sprint 1 — Auth layer
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
