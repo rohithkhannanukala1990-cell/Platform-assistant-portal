@@ -32,6 +32,61 @@ Built to demonstrate production-grade platform engineering: local/cloud LLM orch
 | 20 | Data Lineage view — interactive SVG DAG (Sources → Transforms → Destinations → Consumers) |
 | 21 | Query Analyzer — AI-powered SQL EXPLAIN, index recommendations, rewrite (`POST /api/db/analyze-query`) |
 | 22 | Schema Browser — table explorer with columns, types, PK/FK badges, DDL copy |
+| 23 | Active CI/CD monitoring — live pipeline DAG, DORA KPIs, Celery `monitor_cicd_pipelines`, stage-based HITL routing |
+
+---
+
+## Implementation Steps (Phase 23 — CI/CD Monitoring & DORA)
+
+Follow these steps to verify or reproduce Phase 23 locally.
+
+### 1. Backend routes
+
+1. Ensure the backend is running (`uvicorn` or Docker Compose).
+2. **Mock active pipelines** — returns builds with per-stage status (`Build`, `Test`, `Security Scan`, `Deploy`):
+   ```bash
+   curl http://127.0.0.1:8000/api/cicd/active-runs
+   ```
+3. **DORA metrics** — organizational KPI strings for the Ops dashboard:
+   ```bash
+   curl http://127.0.0.1:8000/api/cicd/dora-metrics
+   ```
+4. **Trigger CI/CD monitor** — queues Celery task `monitor_cicd_pipelines` (or in-process fallback if Redis is down):
+   ```bash
+   curl -X POST http://127.0.0.1:8000/api/cicd/monitor
+   ```
+   Response is `202` with `task_id`. The worker picks a random scenario (stuck security scan, flaky tests, failed deploy), creates an `Incident` with `source: cicd-monitor`, sets `owner_role` by failed stage, and runs HITL evaluation.
+
+### 2. Celery worker
+
+Include `monitor_cicd_pipelines` when running workers (same app as webhooks):
+
+```bash
+cd backend
+celery -A worker.celery_app worker --loglevel=info --concurrency=2
+```
+
+Without Redis/Celery, `POST /api/cicd/monitor` falls back to `asyncio.create_task` inside FastAPI.
+
+### 3. Frontend — where to click
+
+| Persona | Location | What you see |
+|---------|----------|----------------|
+| **Developer** | Sidebar → **Live Pipelines** | DAG rows per repo (Build → Test → Security Scan → Deploy), spinners on active stages, **Run Monitor Scan**, polling refresh |
+| **Admin / Ops** | **Dashboard** (first sidebar item) | **DORA Metrics** row: Deploy Frequency, Lead Time, Change Failure Rate, MTTR (from `/api/cicd/dora-metrics`) |
+| **Data Engineer** | **Pipeline Health** | **dbt / Airflow CI Pipeline Runs** widget (dbt models, Airflow CI DAGs, **Live** tab from `/api/cicd/active-runs`) |
+
+### 4. RBAC — approvals by pipeline stage
+
+Incidents created by the CI/CD monitor set `owner_role` from the failing stage so **Agent Pending Approvals** only surface for the owning persona:
+
+| Failed stage | `owner_role` (approver queue) |
+|--------------|-------------------------------|
+| Security Scan | Network Engineer |
+| Test | Developer |
+| Deploy | Developer |
+
+HIGH-severity scenarios enter **AWAITING_APPROVAL** (after `CommandValidator`); MEDIUM may auto-resolve per existing HITL rules.
 
 ---
 
@@ -91,7 +146,7 @@ Built to demonstrate production-grade platform engineering: local/cloud LLM orch
 ┌──────────────────────▼───────────────────────────────┐
 │  FastAPI Backend                                      │
 │  ┌────────────────────────────────────────────────┐  │
-│  │  Routes: triage · infra · cicd · chat          │  │
+│  │  Routes: triage · infra · cicd · chat · cicd/active · dora · monitor    │  │
 │  │          analytics · incidents · webhooks       │  │
 │  │          notifications · settings · approvals  │  │
 │  └────────────────────────────────────────────────┘  │
@@ -107,10 +162,10 @@ Built to demonstrate production-grade platform engineering: local/cloud LLM orch
 │  (SQLModel) │          │  ┌───────────────┐  │
 │             │◄─────────│  │process_inbound│  │
 │  Incident   │          │  │process_log    │  │
-│  Infra      │          │  └───────────────┘  │
-│  CICDPipeline│          └─────────┬──────────┘
-│  Notification│                   │
-│  WebhookEvent│          ┌─────────▼──────────┐
+│  Infra      │          │  │monitor_cicd   │  │
+│  CICDPipeline│          │  └───────────────┘  │
+│  Notification│          └─────────┬──────────┘
+│  WebhookEvent│                   │
 │  UserSetting │          │  Redis (broker)     │
 └─────────────┘          └────────────────────┘
 ```
@@ -123,8 +178,8 @@ Built to demonstrate production-grade platform engineering: local/cloud LLM orch
 |---|---|---|
 | Admin | `/ops` | Full access to all portals + Persona Switcher + Integrations page |
 | Network Engineer | `/ops` | Dashboard · Alert Triage · Infra Builder · CI/CD Pipeline · Integrations |
-| Developer | `/developer` | Software Catalog · **Deployments** · **Runbooks** |
-| Data Engineer | `/data` | Pipeline Health · **Storage** · **Data Lineage** |
+| Developer | `/developer` | Software Catalog · **Deployments** · **Live Pipelines** · **Runbooks** |
+| Data Engineer | `/data` | Pipeline Health (+ **dbt / Airflow CI widget**) · **Storage** · **Data Lineage** |
 | Database Developer | `/database` | DB Health · **Query Analyzer** · **Schema Browser** |
 
 ---
@@ -183,7 +238,7 @@ Platform asistant/
 │   ├── main.py               # FastAPI app, all routes, AI orchestration
 │   ├── database.py           # SQLModel tables, CRUD helpers, migrations
 │   ├── worker.py             # Celery app factory
-│   ├── tasks.py              # Celery tasks (webhook processing)
+│   ├── tasks.py              # Celery: webhooks + monitor_cicd_pipelines
 │   ├── command_validator.py  # AI Safety Guardrail
 │   ├── requirements.txt
 │   ├── Dockerfile
@@ -200,6 +255,7 @@ Platform asistant/
 │       ├── OpsPortal.jsx
 │       ├── DeveloperPortal.jsx
 │       ├── DeploymentsView.jsx      # Deployment history, trigger, rollback
+│       ├── LivePipelinesView.jsx    # Live CI/CD DAG (Build→Test→Scan→Deploy)
 │       ├── RunbooksView.jsx         # Executable runbook library
 │       ├── DataEngineerPortal.jsx
 │       ├── StorageView.jsx          # Bucket usage, cost, MoM trends
@@ -311,6 +367,9 @@ JIRA_PROJECT_KEY=
 | POST | `/api/incidents/{id}/jira` | Create Jira ticket |
 | POST | `/api/infra/generate` | Generate Terraform + CLI |
 | POST | `/api/cicd/generate` | Generate pipeline YAML |
+| GET | `/api/cicd/active-runs` | Mock active pipeline runs + per-stage statuses |
+| GET | `/api/cicd/dora-metrics` | Mock DORA KPIs (frequency, lead time, CFR, MTTR) |
+| POST | `/api/cicd/monitor` | Dispatch Celery `monitor_cicd_pipelines` (202 + task id) |
 | GET | `/api/analytics` | Aggregated dashboard metrics |
 | POST | `/api/webhooks/inbound` | Inbound webhook gateway (202 + Celery) |
 | POST | `/api/webhooks/logs` | Raw log ingestion (202 + Celery) |
