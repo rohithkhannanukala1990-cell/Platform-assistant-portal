@@ -1,4 +1,5 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext } from 'react'
+import { useAuth } from './AuthContext'
 
 export const ROLES = {
   Admin:             { id: 'Admin',             label: 'Admin',               emoji: '🛡️',  portal: '/ops',       color: 'text-purple-400', bg: 'bg-purple-500/15 border-purple-500/30' },
@@ -11,10 +12,13 @@ export const ROLES = {
 const RoleContext = createContext(null)
 
 export function RoleProvider({ children }) {
-  const [role, setRole] = useState('Admin')   // default: logged in as Admin
+  const { role: jwtRole, user, isAuthenticated } = useAuth()
+  const isDev = import.meta.env.DEV
+  const role = jwtRole ?? (isDev ? 'Admin' : null)
+  const roleInfo = ROLES[role]
 
   return (
-    <RoleContext.Provider value={{ role, setRole, roleInfo: ROLES[role] }}>
+    <RoleContext.Provider value={{ role, roleInfo, user, isAuthenticated }}>
       {children}
     </RoleContext.Provider>
   )

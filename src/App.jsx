@@ -1,14 +1,16 @@
 import { useState, useRef, useCallback } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { Settings } from 'lucide-react'
+import { Loader2, Settings } from 'lucide-react'
 
 import { RoleProvider, useRole, ROLES } from './contexts/RoleContext'
+import { useAuth } from './contexts/AuthContext'
 
 import Sidebar              from './components/Sidebar'
 import OpsPortal            from './components/OpsPortal'
 import DeveloperPortal      from './components/DeveloperPortal'
 import DataEngineerPortal   from './components/DataEngineerPortal'
 import DatabasePortal       from './components/DatabasePortal'
+import LoginPage            from './components/LoginPage'
 import SettingsModal        from './components/SettingsModal'
 import NotificationDropdown from './components/NotificationDropdown'
 import ChatBot              from './components/ChatBot'
@@ -30,6 +32,20 @@ function defaultPortalForRole(role) {
 
 // ── Inner layout (needs router context via useRole / useNavigate) ─────────────
 function AppLayout() {
+  const { isAuthenticated, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-surface">
+        <Loader2 className="w-8 h-8 animate-spin text-accent" />
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />
+  }
+
   const { role, setRole, roleInfo } = useRole()
 
   const [currentOpsView,  setCurrentOpsView]  = useState('dashboard')

@@ -1,0 +1,125 @@
+import { useState } from 'react'
+import { Bot, Loader2, ShieldCheck, Eye, EyeOff } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+
+export default function LoginPage() {
+  const auth = useAuth()
+
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [localError, setLocalError] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  const isDev = import.meta.env.DEV
+  const loading = submitting
+
+  async function onSubmit(e) {
+    e.preventDefault()
+    setLocalError(null)
+
+    if (!username.trim() || !password) {
+      setLocalError('Username and password are required.')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const result = await auth.login(username.trim(), password)
+      if (!result?.success) setLocalError(result?.error || 'Login failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const errText = localError || auth.error
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-surface px-4">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-sidebar shadow-2xl p-7">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-11 h-11 rounded-xl bg-accent/15 border border-accent/30 flex items-center justify-center shrink-0">
+            <Bot className="w-5 h-5 text-accent" strokeWidth={2.5} />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold text-white tracking-tight">Platform Engineering</h1>
+            <p className="text-sm text-slate-400">AIOps Assistant Portal</p>
+          </div>
+        </div>
+
+        {/* Error */}
+        {errText && (
+          <div className="flex items-start gap-3 p-3.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 mb-5">
+            <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="text-sm leading-relaxed">{errText}</div>
+          </div>
+        )}
+
+        {/* Form */}
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-slate-400">Username</label>
+            <input
+              type="text"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={loading}
+              className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-slate-200 placeholder-slate-600 outline-none
+                focus:border-accent/50 focus:ring-2 focus:ring-accent/20 disabled:opacity-60 disabled:cursor-not-allowed"
+              placeholder="admin"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-slate-400">Password</label>
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
+                className="w-full rounded-xl border border-border bg-card px-4 py-3 pr-11 text-sm text-slate-200 placeholder-slate-600 outline-none
+                  focus:border-accent/50 focus:ring-2 focus:ring-accent/20 disabled:opacity-60 disabled:cursor-not-allowed"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                disabled={loading}
+                className="absolute inset-y-0 right-0 px-3 flex items-center justify-center text-slate-500 hover:text-slate-200 transition-colors
+                  disabled:opacity-60 disabled:cursor-not-allowed"
+                title={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="mt-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold bg-accent text-black
+              hover:bg-green-400 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 transition-all duration-150 glow-green"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Signing in…
+              </>
+            ) : (
+              'Sign In'
+            )}
+          </button>
+
+          {isDev && (
+            <p className="text-xs text-slate-600 text-center mt-1">Default: admin / changeme123</p>
+          )}
+        </form>
+      </div>
+    </div>
+  )
+}
+
