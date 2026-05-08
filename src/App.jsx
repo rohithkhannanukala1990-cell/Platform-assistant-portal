@@ -32,25 +32,48 @@ function defaultPortalForRole(role) {
 function AppLayout() {
   const { role, setRole, roleInfo } = useRole()
 
-  const [currentOpsView, setCurrentOpsView] = useState('dashboard')
-  const [opsBreadcrumb,  setOpsBreadcrumb]  = useState('Dashboard')
-  const [settingsOpen,   setSettingsOpen]   = useState(false)
-  const [isLoggedIn,     setIsLoggedIn]     = useState(true)
+  const [currentOpsView,  setCurrentOpsView]  = useState('dashboard')
+  const [currentDevView,  setCurrentDevView]  = useState('catalog')
+  const [currentDataView, setCurrentDataView] = useState('pipelines')
+  const [currentDbView,   setCurrentDbView]   = useState('dbhealth')
+  const [opsBreadcrumb,   setOpsBreadcrumb]   = useState('Dashboard')
+  const [settingsOpen,    setSettingsOpen]    = useState(false)
+  const [isLoggedIn,      setIsLoggedIn]      = useState(true)
+
+  // Unified nav handler — routes to the right state based on active role
+  function handleNav(viewId) {
+    if (role === 'Admin' || role === 'NetworkEngineer') setCurrentOpsView(viewId)
+    else if (role === 'Developer')         setCurrentDevView(viewId)
+    else if (role === 'DataEngineer')      setCurrentDataView(viewId)
+    else if (role === 'DatabaseDeveloper') setCurrentDbView(viewId)
+  }
+
+  // Active view for sidebar highlight
+  function activeViewId() {
+    if (role === 'Admin' || role === 'NetworkEngineer') return currentOpsView
+    if (role === 'Developer')         return currentDevView
+    if (role === 'DataEngineer')      return currentDataView
+    if (role === 'DatabaseDeveloper') return currentDbView
+    return 'dashboard'
+  }
 
   // stable callback so OpsPortal doesn't re-render on every breadcrumb update
   const handleBreadcrumb = useCallback((label) => {
     setOpsBreadcrumb((prev) => (prev === label ? prev : label))
   }, [])
 
-  // Dynamic breadcrumb depending on which portal is active
+  const DEV_LABELS  = { catalog: 'Software Catalog', deploys: 'Deployments', runbooks: 'Runbooks' }
+  const DATA_LABELS = { pipelines: 'Pipeline Health', storage: 'Storage', lineage: 'Data Lineage' }
+  const DB_LABELS   = { dbhealth: 'Database Health', queries: 'Query Analyzer', schemas: 'Schema Browser' }
+
   function breadcrumb() {
-    if (role === 'Developer')       return 'Software Catalog'
-    if (role === 'DataEngineer')    return 'Pipeline Health'
-    if (role === 'NetworkEngineer') return opsBreadcrumb
-    return opsBreadcrumb   // Admin
+    if (role === 'Developer')         return DEV_LABELS[currentDevView]  ?? 'Developer'
+    if (role === 'DataEngineer')      return DATA_LABELS[currentDataView] ?? 'Data Engineer'
+    if (role === 'DatabaseDeveloper') return DB_LABELS[currentDbView]     ?? 'Database'
+    if (role === 'NetworkEngineer')   return opsBreadcrumb
+    return opsBreadcrumb
   }
 
-  // Nav items are portal-specific; only show for roles that use OpsPortal
   const showOpsNav = role === 'Admin' || role === 'NetworkEngineer'
 
   return (
@@ -58,8 +81,8 @@ function AppLayout() {
 
       {/* Left Sidebar */}
       <Sidebar
-        activeView={currentOpsView}
-        onNavigate={setCurrentOpsView}
+        activeView={activeViewId()}
+        onNavigate={handleNav}
         role={role}
         showOpsNav={showOpsNav}
       />
@@ -133,21 +156,21 @@ function AppLayout() {
           {/* Developer portal */}
           <Route path="/developer" element={
             <div className="flex-1 overflow-y-auto px-8 py-8">
-              <DeveloperPortal />
+              <DeveloperPortal currentView={currentDevView} />
             </div>
           } />
 
           {/* Data Engineer portal */}
           <Route path="/data" element={
             <div className="flex-1 overflow-y-auto px-8 py-8">
-              <DataEngineerPortal />
+              <DataEngineerPortal currentView={currentDataView} />
             </div>
           } />
 
           {/* Database Developer portal */}
           <Route path="/database" element={
             <div className="flex-1 overflow-y-auto px-8 py-8">
-              <DatabasePortal />
+              <DatabasePortal currentView={currentDbView} />
             </div>
           } />
 

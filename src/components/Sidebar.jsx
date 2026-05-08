@@ -12,21 +12,21 @@ const OPS_NAV = [
 ]
 
 const DEV_NAV = [
-  { id: 'catalog',    label: 'Software Catalog',  emoji: '📦' },
-  { id: 'deploys',    label: 'Deployments',        emoji: '🚀', disabled: true },
-  { id: 'runbooks',   label: 'Runbooks',           emoji: '📋', disabled: true },
+  { id: 'catalog',   label: 'Software Catalog', emoji: '📦' },
+  { id: 'deploys',   label: 'Deployments',       emoji: '🚀' },
+  { id: 'runbooks',  label: 'Runbooks',          emoji: '📋' },
 ]
 
 const DATA_NAV = [
-  { id: 'pipelines',  label: 'Pipeline Health',   emoji: '⚙️' },
-  { id: 'storage',    label: 'Storage',            emoji: '🗄️', disabled: true },
-  { id: 'lineage',    label: 'Data Lineage',       emoji: '🔗', disabled: true },
+  { id: 'pipelines', label: 'Pipeline Health',  emoji: '⚙️' },
+  { id: 'storage',   label: 'Storage',           emoji: '🗄️' },
+  { id: 'lineage',   label: 'Data Lineage',      emoji: '🔗' },
 ]
 
 const DB_NAV = [
-  { id: 'dbhealth',  label: 'Database Health',   emoji: '🗄️' },
-  { id: 'queries',   label: 'Query Analyzer',     emoji: '🔍', disabled: true },
-  { id: 'schemas',   label: 'Schema Browser',     emoji: '📐', disabled: true },
+  { id: 'dbhealth',  label: 'Database Health',  emoji: '🗄️' },
+  { id: 'queries',   label: 'Query Analyzer',    emoji: '🔍' },
+  { id: 'schemas',   label: 'Schema Browser',    emoji: '📐' },
 ]
 
 const NAV_BY_ROLE = {
@@ -88,8 +88,8 @@ export default function Sidebar({ activeView, onNavigate, showOpsNav }) {
             <NavItem
               key={item.id}
               item={item}
-              active={showOpsNav ? activeView === item.id : item.id === navItems[0]?.id}
-              onNavigate={() => { if (showOpsNav) onNavigate(item.id) }}
+              active={activeView === item.id}
+              onNavigate={() => onNavigate(item.id)}
             />
           ))
         }

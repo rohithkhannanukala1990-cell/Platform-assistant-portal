@@ -5,6 +5,8 @@ import {
   BarChart3, Loader2, Pause,
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
+import StorageView     from './StorageView'
+import DataLineageView from './DataLineageView'
 
 const ETL_JOBS = [
   { id: 'etl-001', name: 'Customer Events → Warehouse',  schedule: '*/15 * * * *', status: 'running',  lastRun: '2 min ago', duration: '1m 12s', records: '1.2M', owner: 'DataEngineer' },
@@ -50,7 +52,9 @@ function StorageBar({ item }) {
   )
 }
 
-export default function DataEngineerPortal() {
+export default function DataEngineerPortal({ currentView = 'pipelines' }) {
+  if (currentView === 'storage') return <StorageView />
+  if (currentView === 'lineage') return <DataLineageView />
   const [triggering, setTriggering] = useState(null)
   const [triggered, setTriggered]   = useState(new Set())
 

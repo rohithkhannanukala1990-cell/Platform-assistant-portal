@@ -1611,3 +1611,55 @@ async def scan_anomalies():
     )
 
     return serialize_incident(record)
+
+
+# ── DB Query Analyzer ──────────────────────────────────────────────────────────
+
+class QueryAnalyzeRequest(BaseModel):
+    query:    str
+    database: str = "prod-postgres-primary"
+
+
+_QUERY_ANALYZER_PROMPT = """You are a senior PostgreSQL and database performance expert.
+Analyze the following SQL query and return ONLY a valid JSON object with these exact keys:
+{
+  "is_valid": true or false,
+  "issues": ["list of problems found, or empty array"],
+  "index_recommendations": ["list of CREATE INDEX suggestions, or empty array"],
+  "estimated_cost": "a human-readable estimate like 'Low', 'Medium', 'High', or 'Very High'",
+  "rewritten_query": "an optimized version of the query, or null if already optimal",
+  "explain_plan": ["list of 4-6 mock EXPLAIN ANALYZE output lines as strings"],
+  "summary": "one sentence plain-English explanation of what the query does and its main performance concern"
+}
+Return ONLY the JSON. No markdown, no code fences, no explanation."""
+
+
+@app.post("/api/db/analyze-query")
+async def analyze_query(req: QueryAnalyzeRequest):
+    """AI-powered SQL query analysis: EXPLAIN plan, index recommendations, rewrite suggestions."""
+    if not req.query.strip():
+        raise HTTPException(status_code=400, detail="query cannot be empty.")
+
+    prompt = f"Database: {req.database}\n\nSQL Query:\n{req.query}\n\n{_QUERY_ANALYZER_PROMPT}"
+
+    try:
+        raw = await _ask_ai(prompt)
+        # Strip markdown fences if present
+        cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
+        result  = json.loads(cleaned)
+    except Exception:
+        result = {
+            "is_valid": True,
+            "issues": ["Could not parse AI response — showing fallback analysis."],
+            "index_recommendations": [],
+            "estimated_cost": "Unknown",
+            "rewritten_query": None,
+            "explain_plan": [
+                "Seq Scan on <table>  (cost=0.00..1240.00 rows=50000 width=80)",
+                "  Filter: (condition)",
+                "Planning Time: 0.8 ms",
+                "Execution Time: 342.1 ms",
+            ],
+            "summary": "Unable to perform AI analysis. Please check your AI provider configuration.",
+        }
+    return result

@@ -4,7 +4,9 @@ import {
   HardDrive, Zap, Clock, RefreshCw, TrendingDown,
   BarChart3, ShieldCheck, Loader2, Table2,
 } from 'lucide-react'
-import AgentApprovalsWidget from './AgentApprovalsWidget'
+import AgentApprovalsWidget  from './AgentApprovalsWidget'
+import QueryAnalyzerView from './QueryAnalyzerView'
+import SchemaBrowserView from './SchemaBrowserView'
 
 // ── Mock data ──────────────────────────────────────────────────────────────────
 
@@ -128,7 +130,9 @@ function InstanceCard({ db, onKillSlowQueries }) {
 
 // ── Main portal ────────────────────────────────────────────────────────────────
 
-export default function DatabasePortal() {
+export default function DatabasePortal({ currentView = 'dbhealth' }) {
+  if (currentView === 'queries') return <QueryAnalyzerView />
+  if (currentView === 'schemas') return <SchemaBrowserView />
   const [refreshing, setRefreshing] = useState(false)
   const [lastRefresh, setLastRefresh] = useState(new Date())
 

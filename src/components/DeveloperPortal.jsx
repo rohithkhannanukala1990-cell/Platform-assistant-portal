@@ -4,6 +4,8 @@ import {
   Rocket, ExternalLink, Package, AlertTriangle, Loader2,
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
+import DeploymentsView from './DeploymentsView'
+import RunbooksView    from './RunbooksView'
 
 const SERVICES = [
   {
@@ -97,7 +99,9 @@ function CoverageBadge({ pct }) {
   )
 }
 
-export default function DeveloperPortal() {
+export default function DeveloperPortal({ currentView = 'catalog' }) {
+  if (currentView === 'deploys')  return <DeploymentsView />
+  if (currentView === 'runbooks') return <RunbooksView />
   const [deploying, setDeploying] = useState(null)
   const [deployed, setDeployed]   = useState(new Set())
 
