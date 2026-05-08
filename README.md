@@ -532,6 +532,3 @@ Source → Role routing:
 
 ---
 
-## License
-
-MIT
