@@ -32,21 +32,9 @@ function defaultPortalForRole(role) {
 
 // ── Inner layout (needs router context via useRole / useNavigate) ─────────────
 function AppLayout() {
-  const { isAuthenticated, loading } = useAuth()
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-surface">
-        <Loader2 className="w-8 h-8 animate-spin text-accent" />
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) {
-    return <LoginPage />
-  }
-
-  const { role, setRole, roleInfo } = useRole()
+  // ── ALL hooks at the very top — no exceptions ──
+  const { isAuthenticated, loading, logout } = useAuth()
+  const { role, roleInfo } = useRole()
 
   const [currentOpsView,  setCurrentOpsView]  = useState('dashboard')
   const [currentDevView,  setCurrentDevView]  = useState('catalog')
@@ -54,7 +42,6 @@ function AppLayout() {
   const [currentDbView,   setCurrentDbView]   = useState('dbhealth')
   const [opsBreadcrumb,   setOpsBreadcrumb]   = useState('Dashboard')
   const [settingsOpen,    setSettingsOpen]    = useState(false)
-  const [isLoggedIn,      setIsLoggedIn]      = useState(true)
 
   // Unified nav handler — routes to the right state based on active role
   function handleNav(viewId) {
@@ -77,6 +64,19 @@ function AppLayout() {
   const handleBreadcrumb = useCallback((label) => {
     setOpsBreadcrumb((prev) => (prev === label ? prev : label))
   }, [])
+
+  // ── Auth gate AFTER all hooks ──
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-surface">
+        <Loader2 className="w-8 h-8 animate-spin text-accent" />
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />
+  }
 
   const DEV_LABELS  = { catalog: 'Software Catalog', deploys: 'Deployments', livepipes: 'Live Pipelines', runbooks: 'Runbooks' }
   const DATA_LABELS = { pipelines: 'Pipeline Health', storage: 'Storage', lineage: 'Data Lineage' }
@@ -141,9 +141,7 @@ function AppLayout() {
             </button>
 
             <UserMenu
-              isLoggedIn={isLoggedIn}
-              onLogin={() => setIsLoggedIn(true)}
-              onLogout={() => { setIsLoggedIn(false); setCurrentOpsView('dashboard') }}
+              onLogout={() => { logout(); setCurrentOpsView('dashboard') }}
               onOpenSettings={() => setSettingsOpen(true)}
             />
           </div>

@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { User, Settings, LogOut, ChevronDown, LogIn, ShieldCheck } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function UserMenu({ isLoggedIn, onLogin, onLogout, onOpenSettings }) {
+  const { isAuthenticated, logout } = useAuth()
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -14,18 +16,7 @@ export default function UserMenu({ isLoggedIn, onLogin, onLogout, onOpenSettings
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  if (!isLoggedIn) {
-    return (
-      <button
-        onClick={onLogin}
-        className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-accent hover:bg-green-400
-          text-black text-xs font-semibold transition-all hover:scale-105 shadow-md shadow-accent/20"
-      >
-        <LogIn className="w-3.5 h-3.5" />
-        Login
-      </button>
-    )
-  }
+  if (!isAuthenticated) return null
 
   return (
     <div className="relative pl-2 border-l border-border" ref={ref}>
@@ -85,7 +76,7 @@ export default function UserMenu({ isLoggedIn, onLogin, onLogout, onOpenSettings
               icon={LogOut}
               label="Logout"
               danger
-              onClick={() => { setOpen(false); onLogout() }}
+              onClick={() => { setOpen(false); logout() }}
             />
           </div>
         </div>
