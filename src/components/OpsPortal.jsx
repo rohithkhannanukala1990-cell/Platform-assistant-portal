@@ -5,7 +5,7 @@
  * previously embedded directly in App.jsx.  Extracted here so React Router
  * can mount it at /ops while keeping the sub-navigation state local.
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import DashboardView    from './DashboardView'
 import TriageView       from './TriageView'
 import InfraBuilderView from './InfraBuilderView'
@@ -57,8 +57,9 @@ export default function OpsPortal({ currentView, onViewChange, onBreadcrumb }) {
     return VIEW_LABELS[currentView] ?? 'Dashboard'
   })()
 
-  // Sync breadcrumb label upward so the navbar can show it
-  if (onBreadcrumb) onBreadcrumb(detailLabel)
+  useEffect(() => {
+    onBreadcrumb?.(detailLabel)
+  }, [detailLabel, onBreadcrumb])
 
   return (
     <div className="flex flex-1 overflow-hidden">
