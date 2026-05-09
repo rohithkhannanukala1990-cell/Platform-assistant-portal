@@ -845,6 +845,27 @@ _ROLE_ROUTES: dict[str, str] = {
     "datadog":      "NetworkEngineer",
     "pagerduty":    "NetworkEngineer",
     "cloudwatch":   "NetworkEngineer",
+    # SRE/Platform
+    "prometheus":    "NetworkEngineer",
+    "alertmanager":  "NetworkEngineer",
+    "grafana":       "NetworkEngineer",
+    "argocd":        "NetworkEngineer",
+    "flux":          "NetworkEngineer",
+    "kubernetes":    "NetworkEngineer",
+    "newrelic":      "NetworkEngineer",
+    "splunk":        "NetworkEngineer",
+    "opsgenie":      "NetworkEngineer",
+    # Security
+    "falco":         "NetworkEngineer",
+    "snyk":          "Developer",
+    "sentry":        "Developer",
+    "dependabot":    "Developer",
+    # CI/CD
+    "circleci":      "Developer",
+    "jenkins":       "Developer",
+    "harness":       "Developer",
+    "bitbucket":     "Developer",
+    "travis":        "Developer",
     # Database Developer
     "aws rds":      "DatabaseDeveloper",
     "rds":          "DatabaseDeveloper",
@@ -855,6 +876,15 @@ _ROLE_ROUTES: dict[str, str] = {
     "redis":        "DatabaseDeveloper",
     "clickhouse":   "DatabaseDeveloper",
     "elasticsearch":"DatabaseDeveloper",
+    # Database
+    "clickhouse":    "DatabaseDeveloper",
+    "cassandra":     "DatabaseDeveloper",
+    "dynamodb":      "DatabaseDeveloper",
+    # Data
+    "dbt":           "DataEngineer",
+    "airflow":       "DataEngineer",
+    "kafka":         "DataEngineer",
+    "snowflake":     "DataEngineer",
 }
 
 def _route_owner(source: str) -> str:
@@ -887,6 +917,11 @@ def _map_to_cloud_event(payload: dict, source: str) -> tuple[str, str, str]:
         payload.get("Message"),                      # AWS SNS JSON inside message
         payload.get("head_commit", {}).get("message") if isinstance(payload.get("head_commit"), dict) else None,  # GitHub push
         payload.get("description"),
+        payload.get("alerts", [{}])[0].get("annotations", {}).get("summary") if isinstance(payload.get("alerts"), list) else None,  # Prometheus AlertManager
+        payload.get("evalMatches", [{}])[0].get("title") if isinstance(payload.get("evalMatches"), list) else None,  # Grafana
+        payload.get("output"),   # Falco
+        payload.get("issue", {}).get("title") if isinstance(payload.get("issue"), dict) else None,  # Snyk
+        payload.get("app", {}).get("name") if isinstance(payload.get("app"), dict) else None,  # ArgoCD
     ]
     log_text = next((c for c in candidates if c), None)
     if not log_text:
