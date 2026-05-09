@@ -547,7 +547,6 @@ async def _hitl_evaluate(incident_id: int, severity: str, parsed: dict, owner_ro
             status="RESOLVED_BY_AGENT",
             agent_execution_logs=logs,
         )
-        ACTIVE_APPROVALS.dec()
         create_notification(
             message=f"🤖 Agent auto-resolved Incident #{incident_id} [{severity}] — no approval needed",
             type="info",
@@ -976,7 +975,7 @@ class InboundWebhookRequest(BaseModel):
 
 
 @app.post("/api/webhooks/inbound", status_code=202)
-async def inbound_webhook_gateway(request: InboundWebhookRequest):
+async def inbound_webhook_gateway(request: InboundWebhookRequest, http_request: Request):
     """
     Queue-first webhook gateway.
     Accepts any source+payload, returns 202 immediately,
@@ -985,7 +984,7 @@ async def inbound_webhook_gateway(request: InboundWebhookRequest):
     import json as _json, uuid
     source = request.source.strip().lower()
     raw_body = str(request.payload).encode()
-    require_valid_signature(source, raw_body, dict(request.headers) if hasattr(request, "headers") else {})
+    require_valid_signature(source, raw_body, dict(http_request.headers))
     if not source:
         raise HTTPException(status_code=400, detail="source cannot be empty.")
 
@@ -1118,7 +1117,6 @@ async def create_jira_ticket(incident_id: int, current_user: User = Depends(get_
         f"Action Plan: {'; '.join(incident.get('action_plan', []))}\n"
         f"Commands: {'; '.join(incident.get('commands', []))}"
     )
-    prompt = JIRA_FORMAT_PROMPT + "\n\nIncident:\n" + incident_summary_text
 
     try:
         if AI_PROVIDER == "ollama":
@@ -1742,6 +1740,16 @@ async def scan_anomalies(current_user: User = Depends(get_current_user)):
     await asyncio.sleep(3)
 
     record = save_incident(ANOMALY_INCIDENT)
+    asyncio.create_task(_hitl_evaluate(
+        record.id,
+        ANOMALY_INCIDENT["severity"],
+        {
+            "action_plan": ANOMALY_INCIDENT["action_plan"],
+            "commands":    ANOMALY_INCIDENT["commands"],
+        },
+        ANOMALY_INCIDENT.get("owner_role", "Admin"),
+        ANOMALY_INCIDENT.get("source", "anomaly-scanner"),
+    ))
 
     create_notification(
         message="⚠️ Predictive anomaly detected: Gradual memory leak in auth-service (ETA to OOM: 4 h)",
@@ -1916,7 +1924,7 @@ def get_dora_metrics(current_user: User = Depends(get_current_user)):
 @app.post("/api/cicd/monitor", status_code=202)
 async def trigger_cicd_monitor(current_user: User = Depends(get_current_user)):
     """Dispatch the CI/CD monitor Celery task (or in-process fallback)."""
-    from tasks import monitor_cicd_pipelines as _monitor_task
+    from .tasks import monitor_cicd_pipelines as _monitor_task
     try:
         task = _monitor_task.delay()
         return {"status": "accepted", "task_id": task.id, "message": "CI/CD monitor scan dispatched."}
