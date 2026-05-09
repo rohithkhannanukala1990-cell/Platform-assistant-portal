@@ -2,6 +2,9 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Callable
 
+import pyotp
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from slowapi import Limiter
@@ -18,6 +21,10 @@ from database import engine
 VALID_ROLES = {"Admin", "Developer", "DataEngineer", "NetworkEngineer", "DatabaseDeveloper"}
 limiter = Limiter(key_func=get_remote_address)
 
+def get_session():
+    with Session(engine) as session:
+        yield session
+
 
 # ── MODELS ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +38,8 @@ class User(SQLModel, table=True):
     role: str = Field(default="Developer")
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    mfa_secret: str | None = Field(default=None)
+    mfa_enabled: bool = Field(default=False)
 
 
 class AuditLog(SQLModel, table=True):
@@ -75,17 +84,36 @@ def verify_password(plain: str, hashed: str) -> bool:
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION")
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
+JWT_PRIVATE_KEY_PEM = os.getenv("JWT_PRIVATE_KEY", "")
+JWT_PUBLIC_KEY_PEM = os.getenv("JWT_PUBLIC_KEY", "")
+
+_private_key = None
+_public_key = None
+if JWT_PRIVATE_KEY_PEM and JWT_PUBLIC_KEY_PEM:
+    _private_key = serialization.load_pem_private_key(
+        JWT_PRIVATE_KEY_PEM.encode(),
+        password=None,
+        backend=default_backend(),
+    )
+    _public_key = serialization.load_pem_public_key(
+        JWT_PUBLIC_KEY_PEM.encode(),
+        backend=default_backend(),
+    )
+    ALGORITHM = "RS256"
 
 
 def create_access_token(username: str, role: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode = {"sub": username, "role": role, "exp": expire}
+    if _private_key:
+        return jwt.encode(to_encode, _private_key, algorithm=ALGORITHM)
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def decode_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        key = _public_key if _public_key else SECRET_KEY
+        payload = jwt.decode(token, key, algorithms=[ALGORITHM])
         username = payload.get("sub")
         role = payload.get("role")
         if not username or not role:
@@ -262,6 +290,11 @@ def login(
             )
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    if user.mfa_enabled:
+        totp_code = form.totp_code if hasattr(form, "totp_code") else None
+        if not totp_code or not pyotp.TOTP(user.mfa_secret).verify(totp_code):
+            raise HTTPException(status_code=401, detail="MFA code required or invalid")
+
     token = create_access_token(username=user.username, role=user.role)
     write_audit(
         actor=user.username,
@@ -272,6 +305,30 @@ def login(
         ip_address=(request.client.host if request.client else ""),
     )
     return Token(access_token=token, role=user.role, username=user.username)
+
+
+@auth_router.post("/mfa/setup")
+def setup_mfa(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    secret = pyotp.random_base32()
+    current_user.mfa_secret = secret
+    current_user.mfa_enabled = True
+    session.add(current_user)
+    session.commit()
+    totp = pyotp.TOTP(secret)
+    return {
+        "secret": secret,
+        "qr_url": totp.provisioning_uri(current_user.username, issuer_name="AIOps Portal"),
+        "message": "Scan QR code with Google Authenticator"
+    }
+
+
+@auth_router.post("/mfa/verify")
+def verify_mfa(totp_code: str, current_user: User = Depends(get_current_user)):
+    if not current_user.mfa_enabled or not current_user.mfa_secret:
+        raise HTTPException(400, "MFA not configured")
+    if not pyotp.TOTP(current_user.mfa_secret).verify(totp_code):
+        raise HTTPException(401, "Invalid MFA code")
+    return {"message": "MFA verified successfully"}
 
 
 @auth_router.get("/me", response_model=UserRead)
