@@ -743,11 +743,14 @@ async def approve_incident(incident_id: int, body: ApprovalRequest, current_user
         sn_url=_SERVICENOW_MOCK_URL,
     )
 
-    updated = update_incident_status(
-        incident_id,
-        status="RESOLVED_BY_AGENT",
-        agent_execution_logs=logs,
-    )
+    try:
+        updated = update_incident_status(
+            incident_id,
+            status="RESOLVED_BY_AGENT",
+            agent_execution_logs=logs,
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Incident not found during update")
     ACTIVE_APPROVALS.dec()
     write_audit(
         actor=current_user.username,
@@ -778,7 +781,10 @@ async def reject_incident(incident_id: int, current_user: User = Depends(get_cur
     if incident.get("status") != "AWAITING_APPROVAL":
         raise HTTPException(status_code=400, detail="Incident is not awaiting approval")
 
-    updated = update_incident_status(incident_id, status="REJECTED")
+    try:
+        updated = update_incident_status(incident_id, status="REJECTED")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Incident not found during update")
     ACTIVE_APPROVALS.dec()
     write_audit(
         actor=current_user.username,

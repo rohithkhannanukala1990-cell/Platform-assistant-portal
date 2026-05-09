@@ -196,9 +196,9 @@ def save_incident(data: dict) -> Incident:
         commands_json=json.dumps(data.get("commands", [])),
         files_to_check_json=json.dumps(data.get("files_to_check", [])),
         validation_steps_json=json.dumps(data.get("validation_steps", [])),
-        raw_logs=data["raw_logs"],
-        model_used=data["model_used"],
-        raw_response=data["raw_response"],
+        raw_logs=data.get("raw_logs", ""),
+        model_used=data.get("model_used", "system"),
+        raw_response=data.get("raw_response", ""),
         source=data.get("source", "manual"),
         owner_role=data.get("owner_role", "Admin"),
     )
@@ -219,6 +219,18 @@ def _serialize_incident(i: Incident) -> dict:
     return serialize_incident(i)
 
 
+def _safe_json_loads(value, fallback=None):
+    """Parse JSON string safely; return fallback on any error."""
+    if fallback is None:
+        fallback = []
+    if not value:
+        return fallback
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return fallback
+
+
 def serialize_incident(i: Incident) -> dict:
     return {
         "id": i.id,
@@ -226,11 +238,11 @@ def serialize_incident(i: Incident) -> dict:
         "severity": i.severity,
         "summary": i.summary,
         "root_cause": i.root_cause,
-        "evidence": json.loads(i.evidence_json),
-        "action_plan": json.loads(i.action_plan_json),
-        "commands": json.loads(i.commands_json),
-        "files_to_check": json.loads(i.files_to_check_json),
-        "validation_steps": json.loads(i.validation_steps_json),
+        "evidence": _safe_json_loads(i.evidence_json),
+        "action_plan": _safe_json_loads(i.action_plan_json),
+        "commands": _safe_json_loads(i.commands_json),
+        "files_to_check": _safe_json_loads(i.files_to_check_json),
+        "validation_steps": _safe_json_loads(i.validation_steps_json),
         "raw_logs": i.raw_logs,
         "model_used": i.model_used,
         "raw_response": i.raw_response,
@@ -238,7 +250,7 @@ def serialize_incident(i: Incident) -> dict:
         "status":                    getattr(i, "status",                    "OPEN")   or "OPEN",
         "execution_logs":            getattr(i, "execution_logs",            None),
         "owner_role":                getattr(i, "owner_role",                "Admin")  or "Admin",
-        "proposed_remediation_plan": json.loads(getattr(i, "proposed_remediation_plan", None) or "[]"),
+        "proposed_remediation_plan": _safe_json_loads(getattr(i, "proposed_remediation_plan", None)),
         "agent_execution_logs":      getattr(i, "agent_execution_logs",      None),
     }
 
@@ -249,11 +261,11 @@ def update_incident_status(
     execution_logs: str | None = None,
     proposed_remediation_plan: str | None = None,
     agent_execution_logs: str | None = None,
-) -> dict | None:
+) -> dict:
     with Session(engine) as session:
         row = session.get(Incident, incident_id)
         if not row:
-            return None
+            raise ValueError(f"Incident {incident_id} not found")
         row.status = status
         if execution_logs is not None:
             row.execution_logs = execution_logs
@@ -322,7 +334,7 @@ def _serialize_infra(r: InfraGeneration) -> dict:
         "resource_name": r.resource_name,
         "provider_used": r.provider_used,
         "terraform_code": r.terraform_code,
-        "cli_commands": json.loads(r.cli_commands_json),
+        "cli_commands": _safe_json_loads(r.cli_commands_json),
         "cost_estimate": r.cost_estimate,
         "model_used": r.model_used,
     }
@@ -360,7 +372,7 @@ def _serialize_cicd(r: CICDPipeline) -> dict:
         "tool_name": r.tool_name,
         "yaml_code": r.yaml_code,
         "explanation": r.explanation,
-        "security_checks": json.loads(r.security_checks_json),
+        "security_checks": _safe_json_loads(r.security_checks_json),
         "model_used": r.model_used,
     }
 
@@ -386,7 +398,9 @@ def create_notification(message: str, type: str = "info", incident_id: int | Non
 
 def get_all_notifications() -> list[dict]:
     with Session(engine) as session:
-        rows = session.exec(select(Notification).order_by(Notification.timestamp.desc())).all()
+        rows = session.exec(
+            select(Notification).order_by(Notification.timestamp.desc()).limit(200)
+        ).all()
     return [_serialize_notification(r) for r in rows]
 
 
