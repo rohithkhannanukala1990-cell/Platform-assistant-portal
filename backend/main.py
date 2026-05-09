@@ -273,9 +273,14 @@ async def _run_triage(log_text: str, source: str = "manual", owner_role: str = "
     Call AI → parse → save incident → notification → Slack.
     Returns the serialised TriageResponse dict (or raises on AI error).
     """
-    # Route to TesterAgent for test/quality sources
+    from agents.security_agent import is_security_source, SECURITY_SYSTEM_PROMPT
     from agents.tester_agent import is_tester_source, TESTER_SYSTEM_PROMPT
-    active_system_prompt = TESTER_SYSTEM_PROMPT if is_tester_source(source) else SYSTEM_PROMPT
+    if is_security_source(source):
+        active_system_prompt = SECURITY_SYSTEM_PROMPT
+    elif is_tester_source(source):
+        active_system_prompt = TESTER_SYSTEM_PROMPT
+    else:
+        active_system_prompt = SYSTEM_PROMPT
 
     _start = time.time()
     if AI_PROVIDER == "ollama":
@@ -314,7 +319,7 @@ async def _run_triage(log_text: str, source: str = "manual", owner_role: str = "
             await _send_slack_alert(webhook, severity, parsed["summary"], parsed["root_cause"])
 
     # Spawn HITL evaluation as a fire-and-forget async task
-    asyncio.create_task(_hitl_evaluate(record.id, severity, parsed, owner_role))
+    asyncio.create_task(_hitl_evaluate(record.id, severity, parsed, owner_role, source))
 
     return {
         "id":              record.id,
@@ -460,7 +465,7 @@ _AGENT_AUTO_LOGS_TEMPLATE = """\
 [00:10] ✅ Incident #{id} auto-resolved by agent. No human intervention required.
 """
 
-async def _hitl_evaluate(incident_id: int, severity: str, parsed: dict, owner_role: str):
+async def _hitl_evaluate(incident_id: int, severity: str, parsed: dict, owner_role: str, source: str = ""):
     """
     Autonomous path        → LOW / WARNING / MEDIUM : auto-simulate fix → RESOLVED_BY_AGENT
     HITL path              → HIGH / CRITICAL        : set AWAITING_APPROVAL + notify
@@ -468,6 +473,11 @@ async def _hitl_evaluate(incident_id: int, severity: str, parsed: dict, owner_ro
     """
     import json as _json
     await asyncio.sleep(2)   # simulate agent thinking delay
+
+    # Security incidents ALWAYS go to HITL regardless of severity
+    from agents.security_agent import is_security_source
+    if is_security_source(source):
+        severity = "High"  # force HITL for all security events
 
     action_plan = parsed.get("action_plan", []) or []
     commands    = parsed.get("commands",    []) or []
@@ -870,6 +880,9 @@ _ROLE_ROUTES: dict[str, str] = {
     "snyk":          "Developer",
     "sentry":        "Developer",
     "dependabot":    "Developer",
+    "trivy":       "Developer",
+    "semgrep":     "Developer",
+    "checkov":     "NetworkEngineer",
     # CI/CD
     "circleci":      "Developer",
     "jenkins":       "Developer",
@@ -1921,7 +1934,7 @@ async def _cicd_monitor_fallback():
         incident_id=record.id,
     )
     parsed = {"summary": scenario["summary"], "action_plan": scenario["action_plan"], "commands": scenario["commands"]}
-    asyncio.create_task(_hitl_evaluate(record.id, scenario["severity"], parsed, scenario["owner_role"]))
+    asyncio.create_task(_hitl_evaluate(record.id, scenario["severity"], parsed, scenario["owner_role"], scenario["source"]))
 
 
 # ── DB Query Analyzer ──────────────────────────────────────────────────────────
