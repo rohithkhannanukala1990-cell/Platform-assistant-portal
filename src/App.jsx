@@ -16,6 +16,15 @@ import NotificationDropdown from './components/NotificationDropdown'
 import ChatBot              from './components/ChatBot'
 import UserMenu             from './components/UserMenu'
 import PersonaSwitcher      from './components/PersonaSwitcher'
+import AgentApprovalsWidget from './components/AgentApprovalsWidget'
+import HistoryPanel         from './components/HistoryPanel'
+import IntegrationsPage     from './components/IntegrationsPage'
+import TriageView           from './components/TriageView'
+import StorageView          from './components/StorageView'
+import RunbooksView         from './components/RunbooksView'
+import InfraBuilderView     from './components/InfraBuilderView'
+import DeploymentsView      from './components/DeploymentsView'
+import LivePipelinesView    from './components/LivePipelinesView'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -191,6 +200,32 @@ function AppLayout() {
           <Route path="/database" element={
             <div className="flex-1 overflow-y-auto px-8 py-8">
               <DatabasePortal currentView={currentDbView} />
+            </div>
+          } />
+
+          <Route path="/approvals" element={
+            <div className="flex-1 overflow-y-auto px-8 py-8">
+              <AgentApprovalsWidget />
+            </div>
+          } />
+          <Route path="/history" element={
+            <div className="flex-1 overflow-y-auto px-8 py-8">
+              <HistoryPanel />
+            </div>
+          } />
+          <Route path="/integrations" element={
+            <div className="flex-1 overflow-y-auto px-8 py-8">
+              <IntegrationsPage />
+            </div>
+          } />
+          <Route path="/storage" element={
+            <div className="flex-1 overflow-y-auto px-8 py-8">
+              <StorageView />
+            </div>
+          } />
+          <Route path="/runbooks" element={
+            <div className="flex-1 overflow-y-auto px-8 py-8">
+              <RunbooksView />
             </div>
           } />
 

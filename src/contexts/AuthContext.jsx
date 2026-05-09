@@ -98,7 +98,7 @@ export function AuthProvider({ children }) {
     }
   }, [token, logout])
 
-  const login = useCallback(async (username, password) => {
+  const login = useCallback(async (username, password, totpCode) => {
     setError(null)
 
     try {
@@ -108,12 +108,16 @@ export function AuthProvider({ children }) {
           const form = new FormData()
           form.append('username', username)
           form.append('password', password)
+          if (totpCode) form.append('totp_code', totpCode)
           return form
         })(),
       })
 
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
+        if (res.status === 401 && !totpCode) {
+          return { success: false, error: 'MFA required — enter your authenticator code below', mfaRequired: true }
+        }
         const message = data?.detail || 'Login failed'
         setError(message)
         return { success: false, error: message }

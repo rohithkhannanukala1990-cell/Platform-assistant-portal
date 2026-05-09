@@ -7,6 +7,8 @@ export default function LoginPage() {
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [totpCode, setTotpCode]       = useState('')
+  const [mfaRequired, setMfaRequired] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [localError, setLocalError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
@@ -25,8 +27,11 @@ export default function LoginPage() {
 
     setSubmitting(true)
     try {
-      const result = await auth.login(username.trim(), password)
-      if (!result?.success) setLocalError(result?.error || 'Login failed')
+      const result = await auth.login(username.trim(), password, totpCode)
+      if (!result?.success) {
+        if (result?.mfaRequired) setMfaRequired(true)
+        setLocalError(result?.error || 'Login failed')
+      }
     } finally {
       setSubmitting(false)
     }
@@ -97,6 +102,25 @@ export default function LoginPage() {
               </button>
             </div>
           </div>
+
+          {mfaRequired && (
+            <div className="mt-3">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="6-digit authenticator code"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value)}
+                className="w-full px-4 py-2 bg-gray-800 border border-yellow-500
+                           rounded-lg text-white text-center tracking-widest
+                           text-xl focus:outline-none focus:border-yellow-400"
+              />
+              <p className="text-yellow-400 text-xs mt-1 text-center">
+                Open your authenticator app and enter the code
+              </p>
+            </div>
+          )}
 
           <button
             type="submit"

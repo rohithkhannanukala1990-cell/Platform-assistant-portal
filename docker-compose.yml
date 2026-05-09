@@ -173,12 +173,12 @@ services:
       - "3100:3100"
     networks: [app-network]
 
-networks:
-  app-network:
-    driver: bridge
-
 volumes:
   postgres_data:
   redis_data:
   prometheus_data:
   grafana_data:
+
+networks:
+  app-network:
+    driver: bridge

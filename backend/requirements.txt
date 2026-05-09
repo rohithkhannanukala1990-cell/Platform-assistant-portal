@@ -11,8 +11,7 @@ redis>=5.0.0
 
 # Sprint 1 — Auth layer
 python-jose[cryptography]>=3.3.0
-cryptography>=42.0.0
-passlib==1.7.4
+passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
 
 # Security + observability
@@ -20,3 +19,5 @@ slowapi>=0.1.9
 prometheus-client>=0.20.0
 python-multipart>=0.0.9
 pyotp>=2.9.0
+
+cryptography>=42.0.0
