@@ -26,6 +26,7 @@ from observability.metrics import (
     INCIDENTS_TOTAL, LLM_LATENCY_SECONDS, AGENT_CONFIDENCE,
     GUARDRAIL_BLOCKS_TOTAL, ACTIVE_APPROVALS, make_asgi_app
 )
+from observability.logger import logger
 from database import (
     create_db_and_tables,
     save_incident, get_all_incidents, update_incident_status, serialize_incident,
@@ -49,7 +50,7 @@ if AI_PROVIDER == "gemini":
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     if not GEMINI_API_KEY:
         # Don't crash the whole API for local/dev usage; fall back to Ollama.
-        print("[ai] GEMINI_API_KEY not set — falling back to AI_PROVIDER=ollama")
+        logger.warning("GEMINI_API_KEY not set - falling back to ollama")
         AI_PROVIDER = "ollama"
     else:
         gemini_client = genai.Client(api_key=GEMINI_API_KEY)
@@ -61,16 +62,16 @@ async def _wait_for_db(retries: int = 30, delay: float = 2.0):
     """
     from database import _is_sqlite
     if _is_sqlite:
-        print("[db] SQLite mode — skipping readiness wait.")
+        logger.info("SQLite mode - skipping DB readiness wait")
         return
     for attempt in range(1, retries + 1):
         try:
             with Session(db_engine) as session:
                 session.exec(sa_text("SELECT 1"))
-            print(f"[db] PostgreSQL ready (attempt {attempt})")
+            logger.info("PostgreSQL ready", extra={"attempt": attempt})
             return
         except Exception as exc:
-            print(f"[db] Waiting for database… attempt {attempt}/{retries}: {exc}")
+            logger.warning("Waiting for database", extra={"attempt": attempt, "error": str(exc)})
             await asyncio.sleep(delay)
     raise RuntimeError("Database did not become ready in time. Aborting startup.")
 
@@ -511,7 +512,7 @@ async def _hitl_evaluate(incident_id: int, severity: str, parsed: dict, owner_ro
         )
         # Mock outbound Slack alert to owner team
         await _mock_hitl_slack_notify(incident_id, severity, owner_role, parsed.get("summary", ""))
-        print(f"[HITL] Incident #{incident_id} → AWAITING_APPROVAL (owner: {owner_role})")
+        logger.info("Incident routed to HITL", extra={"incident_id": incident_id, "status": "AWAITING_APPROVAL", "owner_role": owner_role})
 
     else:
         # Auto-resolve
@@ -534,7 +535,7 @@ async def _hitl_evaluate(incident_id: int, severity: str, parsed: dict, owner_ro
             type="info",
             incident_id=incident_id,
         )
-        print(f"[HITL] Incident #{incident_id} → RESOLVED_BY_AGENT (autonomous, severity: {severity})")
+        logger.info("Incident auto-resolved by agent", extra={"incident_id": incident_id, "severity": severity})
 
 
 def _escalate_security_risk(incident_id: int, violations: list[str], stage: str = ""):
@@ -543,8 +544,7 @@ def _escalate_security_risk(incident_id: int, violations: list[str], stage: str 
     Updates the incident to ESCALATED_SECURITY_RISK and clears the plan.
     """
     violation_summary = "; ".join(violations[:3])
-    print(f"[GUARDRAIL] 🚨 Incident #{incident_id} ESCALATED_SECURITY_RISK — "
-          f"blocklist hit at {stage}: {violation_summary}")
+    logger.error("AI Safety Guardrail triggered", extra={"incident_id": incident_id, "violations": violation_summary, "stage": stage})
     GUARDRAIL_BLOCKS_TOTAL.labels(violation_type=violations[0] if violations else "unknown").inc()
     update_incident_status(
         incident_id,
@@ -573,7 +573,7 @@ async def _mock_hitl_slack_notify(incident_id: int, severity: str, owner_role: s
         settings = get_settings()
         webhook  = settings.get("slack_webhook_url", "").strip()
         if not webhook:
-            print(f"[HITL-Slack] No webhook configured — skipping Slack notify for #{incident_id}")
+            logger.info("Slack webhook not configured - skipping HITL notify", extra={"incident_id": incident_id})
             return
         payload = {
             "attachments": [{
@@ -593,7 +593,7 @@ async def _mock_hitl_slack_notify(incident_id: int, severity: str, owner_role: s
         async with httpx.AsyncClient(timeout=8) as client:
             await client.post(webhook, json=payload)
     except Exception as exc:
-        print(f"[HITL-Slack] notify failed: {exc}")
+        logger.error("Slack alert failed", extra={"error": str(exc)})
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -773,7 +773,7 @@ async def _close_servicenow_ticket(incident_id: int):
                 "resolved_by": "AIOps-Agent",
             })
     except Exception as exc:
-        print(f"[ServiceNow] mock ticket close for #{incident_id}: {exc}")
+        logger.warning("ServiceNow ticket close failed", extra={"incident_id": incident_id, "error": str(exc)})
 
 
 # ── Webhook Ingestion ──────────────────────────────────────────────────────────
@@ -783,7 +783,7 @@ async def _webhook_background_fallback(log_text: str, source: str):
     try:
         await _run_triage(log_text, source=f"webhook:{source}")
     except Exception as exc:
-        print(f"[webhook-fallback] triage failed for source={source}: {exc}")
+        logger.error("Webhook fallback triage failed", extra={"source": source, "error": str(exc)})
 
 
 async def _inbound_webhook_background_fallback(payload: dict, source: str, event_id: int):
@@ -795,7 +795,7 @@ async def _inbound_webhook_background_fallback(payload: dict, source: str, event
         update_webhook_event(event_id, status="processed", incident_id=result.get("id"))
     except Exception as exc:
         update_webhook_event(event_id, status="error")
-        print(f"[webhook-fallback] inbound event {event_id} failed: {exc}")
+        logger.error("Webhook fallback triage failed", extra={"source": source, "error": str(exc)})
 
 
 class WebhookLogRequest(BaseModel):
@@ -978,7 +978,7 @@ async def _send_slack_alert(webhook: str, severity: str, summary: str, root_caus
             r = await client.post(webhook, json=payload)
             r.raise_for_status()
     except Exception as exc:
-        print(f"[Slack] Failed to send alert: {exc}")
+        logger.error("Slack alert failed", extra={"error": str(exc)})
 
 
 # ── Notifications ──────────────────────────────────────────────────────────────
