@@ -12,6 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Symlink lets ``import backend.*`` work in this image (Celery include=backend.tasks).
+RUN ln -sfn /app /app/backend
+
 EXPOSE 8000
 
 # Use exec form so signals (SIGTERM) are forwarded correctly

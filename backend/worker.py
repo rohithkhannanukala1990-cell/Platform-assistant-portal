@@ -5,9 +5,9 @@ Import this module to get the configured Celery app:
 
     from worker import celery_app
 
-Start the worker from the backend/ directory:
+Start the worker from the repository root (so ``backend.tasks`` resolves):
 
-    celery -A worker.celery_app worker --loglevel=info --concurrency=2
+    celery -A backend.worker.celery_app worker --loglevel=info --concurrency=2
 
 Or via Docker Compose (see docker-compose.yml).
 """
@@ -25,7 +25,7 @@ celery_app = Celery(
     broker=BROKER_URL,
     backend=RESULT_BACKEND,
     # Register task modules so the worker discovers them on startup
-    include=["tasks"],
+    include=["backend.tasks"],
 )
 
 celery_app.conf.update(

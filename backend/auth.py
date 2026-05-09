@@ -5,7 +5,7 @@ from typing import Optional, Callable
 import pyotp
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -225,8 +225,8 @@ def write_audit(
 # ── SEED FUNCTIONS ────────────────────────────────────────────────────────────
 
 def seed_default_admin() -> None:
-    username = "admin"
-    password = "changeme123"
+    username = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
+    password = os.getenv("DEFAULT_ADMIN_PASSWORD", "changeme123")
     with Session(engine) as session:
         existing_admin = session.exec(
             select(User).where(User.username == username)
@@ -244,7 +244,10 @@ def seed_default_admin() -> None:
             )
         )
         session.commit()
-    print("[auth] WARNING: seeded default admin user with default credentials (admin/changeme123). Change immediately.")
+    print(
+        f"[auth] WARNING: seeded default admin user ({username}). "
+        "Set strong credentials via DEFAULT_ADMIN_USERNAME / DEFAULT_ADMIN_PASSWORD."
+    )
 
 
 def seed_default_llm_config() -> None:
@@ -291,7 +294,6 @@ def login(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     if user.mfa_enabled:
-        totp_code = form.totp_code if hasattr(form, "totp_code") else None
         if not totp_code or not pyotp.TOTP(user.mfa_secret).verify(totp_code):
             raise HTTPException(status_code=401, detail="MFA code required or invalid")
 
@@ -308,12 +310,17 @@ def login(
 
 
 @auth_router.post("/mfa/setup")
-def setup_mfa(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+def setup_mfa(current_user: User = Depends(get_current_user)):
     secret = pyotp.random_base32()
-    current_user.mfa_secret = secret
-    current_user.mfa_enabled = True
-    session.add(current_user)
-    session.commit()
+    # Re-fetch and update within a single session to avoid detached instance errors
+    with Session(engine) as session:
+        user = session.get(User, current_user.id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.mfa_secret = secret
+        user.mfa_enabled = True
+        session.add(user)
+        session.commit()
     totp = pyotp.TOTP(secret)
     return {
         "secret": secret,

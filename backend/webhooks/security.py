@@ -17,7 +17,9 @@ def verify_webhook_signature(source: str, payload: bytes, signature: str) -> boo
     if not secret:
         return True  # skip verification for unconfigured sources
     expected = "sha256=" + hmac.new(
-        secret.encode(), payload, hashlib.sha256
+        secret.encode() if isinstance(secret, str) else secret,
+        payload if isinstance(payload, bytes) else payload.encode(),
+        hashlib.sha256,
     ).hexdigest()
     return hmac.compare_digest(expected, signature)
 

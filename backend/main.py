@@ -27,7 +27,7 @@ from .tasks import process_inbound_webhook, process_webhook_log
 from .webhooks.security import require_valid_signature
 from .observability.metrics import (
     INCIDENTS_TOTAL, LLM_LATENCY_SECONDS, AGENT_CONFIDENCE,
-    GUARDRAIL_BLOCKS_TOTAL, ACTIVE_APPROVALS, make_asgi_app
+    GUARDRAIL_BLOCKS_TOTAL, ACTIVE_APPROVALS, HITL_APPROVAL_SECONDS, make_asgi_app
 )
 from .observability.logger import logger
 from .database import (
@@ -309,6 +309,9 @@ async def _run_triage(log_text: str, source: str = "manual", owner_role: str = "
         "owner_role":   owner_role,
     })
     INCIDENTS_TOTAL.labels(severity=parsed["severity"], source=source, outcome="triaged").inc()
+    confidence_val = parsed.get("confidence", 0.0)
+    if isinstance(confidence_val, (int, float)) and 0.0 <= confidence_val <= 1.0:
+        AGENT_CONFIDENCE.observe(confidence_val)
 
     severity   = parsed["severity"]
     notif_type = "critical" if severity == "Critical" else \
@@ -752,6 +755,14 @@ async def approve_incident(incident_id: int, body: ApprovalRequest, current_user
     except ValueError:
         raise HTTPException(status_code=404, detail="Incident not found during update")
     ACTIVE_APPROVALS.dec()
+    try:
+        from datetime import datetime, timezone
+
+        inc_ts = datetime.fromisoformat(incident["timestamp"])
+        approval_seconds = (datetime.now(timezone.utc) - inc_ts).total_seconds()
+        HITL_APPROVAL_SECONDS.observe(approval_seconds)
+    except Exception:
+        pass
     write_audit(
         actor=current_user.username,
         actor_role=current_user.role,
@@ -786,6 +797,14 @@ async def reject_incident(incident_id: int, current_user: User = Depends(get_cur
     except ValueError:
         raise HTTPException(status_code=404, detail="Incident not found during update")
     ACTIVE_APPROVALS.dec()
+    try:
+        from datetime import datetime, timezone
+
+        inc_ts = datetime.fromisoformat(incident["timestamp"])
+        approval_seconds = (datetime.now(timezone.utc) - inc_ts).total_seconds()
+        HITL_APPROVAL_SECONDS.observe(approval_seconds)
+    except Exception:
+        pass
     write_audit(
         actor=current_user.username,
         actor_role=current_user.role,

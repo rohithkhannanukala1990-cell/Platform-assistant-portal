@@ -93,7 +93,7 @@ services:
       dockerfile: Dockerfile
     # Override CMD: start Celery instead of uvicorn
     command: >
-      celery -A worker.celery_app worker
+      celery -A backend.worker.celery_app worker
         --loglevel=info
         --concurrency=2
         --queues=celery
