@@ -21,6 +21,7 @@ from database import engine as db_engine
 from auth import auth_router, get_current_user, write_audit, User
 from auth import seed_default_admin, seed_default_llm_config
 from command_validator import CommandValidator
+from executor.safe_executor import safe_executor
 from tasks import process_inbound_webhook, process_webhook_log
 from observability.metrics import (
     INCIDENTS_TOTAL, LLM_LATENCY_SECONDS, AGENT_CONFIDENCE,
@@ -696,6 +697,17 @@ _AGENT_APPROVED_LOGS = """\
 
 class ApprovalRequest(BaseModel):
     approved_by_role: str = "Admin"
+
+
+@app.post("/api/incidents/{incident_id}/dry-run")
+async def dry_run_incident(incident_id: int, current_user: User = Depends(get_current_user)):
+    all_incidents = get_all_incidents()
+    incident = next((i for i in all_incidents if i["id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(404, "Incident not found")
+    plan = incident.get("proposed_remediation_plan") or []
+    commands = [s for s in (plan if isinstance(plan, list) else []) if s.startswith("Run:") or "kubectl" in s or "docker" in s or "git" in s]
+    return await safe_executor.dry_run(commands)
 
 
 @app.post("/api/incidents/{incident_id}/approve")
