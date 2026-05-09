@@ -16,8 +16,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from worker import celery_app
-from database import update_webhook_event
+from .worker import celery_app
+from .database import update_webhook_event
 
 logger = logging.getLogger(__name__)
 
@@ -152,8 +152,8 @@ def monitor_cicd_pipelines(self):
     The incident is then evaluated by the HITL processor.
     """
     import random as _rand
-    from database import save_incident, create_notification
-    from main import _hitl_evaluate, _CICD_MONITOR_SCENARIOS
+    from .database import save_incident, create_notification
+    from .main import _hitl_evaluate, _CICD_MONITOR_SCENARIOS
 
     logger.info("[celery] monitor_cicd_pipelines: starting scan")
 

@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlmodel import SQLModel, Field, Session, select
 from sqlalchemy import Column, String
 
-from database import engine
+from .database import engine
 
 
 VALID_ROLES = {"Admin", "Developer", "DataEngineer", "NetworkEngineer", "DatabaseDeveloper"}

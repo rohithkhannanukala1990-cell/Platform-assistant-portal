@@ -2,7 +2,7 @@ import asyncio
 import subprocess
 import json
 from datetime import datetime
-from command_validator import CommandValidator
+from ..command_validator import CommandValidator
 
 
 class ExecutionStep:

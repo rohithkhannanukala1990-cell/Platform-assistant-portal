@@ -1,4 +1,5 @@
 import os
+import httpx
 import re
 import json
 import asyncio
@@ -17,18 +18,18 @@ from pydantic import BaseModel
 from google import genai
 from sqlmodel import Session
 from sqlalchemy import text as sa_text
-from database import engine as db_engine
-from auth import auth_router, get_current_user, write_audit, User
-from auth import seed_default_admin, seed_default_llm_config
-from command_validator import CommandValidator
-from executor.safe_executor import safe_executor
-from tasks import process_inbound_webhook, process_webhook_log
-from observability.metrics import (
+from .database import engine as db_engine
+from .auth import auth_router, get_current_user, write_audit, User
+from .auth import seed_default_admin, seed_default_llm_config
+from .command_validator import CommandValidator
+from .executor.safe_executor import safe_executor
+from .tasks import process_inbound_webhook, process_webhook_log
+from .observability.metrics import (
     INCIDENTS_TOTAL, LLM_LATENCY_SECONDS, AGENT_CONFIDENCE,
     GUARDRAIL_BLOCKS_TOTAL, ACTIVE_APPROVALS, make_asgi_app
 )
-from observability.logger import logger
-from database import (
+from .observability.logger import logger
+from .database import (
     create_db_and_tables,
     save_incident, get_all_incidents, update_incident_status, serialize_incident,
     save_infra,    get_all_infra,
@@ -61,7 +62,7 @@ async def _wait_for_db(retries: int = 30, delay: float = 2.0):
     Block startup until the database accepts connections.
     SQLite is always ready immediately; only PostgreSQL needs a retry loop.
     """
-    from database import _is_sqlite
+    from .database import _is_sqlite
     if _is_sqlite:
         logger.info("SQLite mode - skipping DB readiness wait")
         return
@@ -82,7 +83,7 @@ async def lifespan(app: FastAPI):
     await _wait_for_db()
     create_db_and_tables()
     from sqlmodel import SQLModel
-    from database import engine as db_engine_ref
+    from .database import engine as db_engine_ref
     SQLModel.metadata.create_all(db_engine_ref)
     seed_default_admin()
     seed_default_llm_config()
@@ -94,9 +95,10 @@ app = FastAPI(title="AIOps Portal API", version="0.1.0", lifespan=lifespan)
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse({"detail": "Rate limit exceeded"}, status_code=429))
-app.include_router(auth_router)
 metrics_app = make_asgi_app()
-app.mount("/metrics", metrics_app)
+from starlette.routing import Mount
+app.router.routes.insert(0, Mount("/metrics", app=metrics_app, name="metrics"))
+app.include_router(auth_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -274,8 +276,8 @@ async def _run_triage(log_text: str, source: str = "manual", owner_role: str = "
     Call AI → parse → save incident → notification → Slack.
     Returns the serialised TriageResponse dict (or raises on AI error).
     """
-    from agents.security_agent import is_security_source, SECURITY_SYSTEM_PROMPT
-    from agents.tester_agent import is_tester_source, TESTER_SYSTEM_PROMPT
+    from .agents.security_agent import is_security_source, SECURITY_SYSTEM_PROMPT
+    from .agents.tester_agent import is_tester_source, TESTER_SYSTEM_PROMPT
     if is_security_source(source):
         active_system_prompt = SECURITY_SYSTEM_PROMPT
     elif is_tester_source(source):
@@ -476,7 +478,7 @@ async def _hitl_evaluate(incident_id: int, severity: str, parsed: dict, owner_ro
     await asyncio.sleep(2)   # simulate agent thinking delay
 
     # Security incidents ALWAYS go to HITL regardless of severity
-    from agents.security_agent import is_security_source
+    from .agents.security_agent import is_security_source
     if is_security_source(source):
         severity = "High"  # force HITL for all security events
 
@@ -720,7 +722,12 @@ async def approve_incident(incident_id: int, body: ApprovalRequest, current_user
     if incident.get("status") != "AWAITING_APPROVAL":
         raise HTTPException(status_code=400, detail="Incident is not awaiting approval")
 
-    plan  = incident.get("proposed_remediation_plan") or []
+    plan = incident.get("proposed_remediation_plan") or []
+    if isinstance(plan, str):
+        try:
+            plan = _json.loads(plan)
+        except Exception:
+            plan = []
     steps = plan if isinstance(plan, list) else []
 
     await asyncio.sleep(3)   # simulate execution
@@ -1929,10 +1936,9 @@ async def _cicd_monitor_fallback():
     await asyncio.sleep(2)
     scenario = _rand.choice(_CICD_MONITOR_SCENARIOS)
     record = save_incident({
-        "title":      scenario["title"],
+        "summary":    scenario["title"],
         "severity":   scenario["severity"],
-        "summary":    scenario["summary"],
-        "root_cause": f"CI/CD monitor detected a failure in the {scenario['stage']} stage.",
+        "root_cause": f"CI/CD monitor detected a failure in the {scenario['stage']} stage. {scenario['summary']}",
         "action_plan": scenario["action_plan"],
         "commands":   scenario["commands"],
         "evidence":   [f"Pipeline stage: {scenario['stage']}", f"Service: {scenario['service']}"],
