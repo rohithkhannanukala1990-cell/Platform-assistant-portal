@@ -13,6 +13,7 @@ import {
   BookOpen,
   GitBranch,
 } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const API_URL = `${API_BASE}/api/cicd/generate`
@@ -110,6 +111,7 @@ function InfoCard({ icon: Icon, iconColor, borderColor, title, children }) {
 }
 
 export default function CICDView({ selectedRecord, onClearRecord, onGenerateComplete }) {
+  const { authFetch } = useAuth()
   const [tool, setTool]       = useState('GitHub Actions')
   const [prompt, setPrompt]   = useState('')
   const [result, setResult]   = useState(null)
@@ -129,7 +131,7 @@ export default function CICDView({ selectedRecord, onClearRecord, onGenerateComp
     setError(null)
     setResult(null)
     try {
-      const res = await fetch(API_URL, {
+      const res = await authFetch('/api/cicd/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, cicd_tool: tool }),
