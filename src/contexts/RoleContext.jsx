@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { useAuth } from './AuthContext'
 
 export const ROLES = {
@@ -14,11 +14,51 @@ const RoleContext = createContext(null)
 export function RoleProvider({ children }) {
   const { role: jwtRole, user, isAuthenticated } = useAuth()
   const isDev = import.meta.env.DEV
-  const role = jwtRole ?? (isDev ? 'Admin' : null)
+
+  const [activeRole, setActiveRole] = useState(() => {
+    try {
+      return localStorage.getItem('aiops_active_role') || null
+    } catch {
+      return null
+    }
+  })
+
+  // When auth role changes (login/logout), reset the active persona.
+  useEffect(() => {
+    setActiveRole(null)
+    try {
+      localStorage.removeItem('aiops_active_role')
+    } catch {
+      // ignore storage failures
+    }
+  }, [jwtRole, isAuthenticated])
+
+  const role = useMemo(() => {
+    const baseRole = jwtRole ?? (isDev ? 'Admin' : null)
+    if (!baseRole) return null
+
+    // Only Admin can switch personas.
+    if (baseRole !== 'Admin') return baseRole
+
+    return ROLES[activeRole]?.id ? activeRole : baseRole
+  }, [jwtRole, isDev, activeRole])
+
   const roleInfo = ROLES[role] ?? ROLES['Admin']
 
+  function setRole(nextRole) {
+    const baseRole = jwtRole ?? (isDev ? 'Admin' : null)
+    if (baseRole !== 'Admin') return
+    if (!ROLES[nextRole]) return
+    setActiveRole(nextRole)
+    try {
+      localStorage.setItem('aiops_active_role', nextRole)
+    } catch {
+      // ignore storage failures
+    }
+  }
+
   return (
-    <RoleContext.Provider value={{ role, roleInfo, user, isAuthenticated }}>
+    <RoleContext.Provider value={{ role, setRole, roleInfo, user, isAuthenticated }}>
       {children}
     </RoleContext.Provider>
   )
