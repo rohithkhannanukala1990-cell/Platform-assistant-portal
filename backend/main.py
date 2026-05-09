@@ -273,13 +273,17 @@ async def _run_triage(log_text: str, source: str = "manual", owner_role: str = "
     Call AI → parse → save incident → notification → Slack.
     Returns the serialised TriageResponse dict (or raises on AI error).
     """
+    # Route to TesterAgent for test/quality sources
+    from agents.tester_agent import is_tester_source, TESTER_SYSTEM_PROMPT
+    active_system_prompt = TESTER_SYSTEM_PROMPT if is_tester_source(source) else SYSTEM_PROMPT
+
     _start = time.time()
     if AI_PROVIDER == "ollama":
-        raw_text  = await call_ollama(log_text)
+        raw_text  = await call_ollama(log_text, system_prompt=active_system_prompt)
         model_used = "Ollama / Gemma 3 4B (Local)"
         LLM_LATENCY_SECONDS.labels(provider=AI_PROVIDER).observe(time.time() - _start)
     else:
-        raw_text  = await call_gemini(log_text)
+        raw_text  = await call_gemini(log_text, system_prompt=active_system_prompt)
         model_used = "Gemma 3 27B (Cloud)"
         LLM_LATENCY_SECONDS.labels(provider=AI_PROVIDER).observe(time.time() - _start)
 
@@ -835,6 +839,12 @@ _ROLE_ROUTES: dict[str, str] = {
     "github":       "Developer",
     "gitlab":       "Developer",
     "jira":         "Developer",
+    "cypress":     "Developer",
+    "playwright":  "Developer",
+    "sonarqube":   "Developer",
+    "codecov":     "Developer",
+    "testrail":    "Developer",
+    "jest":        "Developer",
     # Data Engineer
     "airflow":      "DataEngineer",
     "snowflake":    "DataEngineer",
