@@ -4,6 +4,8 @@ from typing import Optional, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
@@ -14,6 +16,7 @@ from database import engine
 
 
 VALID_ROLES = {"Admin", "Developer", "DataEngineer", "NetworkEngineer", "DatabaseDeveloper"}
+limiter = Limiter(key_func=get_remote_address)
 
 
 # ── MODELS ────────────────────────────────────────────────────────────────────
@@ -242,6 +245,7 @@ def seed_default_llm_config() -> None:
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+@limiter.limit("5/15minutes")
 @auth_router.post("/login", response_model=Token)
 def login(
     request: Request,
@@ -250,6 +254,12 @@ def login(
     with Session(engine) as session:
         user = session.exec(select(User).where(User.username == form.username)).first()
         if not user or not user.is_active or not verify_password(form.password, user.hashed_password):
+            write_audit(
+                actor=form.username,
+                actor_role="unknown",
+                event_type="LOGIN_FAILED",
+                detail="Invalid credentials attempt",
+            )
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     token = create_access_token(username=user.username, role=user.role)
