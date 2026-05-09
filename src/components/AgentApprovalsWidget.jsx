@@ -117,7 +117,7 @@ function ApprovalCard({ incident, onApprove, onReject }) {
   async function handleApprove() {
     setApproving(true)
     try {
-      const res = await fetch(`${BASE}/api/incidents/${incident.id}/approve`, {
+      const res = await authFetch(`/api/incidents/${incident.id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved_by_role: role }),
@@ -133,7 +133,7 @@ function ApprovalCard({ incident, onApprove, onReject }) {
   async function handleReject() {
     setRejecting(true)
     try {
-      await fetch(`${BASE}/api/incidents/${incident.id}/reject`, { method: 'POST' })
+      await authFetch(`/api/incidents/${incident.id}/reject`, { method: 'POST' })
       setRejected(true)
       onReject?.(incident.id)
     } catch (_) {}
@@ -282,7 +282,7 @@ function ApprovalCard({ incident, onApprove, onReject }) {
               ))}
               <div className="mt-3 flex gap-2">
                 <button
-                  onClick={() => { setShowDryRun(false); handleApprove(incident.id); }}
+                  onClick={() => { setShowDryRun(false); handleApprove(); }}
                   disabled={!dryRunResult.all_safe}
                   className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded text-sm"
                 >

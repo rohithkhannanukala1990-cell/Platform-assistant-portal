@@ -162,7 +162,7 @@ export function AuthProvider({ children }) {
       user,
       role,
       token,
-      isAuthenticated: !!(token && role),
+      isAuthenticated: !!(token && role) && !loading,
       loading,
       error,
       login,

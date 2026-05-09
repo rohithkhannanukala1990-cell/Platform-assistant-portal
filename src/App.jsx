@@ -26,8 +26,6 @@ import InfraBuilderView     from './components/InfraBuilderView'
 import DeploymentsView      from './components/DeploymentsView'
 import LivePipelinesView    from './components/LivePipelinesView'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-
 // ── Ops sub-view labels ───────────────────────────────────────────────────────
 const OPS_VIEW_LABELS = {
   dashboard: 'Dashboard',
@@ -44,7 +42,7 @@ function defaultPortalForRole(role) {
 // ── Inner layout (needs router context via useRole / useNavigate) ─────────────
 function AppLayout() {
   // ── ALL hooks at the very top — no exceptions ──
-  const { isAuthenticated, loading, logout } = useAuth()
+  const { isAuthenticated, loading, logout, authFetch } = useAuth()
   const { role, roleInfo } = useRole()
 
   const [currentOpsView,  setCurrentOpsView]  = useState('dashboard')
@@ -137,7 +135,7 @@ function AppLayout() {
 
             <NotificationDropdown
               onSelectIncident={(incidentId) => {
-                fetch(`${API_BASE}/api/incidents`)
+                authFetch(`/api/incidents`)
                   .then((r) => r.json())
                   .then((incidents) => {
                     const found = incidents.find((i) => i.id === incidentId)
