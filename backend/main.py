@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+import time
 import ollama
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -21,6 +22,10 @@ from auth import auth_router, get_current_user, write_audit, User
 from auth import seed_default_admin, seed_default_llm_config
 from command_validator import CommandValidator
 from tasks import process_inbound_webhook, process_webhook_log
+from observability.metrics import (
+    INCIDENTS_TOTAL, LLM_LATENCY_SECONDS, AGENT_CONFIDENCE,
+    GUARDRAIL_BLOCKS_TOTAL, ACTIVE_APPROVALS, make_asgi_app
+)
 from database import (
     create_db_and_tables,
     save_incident, get_all_incidents, update_incident_status, serialize_incident,
@@ -88,6 +93,8 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse({"detail": "Rate limit exceeded"}, status_code=429))
 app.include_router(auth_router)
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -265,12 +272,15 @@ async def _run_triage(log_text: str, source: str = "manual", owner_role: str = "
     Call AI → parse → save incident → notification → Slack.
     Returns the serialised TriageResponse dict (or raises on AI error).
     """
+    _start = time.time()
     if AI_PROVIDER == "ollama":
         raw_text  = await call_ollama(log_text)
         model_used = "Ollama / Gemma 3 4B (Local)"
+        LLM_LATENCY_SECONDS.labels(provider=AI_PROVIDER).observe(time.time() - _start)
     else:
         raw_text  = await call_gemini(log_text)
         model_used = "Gemma 3 27B (Cloud)"
+        LLM_LATENCY_SECONDS.labels(provider=AI_PROVIDER).observe(time.time() - _start)
 
     parsed = parse_json_response(raw_text)
 
@@ -282,6 +292,7 @@ async def _run_triage(log_text: str, source: str = "manual", owner_role: str = "
         "source":       source,
         "owner_role":   owner_role,
     })
+    INCIDENTS_TOTAL.labels(severity=parsed["severity"], source=source, outcome="triaged").inc()
 
     severity   = parsed["severity"]
     notif_type = "critical" if severity == "Critical" else \
@@ -492,6 +503,7 @@ async def _hitl_evaluate(incident_id: int, severity: str, parsed: dict, owner_ro
             status="AWAITING_APPROVAL",
             proposed_remediation_plan=_json.dumps(plan),
         )
+        ACTIVE_APPROVALS.inc()
         create_notification(
             message=f"🤖 Agent requires approval for Incident #{incident_id} [{severity}] — awaiting {owner_role}",
             type="critical" if severity == "Critical" else "warning",
@@ -516,6 +528,7 @@ async def _hitl_evaluate(incident_id: int, severity: str, parsed: dict, owner_ro
             status="RESOLVED_BY_AGENT",
             agent_execution_logs=logs,
         )
+        ACTIVE_APPROVALS.dec()
         create_notification(
             message=f"🤖 Agent auto-resolved Incident #{incident_id} [{severity}] — no approval needed",
             type="info",
@@ -532,6 +545,7 @@ def _escalate_security_risk(incident_id: int, violations: list[str], stage: str 
     violation_summary = "; ".join(violations[:3])
     print(f"[GUARDRAIL] 🚨 Incident #{incident_id} ESCALATED_SECURITY_RISK — "
           f"blocklist hit at {stage}: {violation_summary}")
+    GUARDRAIL_BLOCKS_TOTAL.labels(violation_type=violations[0] if violations else "unknown").inc()
     update_incident_status(
         incident_id,
         status="ESCALATED_SECURITY_RISK",
@@ -699,6 +713,7 @@ async def approve_incident(incident_id: int, body: ApprovalRequest, current_user
         status="RESOLVED_BY_AGENT",
         agent_execution_logs=logs,
     )
+    ACTIVE_APPROVALS.dec()
     write_audit(
         actor=current_user.username,
         actor_role=current_user.role,
