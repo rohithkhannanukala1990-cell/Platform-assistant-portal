@@ -141,7 +141,7 @@ function AppLayout() {
                     const found = incidents.find((i) => i.id === incidentId)
                     if (found) { setCurrentOpsView('triage') }
                   })
-                  .catch(() => {})
+                  .catch((err) => { console.error('Failed to navigate to incident:', err) })
               }}
             />
 

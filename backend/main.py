@@ -119,7 +119,14 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "connect-src 'self' ws: wss:; "
+        "img-src 'self' data:; "
+        "font-src 'self' data:"
+    )
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
@@ -866,7 +873,7 @@ class WebhookLogRequest(BaseModel):
 
 
 @app.post("/api/webhooks/logs", status_code=202)
-async def ingest_webhook_log(request: WebhookLogRequest):
+async def ingest_webhook_log(request: WebhookLogRequest, current_user: User = Depends(get_current_user)):
     """Accept a log payload, return 202 immediately, dispatch Celery task for triage."""
     if not request.log_text.strip():
         raise HTTPException(status_code=400, detail="log_text cannot be empty.")
@@ -1047,7 +1054,7 @@ async def inbound_webhook_gateway(request: InboundWebhookRequest, http_request: 
 
 
 @app.get("/api/webhooks/activity")
-def webhook_activity(limit: int = 40):
+def webhook_activity(limit: int = 40, current_user: User = Depends(get_current_user)):
     return get_recent_webhook_events(limit=limit)
 
 
@@ -1633,7 +1640,7 @@ def get_analytics(current_user: User = Depends(get_current_user)):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "provider": AI_PROVIDER, "model": OLLAMA_MODEL}
+    return {"status": "ok"}
 
 
 # ── Platform Assistant Chatbot ─────────────────────────────────────────────────

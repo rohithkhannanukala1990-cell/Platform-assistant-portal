@@ -73,7 +73,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /app
     ports:
       - "8000:8000"
     env_file:
@@ -104,7 +103,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /app
     env_file:
       - ./backend/.env
     environment:
