@@ -24,6 +24,7 @@ from .auth import seed_default_admin, seed_default_llm_config
 from .command_validator import CommandValidator
 from .executor.safe_executor import safe_executor
 from .tasks import process_inbound_webhook, process_webhook_log
+from .webhooks.security import require_valid_signature
 from .observability.metrics import (
     INCIDENTS_TOTAL, LLM_LATENCY_SECONDS, AGENT_CONFIDENCE,
     GUARDRAIL_BLOCKS_TOTAL, ACTIVE_APPROVALS, make_asgi_app
@@ -777,6 +778,7 @@ async def reject_incident(incident_id: int, current_user: User = Depends(get_cur
         raise HTTPException(status_code=400, detail="Incident is not awaiting approval")
 
     updated = update_incident_status(incident_id, status="REJECTED")
+    ACTIVE_APPROVALS.dec()
     write_audit(
         actor=current_user.username,
         actor_role=current_user.role,
@@ -919,14 +921,8 @@ _ROLE_ROUTES: dict[str, str] = {
     "clickhouse":   "DatabaseDeveloper",
     "elasticsearch":"DatabaseDeveloper",
     # Database
-    "clickhouse":    "DatabaseDeveloper",
     "cassandra":     "DatabaseDeveloper",
     "dynamodb":      "DatabaseDeveloper",
-    # Data
-    "dbt":           "DataEngineer",
-    "airflow":       "DataEngineer",
-    "kafka":         "DataEngineer",
-    "snowflake":     "DataEngineer",
 }
 
 def _route_owner(source: str) -> str:
@@ -988,7 +984,6 @@ async def inbound_webhook_gateway(request: InboundWebhookRequest):
     """
     import json as _json, uuid
     source = request.source.strip().lower()
-    from webhooks.security import require_valid_signature
     raw_body = str(request.payload).encode()
     require_valid_signature(source, raw_body, dict(request.headers) if hasattr(request, "headers") else {})
     if not source:
