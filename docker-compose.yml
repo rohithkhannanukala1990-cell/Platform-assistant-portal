@@ -7,13 +7,13 @@ version: "3.9"
 
 # Shared environment block reused by backend + celery_worker
 x-backend-env: &backend-env
-  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/aiops
-  CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-  CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
-  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/aiops
+  CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+  CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev_jwt_secret_change_me}
   JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-480}
   DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
-  DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD}
+  DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-Admin123!}
 
 services:
 
@@ -26,9 +26,10 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+      - /var/run/postgresql
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
       POSTGRES_DB: aiops
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
     volumes:
@@ -39,6 +40,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    networks: [app-network]
 
   # ── 2. Redis (Celery broker + result backend) ──
   redis:
@@ -49,15 +51,16 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis123}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis123}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
       start_period: 5s
+    networks: [app-network]
 
   # ── 3. FastAPI Backend ─────────────────────
   backend:
@@ -150,7 +153,7 @@ services:
     image: grafana/grafana:11.0.0
     restart: unless-stopped
     ports:
-      - "3001:3000"
+      - "${GRAFANA_PORT:-3002}:3000"
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
       GF_USERS_ALLOW_SIGN_UP: "false"
