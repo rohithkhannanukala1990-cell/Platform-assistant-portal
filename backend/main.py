@@ -222,6 +222,8 @@ def parse_json_response(text: str) -> dict:
             "commands":         _to_list(data.get("commands", [])),
             "files_to_check":   _to_list(data.get("files_to_check", [])),
             "validation_steps": _to_list(data.get("validation_steps", [])),
+            "confidence":       float(data.get("confidence", 0.0)),
+            "threat_type":      str(data.get("threat_type", "")),
         }
     except (json.JSONDecodeError, ValueError):
         return {

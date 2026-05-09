@@ -1,5 +1,6 @@
 import asyncio
 import subprocess
+import shlex
 import json
 from datetime import datetime
 from ..command_validator import CommandValidator
@@ -54,7 +55,7 @@ class SafeExecutor:
             logs.append(f"[Step {i+1}/{len(commands)}] Executing: {cmd}")
             try:
                 result = subprocess.run(
-                    cmd, shell=True, capture_output=True,
+                    shlex.split(cmd), shell=False, capture_output=True,
                     text=True, timeout=self.MAX_EXECUTION_SECONDS
                 )
                 if result.returncode == 0:
@@ -74,10 +75,35 @@ class SafeExecutor:
 
     async def _rollback(self, executed_commands: list[str], logs: list[str]):
         logs.append("[SafeExecutor] 🔄 Initiating rollback...")
-        # Reverse execution order for rollback
         for cmd in reversed(executed_commands):
-            logs.append(f"[Rollback] Noting rollback needed for: {cmd}")
-        logs.append("[SafeExecutor] Rollback complete. Manual verification required.")
+            rollback_cmd = self._infer_rollback(cmd)
+            if rollback_cmd:
+                logs.append(f"[Rollback] Executing: {rollback_cmd}")
+                try:
+                    result = subprocess.run(
+                        shlex.split(rollback_cmd), shell=False,
+                        capture_output=True, text=True,
+                        timeout=self.MAX_EXECUTION_SECONDS
+                    )
+                    if result.returncode == 0:
+                        logs.append(f"[Rollback] ✅ Success: {rollback_cmd}")
+                    else:
+                        logs.append(f"[Rollback] ❌ Failed: {result.stderr[:200]}")
+                except Exception as exc:
+                    logs.append(f"[Rollback] ⚠️ Error: {exc}")
+            else:
+                logs.append(f"[Rollback] ⚠️ No rollback known for: {cmd} — manual fix required")
+        logs.append("[SafeExecutor] Rollback complete. Verify system state.")
+
+    def _infer_rollback(self, cmd: str) -> str | None:
+        """Map known forward commands to their rollback equivalents."""
+        if "kubectl rollout restart" in cmd:
+            return cmd.replace("rollout restart", "rollout undo")
+        if "kubectl scale" in cmd and "--replicas=0" in cmd:
+            return cmd.replace("--replicas=0", "--replicas=1")
+        if "argocd app sync" in cmd:
+            return cmd.replace("sync", "rollback")
+        return None
 
 
 safe_executor = SafeExecutor()

@@ -41,7 +41,7 @@ _BLOCKLIST: list[tuple[str, str]] = [
     (r"\bDROP\s+DATABASE\b",        "SQL DROP DATABASE"),
     (r"\bDROP\s+SCHEMA\b",          "SQL DROP SCHEMA"),
     (r"\bTRUNCATE\b",               "SQL TRUNCATE"),
-    (r"\bDELETE\s+FROM\b(?!\s*WHERE)", "Unfiltered SQL DELETE (no WHERE clause)"),
+    (r"\bDELETE\s+FROM\b(?![\s\S]*?\bWHERE\b)", "Unfiltered SQL DELETE (no WHERE clause)"),
     (r"\bDROP\s+INDEX\b",           "SQL DROP INDEX"),
     (r"\bALTER\s+TABLE.*DROP\s+COLUMN\b", "SQL DROP COLUMN"),
 

@@ -26,26 +26,18 @@ logger = logging.getLogger(__name__)
 
 def _run_async(coro):
     """
-    Run *coro* in a brand-new event loop.
-
-    After the coroutine completes, the loop drains any pending tasks that were
-    created with asyncio.create_task() during execution (e.g. _hitl_evaluate).
-    This is necessary because Celery workers are synchronous threads and have no
-    pre-existing event loop.
+    Run *coro* safely in Celery worker threads (Python 3.10+ compatible).
+    asyncio.run() handles loop creation, pending task drain, and cleanup.
     """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(coro)
-        # Drain background tasks spawned by create_task() (e.g. HITL evaluator)
-        pending = asyncio.all_tasks(loop)
-        if pending:
-            loop.run_until_complete(
-                asyncio.gather(*pending, return_exceptions=True)
-            )
-    finally:
-        loop.close()
-        asyncio.set_event_loop(None)
+        asyncio.run(coro)
+    except RuntimeError:
+        # Fallback for environments where a loop already exists (eventlet/gevent pools)
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
 
 # ── Task: inbound webhook gateway ──────────────────────────────────────────────
@@ -70,7 +62,7 @@ def process_inbound_webhook(self, payload: dict, source: str, event_id: int):
     Retries up to 3 times with a 30-second delay on transient failures.
     """
     # Lazy import — avoids circular dependency (main imports tasks at module level)
-    from main import _run_triage, _map_to_cloud_event, _route_owner
+    from .main import _run_triage, _map_to_cloud_event, _route_owner
 
     logger.info("[celery] process_inbound_webhook source=%s event_id=%s", source, event_id)
 
@@ -115,7 +107,7 @@ def process_webhook_log(self, log_text: str, source: str):
     Runs AI triage on a raw log string sent via the simple log-ingestion endpoint.
     Retries up to 3 times on failure.
     """
-    from main import _run_triage
+    from .main import _run_triage
 
     logger.info("[celery] process_webhook_log source=%s", source)
 
@@ -163,9 +155,8 @@ def monitor_cicd_pipelines(self):
                     scenario["stage"], scenario["owner_role"])
 
         record = save_incident({
-            "title":      scenario["title"],
             "severity":   scenario["severity"],
-            "summary":    scenario["summary"],
+            "summary":    scenario["title"],
             "root_cause": f"CI/CD monitor detected a failure in the {scenario['stage']} stage.",
             "action_plan": scenario["action_plan"],
             "commands":   scenario["commands"],
@@ -182,7 +173,7 @@ def monitor_cicd_pipelines(self):
         )
 
         parsed = {
-            "summary":     scenario["summary"],
+            "summary":     scenario["title"],
             "action_plan": scenario["action_plan"],
             "commands":    scenario["commands"],
         }
