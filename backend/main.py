@@ -896,6 +896,9 @@ async def inbound_webhook_gateway(request: InboundWebhookRequest):
     """
     import json as _json, uuid
     source = request.source.strip().lower()
+    from webhooks.security import require_valid_signature
+    raw_body = str(request.payload).encode()
+    require_valid_signature(source, raw_body, dict(request.headers) if hasattr(request, "headers") else {})
     if not source:
         raise HTTPException(status_code=400, detail="source cannot be empty.")
 
