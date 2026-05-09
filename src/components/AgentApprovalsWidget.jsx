@@ -5,6 +5,7 @@ import {
   Sparkles, ShieldX,
 } from 'lucide-react'
 import { useRole } from '../contexts/RoleContext'
+import { useAuth } from '../contexts/AuthContext'
 
 const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -101,12 +102,15 @@ function SecurityRiskCard({ incident }) {
 
 function ApprovalCard({ incident, onApprove, onReject }) {
   const { role } = useRole()
+  const { authFetch } = useAuth()
   const [expanded,  setExpanded]  = useState(false)
   const [approving, setApproving] = useState(false)
   const [rejecting, setRejecting] = useState(false)
   const [execLogs,  setExecLogs]  = useState(null)
   const [done,      setDone]      = useState(false)
   const [rejected,  setRejected]  = useState(false)
+  const [showDryRun, setShowDryRun] = useState(false);
+  const [dryRunResult, setDryRunResult] = useState(null);
 
   const canAct = role === 'Admin' || role === incident.owner_role
 
@@ -217,6 +221,19 @@ function ApprovalCard({ incident, onApprove, onReject }) {
           ) : (
             <div className="flex items-center gap-2">
               <button
+                onClick={async () => {
+                  const res = await authFetch(`/api/incidents/${incident.id}/dry-run`, {
+                    method: "POST",
+                  });
+                  const data = await res.json();
+                  setDryRunResult(data);
+                  setShowDryRun(true);
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium mr-2"
+              >
+                🔍 Dry Run
+              </button>
+              <button
                 onClick={handleApprove}
                 disabled={approving || rejecting}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl
@@ -240,6 +257,41 @@ function ApprovalCard({ incident, onApprove, onReject }) {
                   : <><XCircle className="w-3.5 h-3.5" /> Reject</>
                 }
               </button>
+            </div>
+          )}
+
+          {showDryRun && dryRunResult && (
+            <div className="mt-4 p-4 bg-gray-900 rounded-lg border border-blue-500">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="text-blue-400 font-semibold">🔍 Dry Run Preview</h4>
+                <span className={`text-xs px-2 py-1 rounded ${dryRunResult.all_safe ? "bg-green-900 text-green-300" : "bg-red-900 text-red-300"}`}>
+                  {dryRunResult.all_safe ? "✅ All Safe" : "⚠️ Issues Detected"}
+                </span>
+              </div>
+              {dryRunResult.steps?.map((step, i) => (
+                <div key={i} className="mb-2 text-sm font-mono">
+                  <span className={step.safe ? "text-green-400" : "text-red-400"}>
+                    {step.safe ? "✅" : "❌"} Step {i+1}: {step.command}
+                  </span>
+                  {!step.safe && (
+                    <div className="text-red-300 text-xs ml-4">
+                      Violations: {step.violations.join(", ")}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => { setShowDryRun(false); handleApprove(incident.id); }}
+                  disabled={!dryRunResult.all_safe}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded text-sm"
+                >
+                  ✅ Looks Good — Approve
+                </button>
+                <button onClick={() => setShowDryRun(false)} className="px-4 py-2 bg-gray-600 text-white rounded text-sm">
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
         </div>
