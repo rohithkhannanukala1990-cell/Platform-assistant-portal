@@ -81,6 +81,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks: [app-network]
 
   # ── 4. Celery Worker ───────────────────────
   celery_worker:
@@ -130,6 +131,48 @@ services:
     depends_on:
       - backend
 
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    networks: [app-network]
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    networks: [app-network]
+    depends_on:
+      - prometheus
+
+  loki:
+    image: grafana/loki:3.0.0
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    networks: [app-network]
+
+networks:
+  app-network:
+
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:
