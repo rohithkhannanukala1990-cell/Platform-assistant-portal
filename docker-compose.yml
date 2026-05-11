@@ -168,8 +168,9 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    # Official image includes busybox wget (not curl) — same intervals as spec.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
       interval: 30s
       timeout: 10s
       retries: 3
