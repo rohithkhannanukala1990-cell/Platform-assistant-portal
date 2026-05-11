@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { ChevronDown, Star, Plus, AlertTriangle, RefreshCw } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useToast } from './ToastNotification'
 
 const GROUP_ORDER = ['PRODUCTION', 'STAGING', 'DR', 'NON-PRODUCTION']
 
@@ -49,12 +50,12 @@ function formatToolName(toolId, toolNameProp) {
 
 export default function AccountSwitcher({ toolId, toolName, onAccountChanged }) {
   const { authFetch } = useAuth()
+  const { showToast } = useToast()
   const [isOpen, setIsOpen] = useState(false)
   const [accounts, setAccounts] = useState([])
   const [activeAccountId, setActiveAccountId] = useState(null)
   const [pinnedAccountIds, setPinnedAccountIds] = useState([])
   const [isLoading, setIsLoading] = useState(false)
-  const [toast, setToast] = useState(null)
   const [accessModalOpen, setAccessModalOpen] = useState(false)
   const [accessAccountId, setAccessAccountId] = useState('')
   const [accessReason, setAccessReason] = useState('')
@@ -62,11 +63,6 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged }) 
   const rootRef = useRef(null)
 
   const displayToolName = formatToolName(toolId || '', toolName)
-
-  const showToast = useCallback((msg) => {
-    setToast(msg)
-    window.setTimeout(() => setToast(null), 3500)
-  }, [])
 
   const loadData = useCallback(async () => {
     if (!toolId) return
@@ -144,7 +140,17 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged }) 
       if (!res.ok) return
       const data = await res.json()
       setPinnedAccountIds(Array.isArray(data.pinned_accounts) ? data.pinned_accounts : [])
-      window.dispatchEvent(new CustomEvent('context-changed', { detail: { source: 'account-pin' } }))
+      const ctxRes = await authFetch('/api/context')
+      const ctx = ctxRes.ok ? await ctxRes.json() : null
+      window.dispatchEvent(
+        new CustomEvent('context-changed', {
+          detail: {
+            context: ctx,
+            environment: ctx?.active_environment,
+            source: 'account-pin',
+          },
+        })
+      )
     } catch {
       /* noop */
     }
@@ -158,16 +164,24 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged }) 
         body: JSON.stringify({ active_accounts: { [toolId]: account.id } }),
       })
       if (!res.ok) {
-        showToast('Could not switch account')
+        showToast('Could not switch account', 'error')
         return
       }
+      const data = await res.json()
       setActiveAccountId(account.id)
       onAccountChanged?.(account)
-      window.dispatchEvent(new CustomEvent('context-changed', { detail: { source: 'account-switcher' } }))
-      showToast(`Switched to ${account.account_name}`)
+      window.dispatchEvent(
+        new CustomEvent('context-changed', {
+          detail: {
+            context: data,
+            environment: data.active_environment,
+            source: 'account-switcher',
+          },
+        })
+      )
       setIsOpen(false)
     } catch {
-      showToast('Could not switch account')
+      showToast('Could not switch account', 'error')
     }
   }
 
@@ -203,7 +217,7 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged }) 
         setAccessError(t || 'Request failed')
         return
       }
-      showToast('Access request submitted')
+      showToast('Access request submitted', 'success')
       setAccessModalOpen(false)
     } catch (e) {
       setAccessError(String(e?.message || e))
@@ -212,12 +226,6 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged }) 
 
   return (
     <div className="relative" ref={rootRef}>
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-[100] px-4 py-2 rounded-lg bg-gray-900 border border-gray-600 text-sm text-white shadow-lg">
-          {toast}
-        </div>
-      )}
-
       <button
         type="button"
         onClick={() => setIsOpen((o) => !o)}

@@ -1,9 +1,11 @@
 /**
  * OpsPortal — the full AIOps operations view.
  * Wraps DashboardView, TriageView, InfraBuilderView, CICDView, HealthDashboard,
- * ToolRegistryView, and the universal HistoryPanel.
+ * ToolRegistryView, environment/account context, and the universal HistoryPanel.
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import { useLocation } from 'react-router-dom'
 import { Heart as HeartIcon, Puzzle as PuzzleIcon } from 'lucide-react'
 import DashboardView from './DashboardView'
 import TriageView from './TriageView'
@@ -13,7 +15,12 @@ import HistoryPanel from './HistoryPanel'
 import IntegrationsPage from './IntegrationsPage'
 import HealthDashboard from './HealthDashboard'
 import ToolRegistryView from './ToolRegistryView'
+import EnvironmentSwitcher from './EnvironmentSwitcher'
+import AccountSwitcher from './AccountSwitcher'
+import { ToastProvider, useToast } from './ToastNotification'
 import { useRole } from '../contexts/RoleContext'
+import { useAuth } from '../contexts/AuthContext'
+import { setPortalContextHeaders } from '../utils/portalContextHeaders'
 
 const VIEW_LABELS = {
   dashboard: 'Dashboard',
@@ -23,6 +30,14 @@ const VIEW_LABELS = {
   integrations: 'Integrations',
   health: 'System Health',
   'tool-registry': 'Integrations',
+}
+
+/** Map ops nav view → default integration tool for AccountSwitcher */
+const TOOL_BY_VIEW = {
+  triage: 'pagerduty',
+  cicd: 'github',
+  infra: 'kubernetes',
+  database: 'postgres',
 }
 
 /**
@@ -47,30 +62,114 @@ export const OPS_NAV_ITEMS = [
   },
 ]
 
-export default function OpsPortal({ currentView, onViewChange, onBreadcrumb }) {
+function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
+  const location = useLocation()
   const { role } = useRole()
+  const { authFetch } = useAuth()
+  const { showToast } = useToast()
 
   const [versions, setVersions] = useState({ alerts: 0, infra: 0, cicd: 0 })
   const [selectedAlert, setSelectedAlert] = useState(null)
   const [selectedInfra, setSelectedInfra] = useState(null)
   const [selectedCICD, setSelectedCICD] = useState(null)
 
-  function bumpVersion(tab) {
-    setVersions((v) => ({ ...v, [tab]: v[tab] + 1 }))
-  }
+  const [showProductionBanner, setShowProductionBanner] = useState(false)
+  const [activeContext, setActiveContext] = useState(null)
+  const [activeEnvironment, setActiveEnvironment] = useState('development')
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(null)
+  const [envHeaderSlot, setEnvHeaderSlot] = useState(null)
 
-  function handleAnalysisComplete() {
+  const bumpVersion = useCallback((tab) => {
+    setVersions((v) => ({ ...v, [tab]: v[tab] + 1 }))
+  }, [])
+
+  /** Same keys merged into authFetch (see setPortalContextHeaders). */
+  const getContextHeaders = useCallback(
+    () => ({
+      'X-Active-Environment': activeEnvironment,
+      'X-Workspace-Id': activeWorkspaceId || 'default',
+      'X-User-Id': 'admin',
+    }),
+    [activeEnvironment, activeWorkspaceId]
+  )
+
+  const fetchContext = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/context')
+      if (!res.ok) return
+      const ctx = await res.json()
+      setActiveContext(ctx)
+      const env = (ctx.active_environment || 'development').toLowerCase()
+      setActiveEnvironment(env)
+      setShowProductionBanner(env === 'production' || env === 'dr')
+    } catch {
+      /* noop */
+    }
+  }, [authFetch])
+
+  const handleContextChange = useCallback(
+    (event) => {
+      const d = event.detail || {}
+      const applyCtx = (ctx) => {
+        if (!ctx) return
+        setActiveContext(ctx)
+        const env = (ctx.active_environment || 'development').toLowerCase()
+        setActiveEnvironment(env)
+        setShowProductionBanner(env === 'production' || env === 'dr')
+      }
+      if (d.context) {
+        applyCtx(d.context)
+      } else {
+        void authFetch('/api/context').then(async (r) => {
+          if (r.ok) applyCtx(await r.json())
+        })
+      }
+
+      if (d.source !== 'account-pin') {
+        const envLabel = String(
+          d.environment ?? d.context?.active_environment ?? 'development'
+        ).toLowerCase()
+        showToast(`✅ Switched to ${envLabel}`, 'success')
+      }
+
+      if (currentView === 'triage') bumpVersion('alerts')
+      else if (currentView === 'infra') bumpVersion('infra')
+      else if (currentView === 'cicd') bumpVersion('cicd')
+    },
+    [authFetch, showToast, currentView, bumpVersion]
+  )
+
+  useEffect(() => {
+    const h = getContextHeaders()
+    setPortalContextHeaders({
+      activeEnvironment: h['X-Active-Environment'],
+      activeWorkspaceId,
+    })
+  }, [getContextHeaders, activeWorkspaceId])
+
+  useEffect(() => {
+    void fetchContext()
+    window.addEventListener('context-changed', handleContextChange)
+    return () => window.removeEventListener('context-changed', handleContextChange)
+  }, [fetchContext, handleContextChange])
+
+  useEffect(() => {
+    const el = document.getElementById('ops-header-environment-slot')
+    setEnvHeaderSlot(el)
+  }, [currentView, location.pathname])
+
+  const handleAnalysisComplete = useCallback(() => {
     bumpVersion('alerts')
     setSelectedAlert(null)
-  }
-  function handleInfraComplete() {
+  }, [bumpVersion])
+  const handleInfraComplete = useCallback(() => {
     bumpVersion('infra')
     setSelectedInfra(null)
-  }
-  function handleCICDComplete() {
+  }, [bumpVersion])
+  const handleCICDComplete = useCallback(() => {
     bumpVersion('cicd')
     setSelectedCICD(null)
-  }
+  }, [bumpVersion])
 
   function handleHistorySelect(tab, item) {
     if (tab === 'alerts') {
@@ -91,12 +190,12 @@ export default function OpsPortal({ currentView, onViewChange, onBreadcrumb }) {
     cicd: selectedCICD?.id ?? null,
   }
 
-  const detailLabel = (() => {
+  const detailLabel = useMemo(() => {
     if (currentView === 'triage' && selectedAlert) return `Incident #${selectedAlert.id}`
     if (currentView === 'infra' && selectedInfra) return `Infra Record #${selectedInfra.id}`
     if (currentView === 'cicd' && selectedCICD) return `Pipeline #${selectedCICD.id}`
     return VIEW_LABELS[currentView] ?? 'Dashboard'
-  })()
+  }, [currentView, selectedAlert, selectedInfra, selectedCICD])
 
   useEffect(() => {
     onBreadcrumb?.(detailLabel)
@@ -113,76 +212,150 @@ export default function OpsPortal({ currentView, onViewChange, onBreadcrumb }) {
     currentView !== 'health' &&
     currentView !== 'tool-registry'
 
+  const activeToolId = TOOL_BY_VIEW[currentView] ?? null
+
+  const handleAccountChanged = useCallback(() => {}, [])
+
+  const exitProduction = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/context', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active_environment: 'staging' }),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      setActiveContext(data)
+      setActiveEnvironment('staging')
+      setShowProductionBanner(false)
+      window.dispatchEvent(
+        new CustomEvent('context-changed', {
+          detail: { context: data, environment: 'staging', source: 'exit-production' },
+        })
+      )
+    } catch {
+      /* noop */
+    }
+  }, [authFetch])
+
   return (
-    <div className="flex flex-1 overflow-hidden">
-      <main className="flex-1 overflow-y-auto px-8 py-8">
-        {currentView === 'dashboard' && <DashboardView />}
-        {currentView === 'triage' && (
-          <TriageView
-            selectedIncident={selectedAlert}
-            onSelectIncident={setSelectedAlert}
-            onAnalysisComplete={handleAnalysisComplete}
+    <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+      {showProductionBanner && (
+        <div className="sticky top-0 z-50 shrink-0 w-full bg-red-600 text-white shadow-md">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 max-w-[1400px] mx-auto">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-xl shrink-0" aria-hidden>
+                🚨
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-bold tracking-wide">PRODUCTION ENVIRONMENT</p>
+                <p className="text-xs text-red-100/95">All actions require human approval (HITL)</p>
+                <p className="text-xs text-red-100/90">This session is being audited</p>
+                {activeContext?.user_id && (
+                  <p className="text-[10px] text-red-100/80 mt-0.5">Context user: {activeContext.user_id}</p>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void exitProduction()}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-xs font-semibold border border-white/30"
+            >
+              Exit Production
+            </button>
+          </div>
+        </div>
+      )}
+
+      {envHeaderSlot && createPortal(<EnvironmentSwitcher />, envHeaderSlot)}
+
+      <div className="flex flex-1 overflow-hidden min-h-0">
+        <main className="flex-1 overflow-y-auto px-8 py-8 flex flex-col min-w-0">
+          {activeToolId && (
+            <div className="flex flex-wrap items-center justify-end gap-3 mb-6 pb-4 border-b border-border/60">
+              <AccountSwitcher toolId={activeToolId} onAccountChanged={handleAccountChanged} />
+            </div>
+          )}
+
+          {currentView === 'dashboard' && <DashboardView />}
+          {currentView === 'triage' && (
+            <TriageView
+              key={versions.alerts}
+              selectedIncident={selectedAlert}
+              onSelectIncident={setSelectedAlert}
+              onAnalysisComplete={handleAnalysisComplete}
+              roleFilter={role === 'Admin' ? null : role}
+            />
+          )}
+          {currentView === 'infra' && (
+            <InfraBuilderView
+              key={versions.infra}
+              selectedRecord={selectedInfra}
+              onClearRecord={() => setSelectedInfra(null)}
+              onGenerateComplete={handleInfraComplete}
+            />
+          )}
+          {currentView === 'cicd' && (
+            <CICDView
+              key={versions.cicd}
+              selectedRecord={selectedCICD}
+              onClearRecord={() => setSelectedCICD(null)}
+              onGenerateComplete={handleCICDComplete}
+            />
+          )}
+          {currentView === 'integrations' && <IntegrationsPage />}
+          {currentView === 'health' && role === 'Admin' && (
+            <div>
+              {healthEntry?.icon
+                ? (() => {
+                    const Icon = healthEntry.icon
+                    return (
+                      <div className="flex items-center gap-2 mb-4 text-slate-400">
+                        <Icon className="w-5 h-5 text-rose-400" aria-hidden />
+                        <span className="text-xs font-medium uppercase tracking-wider">Health module</span>
+                      </div>
+                    )
+                  })()
+                : null}
+              <HealthCmp />
+            </div>
+          )}
+          {currentView === 'tool-registry' && role === 'Admin' && (
+            <div>
+              {toolRegistryEntry?.icon
+                ? (() => {
+                    const Icon = toolRegistryEntry.icon
+                    return (
+                      <div className="flex items-center gap-2 mb-4 text-slate-400">
+                        <Icon className="w-5 h-5 text-violet-400" aria-hidden />
+                        <span className="text-xs font-medium uppercase tracking-wider">Integrations</span>
+                      </div>
+                    )
+                  })()
+                : null}
+              <ToolRegistryCmp />
+            </div>
+          )}
+        </main>
+
+        {showHistoryPanel && (
+          <HistoryPanel
+            versions={versions}
+            onSelect={handleHistorySelect}
+            selectedIds={selectedIds}
+            activeView={currentView}
             roleFilter={role === 'Admin' ? null : role}
           />
         )}
-        {currentView === 'infra' && (
-          <InfraBuilderView
-            selectedRecord={selectedInfra}
-            onClearRecord={() => setSelectedInfra(null)}
-            onGenerateComplete={handleInfraComplete}
-          />
-        )}
-        {currentView === 'cicd' && (
-          <CICDView
-            selectedRecord={selectedCICD}
-            onClearRecord={() => setSelectedCICD(null)}
-            onGenerateComplete={handleCICDComplete}
-          />
-        )}
-        {currentView === 'integrations' && <IntegrationsPage />}
-        {currentView === 'health' && role === 'Admin' && (
-          <div>
-            {healthEntry?.icon
-              ? (() => {
-                  const Icon = healthEntry.icon
-                  return (
-                    <div className="flex items-center gap-2 mb-4 text-slate-400">
-                      <Icon className="w-5 h-5 text-rose-400" aria-hidden />
-                      <span className="text-xs font-medium uppercase tracking-wider">Health module</span>
-                    </div>
-                  )
-                })()
-              : null}
-            <HealthCmp />
-          </div>
-        )}
-        {currentView === 'tool-registry' && role === 'Admin' && (
-          <div>
-            {toolRegistryEntry?.icon
-              ? (() => {
-                  const Icon = toolRegistryEntry.icon
-                  return (
-                    <div className="flex items-center gap-2 mb-4 text-slate-400">
-                      <Icon className="w-5 h-5 text-violet-400" aria-hidden />
-                      <span className="text-xs font-medium uppercase tracking-wider">Integrations</span>
-                    </div>
-                  )
-                })()
-              : null}
-            <ToolRegistryCmp />
-          </div>
-        )}
-      </main>
-
-      {showHistoryPanel && (
-        <HistoryPanel
-          versions={versions}
-          onSelect={handleHistorySelect}
-          selectedIds={selectedIds}
-          activeView={currentView}
-          roleFilter={role === 'Admin' ? null : role}
-        />
-      )}
+      </div>
     </div>
+  )
+}
+
+export default function OpsPortal(props) {
+  return (
+    <ToastProvider>
+      <OpsPortalInner {...props} />
+    </ToastProvider>
   )
 }

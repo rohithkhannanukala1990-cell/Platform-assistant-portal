@@ -229,8 +229,8 @@ function AppLayout() {
         )}
 
         {/* ── Top Header ─────────────────────────────────────────────────── */}
-        <header className="flex items-center justify-between px-6 py-3.5 border-b border-border bg-sidebar shrink-0">
-          <div className="flex items-center gap-2">
+        <header className="flex items-center gap-4 px-6 py-3.5 border-b border-border bg-sidebar shrink-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1 justify-start">
             <span className="text-xs font-medium text-slate-500">Platform Engineering</span>
             <span className="text-slate-700">/</span>
             {roleInfo && (
@@ -239,10 +239,17 @@ function AppLayout() {
                 <span className="text-slate-700">/</span>
               </>
             )}
-            <span className="text-xs font-semibold text-white">{breadcrumb()}</span>
+            <span className="text-xs font-semibold text-white truncate">{breadcrumb()}</span>
           </div>
 
-          <div className="flex items-center gap-3">
+          {showOpsNav && location.pathname === '/ops' && (
+            <div
+              id="ops-header-environment-slot"
+              className="flex justify-center items-center shrink-0 min-h-[40px]"
+            />
+          )}
+
+          <div className="flex items-center gap-3 shrink-0 justify-end">
             {/* Persona switcher — visible to all (Admin can switch, others see read-only) */}
             <PersonaSwitcher />
 

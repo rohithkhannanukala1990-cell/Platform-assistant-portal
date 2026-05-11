@@ -11,6 +11,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useToast } from './ToastNotification'
 
 const ENVIRONMENTS = [
   {
@@ -78,8 +79,6 @@ const COLOR_DOT = {
   orange: 'bg-orange-500',
 }
 
-const PROD_BANNER_KEY = 'platform_show_production_banner'
-
 function envById(id) {
   return ENVIRONMENTS.find((e) => e.id === id) || ENVIRONMENTS[1]
 }
@@ -97,25 +96,13 @@ function RowLucide({ envId }) {
 
 export default function EnvironmentSwitcher() {
   const { authFetch } = useAuth()
+  const { showToast } = useToast()
   const [isOpen, setIsOpen] = useState(false)
   const [activeEnv, setActiveEnv] = useState('development')
   const [pendingEnv, setPendingEnv] = useState(null)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
-  const [toast, setToast] = useState(null)
-  const [showProductionBanner, setShowProductionBanner] = useState(() => {
-    try {
-      return sessionStorage.getItem(PROD_BANNER_KEY) === '1'
-    } catch {
-      return false
-    }
-  })
 
   const rootRef = useRef(null)
-
-  const showToast = useCallback((msg) => {
-    setToast(msg)
-    window.setTimeout(() => setToast(null), 3500)
-  }, [])
 
   const fetchContext = useCallback(async () => {
     try {
@@ -124,16 +111,6 @@ export default function EnvironmentSwitcher() {
       const data = await res.json()
       const env = (data.active_environment || 'development').toLowerCase()
       setActiveEnv(env)
-      if (env === 'production' || env === 'dr') {
-        setShowProductionBanner(true)
-      } else {
-        setShowProductionBanner(false)
-        try {
-          sessionStorage.removeItem(PROD_BANNER_KEY)
-        } catch {
-          /* noop */
-        }
-      }
     } catch {
       /* noop */
     }
@@ -144,7 +121,16 @@ export default function EnvironmentSwitcher() {
   }, [fetchContext])
 
   useEffect(() => {
-    const onContextChanged = () => {
+    const onContextChanged = (ev) => {
+      const d = ev.detail || {}
+      if (d.context?.active_environment) {
+        setActiveEnv(String(d.context.active_environment).toLowerCase())
+        return
+      }
+      if (d.environment) {
+        setActiveEnv(String(d.environment).toLowerCase())
+        return
+      }
       void fetchContext()
     }
     window.addEventListener('context-changed', onContextChanged)
@@ -171,32 +157,23 @@ export default function EnvironmentSwitcher() {
           body: JSON.stringify({ active_environment: envId }),
         })
         if (!res.ok) {
-          showToast('Could not switch environment')
+          showToast('Could not switch environment', 'error')
           return false
         }
+        const data = await res.json()
         setActiveEnv(envId)
-        if (envId === 'production' || envId === 'dr') {
-          try {
-            sessionStorage.setItem(PROD_BANNER_KEY, '1')
-          } catch {
-            /* noop */
-          }
-          setShowProductionBanner(true)
-          window.dispatchEvent(new CustomEvent('production-banner', { detail: { show: true } }))
-        } else {
-          try {
-            sessionStorage.removeItem(PROD_BANNER_KEY)
-          } catch {
-            /* noop */
-          }
-          setShowProductionBanner(false)
-        }
         window.dispatchEvent(
-          new CustomEvent('context-changed', { detail: { source: 'environment-switcher' } })
+          new CustomEvent('context-changed', {
+            detail: {
+              context: data,
+              environment: envId,
+              source: 'environment-switcher',
+            },
+          })
         )
         return true
       } catch {
-        showToast('Could not switch environment')
+        showToast('Could not switch environment', 'error')
         return false
       }
     },
@@ -212,15 +189,13 @@ export default function EnvironmentSwitcher() {
       setIsOpen(false)
       return
     }
-    const ok = await switchEnvironment(env.id)
-    if (ok) showToast(`Switched to ${env.label}`)
+    await switchEnvironment(env.id)
     setIsOpen(false)
   }
 
   async function confirmProduction() {
     if (!pendingEnv) return
-    const ok = await switchEnvironment(pendingEnv.id)
-    if (ok) showToast(`Switched to ${pendingEnv.label}`)
+    await switchEnvironment(pendingEnv.id)
     setShowConfirmModal(false)
     setPendingEnv(null)
   }
@@ -232,24 +207,6 @@ export default function EnvironmentSwitcher() {
 
   return (
     <div className="relative" ref={rootRef}>
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-[100] px-4 py-2 rounded-lg bg-gray-900 border border-gray-600 text-sm text-white shadow-lg">
-          {toast}
-        </div>
-      )}
-
-      {showProductionBanner && (activeEnv === 'production' || activeEnv === 'dr') && (
-        <div className="mb-2 rounded-lg border border-red-700/60 bg-red-950/90 px-3 py-2 text-xs text-red-100 flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
-          <div>
-            <span className="font-semibold">Production / DR mode</span>
-            <p className="text-red-200/90 mt-0.5">
-              Human approval (HITL) may apply. Actions are audited. Use with caution.
-            </p>
-          </div>
-        </div>
-      )}
-
       <button
         type="button"
         onClick={() => setIsOpen((o) => !o)}

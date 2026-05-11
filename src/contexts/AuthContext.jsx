@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { getPortalContextHeaders } from '../utils/portalContextHeaders'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -146,6 +147,10 @@ export function AuthProvider({ children }) {
       const fullUrl = /^https?:\/\//i.test(url) ? url : `${API_BASE}${url}`
       const headers = new Headers(options.headers || {})
       if (token) headers.set('Authorization', `Bearer ${token}`)
+      const portalHeaders = getPortalContextHeaders()
+      Object.entries(portalHeaders).forEach(([k, v]) => {
+        if (v != null && v !== '') headers.set(k, String(v))
+      })
 
       const res = await fetch(fullUrl, { ...options, headers })
       if (res.status === 401) {
