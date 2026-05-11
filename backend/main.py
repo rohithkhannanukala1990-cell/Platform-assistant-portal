@@ -6,9 +6,10 @@ import asyncio
 import time
 import ollama
 from contextlib import asynccontextmanager
+from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
-from slowapi import Limiter
+from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.requests import Request
@@ -95,7 +96,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AIOps Portal API", version="0.1.0", lifespan=lifespan)
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse({"detail": "Rate limit exceeded"}, status_code=429))
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 metrics_app = make_asgi_app()
 from starlette.routing import Mount
 app.router.routes.insert(0, Mount("/metrics", app=metrics_app, name="metrics"))
@@ -104,13 +105,37 @@ app.include_router(auth_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://frontend:5173",  # Docker service name
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://frontend:5173",
     ],
-    allow_origin_regex=r"^http://localhost:517\d+$",
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "detail": str(exc),
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration = time.time() - start
+    print(f"{request.method} {request.url.path} {response.status_code} {duration:.3f}s")
+    return response
+
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
@@ -628,11 +653,12 @@ async def _mock_hitl_slack_notify(incident_id: int, severity: str, owner_role: s
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @app.post("/api/triage", response_model=TriageResponse)
-async def triage_logs(request: TriageRequest, current_user: User = Depends(get_current_user)):
-    if not request.logs.strip():
+@limiter.limit("5/minute")
+async def triage_logs(request: Request, triage_in: TriageRequest, current_user: User = Depends(get_current_user)):
+    if not triage_in.logs.strip():
         raise HTTPException(status_code=400, detail="Log text cannot be empty.")
     try:
-        result = await _run_triage(request.logs, source="manual")
+        result = await _run_triage(triage_in.logs, source="manual")
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"AI provider error: {str(exc)}")
     return TriageResponse(**result)
@@ -665,7 +691,8 @@ MOCK_RUNBOOK_LOGS = """\
 
 
 @app.post("/api/incidents/{incident_id}/remediate")
-async def remediate_incident(incident_id: int, current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def remediate_incident(request: Request, incident_id: int, current_user: User = Depends(get_current_user)):
     all_incidents = get_all_incidents()
     incident = next((i for i in all_incidents if i["id"] == incident_id), None)
     if not incident:
@@ -714,7 +741,8 @@ class ApprovalRequest(BaseModel):
 
 
 @app.post("/api/incidents/{incident_id}/dry-run")
-async def dry_run_incident(incident_id: int, current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def dry_run_incident(request: Request, incident_id: int, current_user: User = Depends(get_current_user)):
     all_incidents = get_all_incidents()
     incident = next((i for i in all_incidents if i["id"] == incident_id), None)
     if not incident:
@@ -725,7 +753,8 @@ async def dry_run_incident(incident_id: int, current_user: User = Depends(get_cu
 
 
 @app.post("/api/incidents/{incident_id}/approve")
-async def approve_incident(incident_id: int, body: ApprovalRequest, current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def approve_incident(request: Request, incident_id: int, body: ApprovalRequest, current_user: User = Depends(get_current_user)):
     import json as _json
     all_incidents = get_all_incidents()
     incident = next((i for i in all_incidents if i["id"] == incident_id), None)
@@ -791,7 +820,8 @@ async def approve_incident(incident_id: int, body: ApprovalRequest, current_user
 
 
 @app.post("/api/incidents/{incident_id}/reject")
-async def reject_incident(incident_id: int, current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def reject_incident(request: Request, incident_id: int, current_user: User = Depends(get_current_user)):
     all_incidents = get_all_incidents()
     incident = next((i for i in all_incidents if i["id"] == incident_id), None)
     if not incident:
@@ -873,25 +903,26 @@ class WebhookLogRequest(BaseModel):
 
 
 @app.post("/api/webhooks/logs", status_code=202)
-async def ingest_webhook_log(request: WebhookLogRequest, current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def ingest_webhook_log(request: Request, body: WebhookLogRequest, current_user: User = Depends(get_current_user)):
     """Accept a log payload, return 202 immediately, dispatch Celery task for triage."""
-    if not request.log_text.strip():
+    if not body.log_text.strip():
         raise HTTPException(status_code=400, detail="log_text cannot be empty.")
-    if not request.source.strip():
+    if not body.source.strip():
         raise HTTPException(status_code=400, detail="source cannot be empty.")
 
     try:
-        task = process_webhook_log.delay(request.log_text, request.source.strip())
+        task = process_webhook_log.delay(body.log_text, body.source.strip())
         task_id = task.id
     except Exception:
         # Redis not available in local dev — fall back to in-process background task
-        asyncio.create_task(_webhook_background_fallback(request.log_text, request.source.strip()))
+        asyncio.create_task(_webhook_background_fallback(body.log_text, body.source.strip()))
         task_id = "local-fallback"
 
     return {
         "status":  "accepted",
         "task_id": task_id,
-        "message": f"Log from '{request.source}' queued for triage.",
+        "message": f"Log from '{body.source}' queued for triage.",
     }
 
 
@@ -1009,21 +1040,22 @@ class InboundWebhookRequest(BaseModel):
 
 
 @app.post("/api/webhooks/inbound", status_code=202)
-async def inbound_webhook_gateway(request: InboundWebhookRequest, http_request: Request):
+@limiter.limit("5/minute")
+async def inbound_webhook_gateway(request: Request, inbound: InboundWebhookRequest):
     """
     Queue-first webhook gateway.
     Accepts any source+payload, returns 202 immediately,
     dispatches a Celery task for normalization + AI triage.
     """
     import json as _json, uuid
-    source = request.source.strip().lower()
-    raw_body = str(request.payload).encode()
-    require_valid_signature(source, raw_body, dict(http_request.headers))
+    source = inbound.source.strip().lower()
+    raw_body = str(inbound.payload).encode()
+    require_valid_signature(source, raw_body, dict(request.headers))
     if not source:
         raise HTTPException(status_code=400, detail="source cannot be empty.")
 
-    payload    = request.payload or {}
-    event_type = request.event_type or _map_to_cloud_event(payload, source)[0]
+    payload    = inbound.payload or {}
+    event_type = inbound.event_type or _map_to_cloud_event(payload, source)[0]
     owner_role = _route_owner(source)
     ce_id      = str(uuid.uuid4())
 
@@ -1126,7 +1158,8 @@ def _to_adf(text: str) -> dict:
 
 
 @app.post("/api/incidents/{incident_id}/jira")
-async def create_jira_ticket(incident_id: int, current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def create_jira_ticket(request: Request, incident_id: int, current_user: User = Depends(get_current_user)):
     # Load incident
     all_incidents = get_all_incidents()
     incident = next((i for i in all_incidents if i["id"] == incident_id), None)
@@ -1340,13 +1373,14 @@ def parse_infra_response(text: str, provider: str) -> dict:
 
 
 @app.post("/api/infra/generate", response_model=InfraResponse)
-async def generate_infra(request: InfraRequest, current_user: User = Depends(get_current_user)):
-    if not request.prompt.strip():
+@limiter.limit("5/minute")
+async def generate_infra(request: Request, infra_in: InfraRequest, current_user: User = Depends(get_current_user)):
+    if not infra_in.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
 
-    provider      = request.provider.strip() or "GCP"
+    provider      = infra_in.provider.strip() or "GCP"
     system_prompt = build_infra_prompt(provider)
-    user_msg      = f"Infrastructure request: {request.prompt}"
+    user_msg      = f"Infrastructure request: {infra_in.prompt}"
 
     try:
         if AI_PROVIDER == "ollama":
@@ -1371,7 +1405,7 @@ async def generate_infra(request: InfraRequest, current_user: User = Depends(get
 
     save_infra({
         **parsed,
-        "prompt":     request.prompt,
+        "prompt":     infra_in.prompt,
         "model_used": model_used,
     })
 
@@ -1484,11 +1518,12 @@ def parse_cicd_response(text: str, tool: str) -> dict:
 
 
 @app.post("/api/cicd/generate", response_model=CICDResponse)
-async def generate_cicd(request: CICDRequest, current_user: User = Depends(get_current_user)):
-    if not request.prompt.strip():
+@limiter.limit("5/minute")
+async def generate_cicd(request: Request, cicd_in: CICDRequest, current_user: User = Depends(get_current_user)):
+    if not cicd_in.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
 
-    tool = request.cicd_tool.strip() or "GitHub Actions"
+    tool = cicd_in.cicd_tool.strip() or "GitHub Actions"
     ctx  = CICD_TOOL_CONTEXT.get(tool, CICD_TOOL_CONTEXT["GitHub Actions"])
 
     system_prompt = CICD_SYSTEM_PROMPT_TEMPLATE.format(
@@ -1499,7 +1534,7 @@ async def generate_cicd(request: CICDRequest, current_user: User = Depends(get_c
         stage_pattern=ctx["stage_pattern"],
         example_stages=ctx["example_stages"],
     )
-    user_msg = f"Application description: {request.prompt}"
+    user_msg = f"Application description: {cicd_in.prompt}"
 
     try:
         if AI_PROVIDER == "ollama":
@@ -1526,7 +1561,7 @@ async def generate_cicd(request: CICDRequest, current_user: User = Depends(get_c
 
     save_cicd({
         **parsed,
-        "prompt":     request.prompt,
+        "prompt":     cicd_in.prompt,
         "model_used": model_used,
     })
 
@@ -1550,7 +1585,8 @@ def fetch_settings(current_user: User = Depends(get_current_user)):
 
 
 @app.post("/api/settings")
-def save_settings(body: dict, current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+def save_settings(request: Request, body: dict, current_user: User = Depends(get_current_user)):
     return update_settings(body)
 
 
@@ -1639,8 +1675,13 @@ def get_analytics(current_user: User = Depends(get_current_user)):
 
 
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+async def health_check():
+    return {
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": "1.0.0",
+        "service": "platform-assistant-portal",
+    }
 
 
 # ── Platform Assistant Chatbot ─────────────────────────────────────────────────
@@ -1707,8 +1748,9 @@ def _build_context() -> str:
 
 
 @app.post("/api/chat")
-async def platform_chat(request: ChatRequest, current_user: User = Depends(get_current_user)):
-    if not request.message.strip():
+@limiter.limit("5/minute")
+async def platform_chat(request: Request, chat_in: ChatRequest, current_user: User = Depends(get_current_user)):
+    if not chat_in.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
     context     = _build_context()
@@ -1716,9 +1758,9 @@ async def platform_chat(request: ChatRequest, current_user: User = Depends(get_c
 
     try:
         if AI_PROVIDER == "ollama":
-            response = await call_ollama(request.message, system_prompt=system_prompt)
+            response = await call_ollama(chat_in.message, system_prompt=system_prompt)
         else:
-            response = await call_gemini(request.message, system_prompt=system_prompt)
+            response = await call_gemini(chat_in.message, system_prompt=system_prompt)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"AI provider error: {str(exc)}")
 
@@ -1769,7 +1811,8 @@ ANOMALY_INCIDENT = {
 
 
 @app.post("/api/logs/scan-anomalies")
-async def scan_anomalies(current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def scan_anomalies(request: Request, current_user: User = Depends(get_current_user)):
     """Simulate a background log scan and create a predictive WARNING incident."""
     await asyncio.sleep(3)
 
@@ -1956,7 +1999,8 @@ def get_dora_metrics(current_user: User = Depends(get_current_user)):
 
 
 @app.post("/api/cicd/monitor", status_code=202)
-async def trigger_cicd_monitor(current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def trigger_cicd_monitor(request: Request, current_user: User = Depends(get_current_user)):
     """Dispatch the CI/CD monitor Celery task (or in-process fallback)."""
     from .tasks import monitor_cicd_pipelines as _monitor_task
     try:
@@ -2014,7 +2058,8 @@ Return ONLY the JSON. No markdown, no code fences, no explanation."""
 
 
 @app.post("/api/db/analyze-query")
-async def analyze_query(req: QueryAnalyzeRequest, current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def analyze_query(request: Request, req: QueryAnalyzeRequest, current_user: User = Depends(get_current_user)):
     """AI-powered SQL query analysis: EXPLAIN plan, index recommendations, rewrite suggestions."""
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="query cannot be empty.")
