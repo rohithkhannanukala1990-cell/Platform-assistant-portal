@@ -181,3 +181,59 @@ def test_20_api_health_summary_public_no_auth(client):
     data = response.json()
     assert data.get("status") in ("healthy", "warning", "critical")
     assert "checked_at" in data
+
+
+def test_21_api_tools_grouped_requires_auth(client):
+    assert client.get("/api/tools").status_code == 401
+
+
+def test_22_api_tools_grouped_admin(client, admin_token):
+    r = client.get("/api/tools", headers=auth_headers(admin_token))
+    assert r.status_code == 200
+    data = r.json()
+    assert "cloud" in data
+    assert isinstance(data["cloud"], list)
+    assert any(t.get("id") == "aws" for t in data["cloud"])
+
+
+def test_23_api_tools_categories_admin(client, admin_token):
+    r = client.get("/api/tools/categories", headers=auth_headers(admin_token))
+    assert r.status_code == 200
+    cats = r.json()
+    assert isinstance(cats, list)
+    assert len(cats) == 9
+    ids = {c["id"] for c in cats}
+    assert "cloud" in ids and "cicd" in ids
+
+
+def test_24_tool_account_lifecycle(client, admin_token):
+    h = auth_headers(admin_token)
+    acc = client.post(
+        "/api/tools/github/accounts",
+        headers=h,
+        json={
+            "account_name": "pytest-org",
+            "environment": "dev",
+            "auth_type": "pat",
+            "account_identifier": "org-1",
+        },
+    )
+    assert acc.status_code == 200, acc.text
+    aid = acc.json()["id"]
+    lst = client.get("/api/tools/github/accounts", headers=h)
+    assert lst.status_code == 200
+    assert any(a["id"] == aid for a in lst.json())
+    tst = client.post(f"/api/tools/github/accounts/{aid}/test", headers=h)
+    assert tst.status_code == 200
+    body = tst.json()
+    assert "connected" in body and "latency_ms" in body
+    upd = client.put(
+        f"/api/tools/github/accounts/{aid}",
+        headers=h,
+        json={"account_name": "pytest-org-renamed"},
+    )
+    assert upd.status_code == 200
+    assert upd.json()["account_name"] == "pytest-org-renamed"
+    soft = client.delete(f"/api/tools/github/accounts/{aid}", headers=h)
+    assert soft.status_code == 200
+    assert "deactivated" in soft.json().get("message", "").lower()

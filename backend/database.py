@@ -120,6 +120,48 @@ class HealthAlert(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class Tool(SQLModel, table=True):
+    """Catalog row for an integration / platform tool type (see /api/tools)."""
+    __tablename__ = "tools"
+
+    id: str = Field(primary_key=True)
+    name: str
+    category: str
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ToolAccount(SQLModel, table=True):
+    __tablename__ = "tool_accounts"
+
+    id: str = Field(primary_key=True)
+    tool_id: str = Field(foreign_key="tools.id")
+    account_name: str
+    account_identifier: Optional[str] = None
+    instance_url: Optional[str] = None
+    environment: str
+    region: Optional[str] = None
+    auth_type: str
+    credentials_vault_ref: Optional[str] = None
+    status: str = Field(default="unknown")
+    is_active: int = Field(default=1)
+    requires_hitl: int = Field(default=0)
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ToolConnectionLog(SQLModel, table=True):
+    __tablename__ = "tool_connection_logs"
+
+    id: str = Field(primary_key=True)
+    account_id: str = Field(foreign_key="tool_accounts.id")
+    status: str
+    latency_ms: Optional[int] = None
+    error_message: Optional[str] = None
+    tested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 DEFAULT_SETTINGS = {
@@ -139,6 +181,47 @@ def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
     _migrate()
     _seed_settings()
+    _seed_tools()
+
+
+def _seed_tools() -> None:
+    """Idempotent seed of built-in tool catalog rows."""
+    rows: list[tuple[str, str, str, str, str]] = [
+        ("aws", "AWS", "cloud", "Amazon Web Services", "☁️"),
+        ("gcp", "GCP", "cloud", "Google Cloud Platform", "☁️"),
+        ("azure", "Azure", "cloud", "Microsoft Azure", "☁️"),
+        ("oci", "OCI", "cloud", "Oracle Cloud Infrastructure", "☁️"),
+        ("github", "GitHub", "source_control", "GitHub Repositories", "🐙"),
+        ("gitlab", "GitLab", "source_control", "GitLab Repositories", "🦊"),
+        ("bitbucket", "Bitbucket", "source_control", "Bitbucket Repositories", "🪣"),
+        ("jira", "Jira", "project_mgmt", "Jira Project Management", "📋"),
+        ("linear", "Linear", "project_mgmt", "Linear Issue Tracking", "📐"),
+        ("servicenow", "ServiceNow", "project_mgmt", "ServiceNow ITSM", "🔧"),
+        ("slack", "Slack", "comms", "Slack Messaging", "💬"),
+        ("teams", "Teams", "comms", "Microsoft Teams", "💬"),
+        ("pagerduty", "PagerDuty", "comms", "PagerDuty Alerting", "🚨"),
+        ("prometheus", "Prometheus", "monitoring", "Prometheus Metrics", "📊"),
+        ("datadog", "Datadog", "monitoring", "Datadog Monitoring", "🐶"),
+        ("grafana", "Grafana", "monitoring", "Grafana Dashboards", "📈"),
+        ("newrelic", "New Relic", "monitoring", "New Relic Observability", "🔵"),
+        ("postgres", "PostgreSQL", "databases", "PostgreSQL Database", "🐘"),
+        ("mysql", "MySQL", "databases", "MySQL Database", "🐬"),
+        ("mongodb", "MongoDB", "databases", "MongoDB NoSQL", "🍃"),
+        ("redis", "Redis", "databases", "Redis Cache", "⚡"),
+        ("kubernetes", "Kubernetes", "kubernetes", "Kubernetes Clusters", "🐳"),
+        ("vault", "HashiCorp Vault", "secrets", "HashiCorp Vault", "🔐"),
+        ("aws_sm", "AWS Secrets Manager", "secrets", "AWS Secrets Manager", "🔑"),
+        ("jenkins", "Jenkins", "cicd", "Jenkins CI/CD", "⚙️"),
+        ("argocd", "ArgoCD", "cicd", "ArgoCD GitOps", "🐙"),
+    ]
+    with Session(engine) as session:
+        for tid, name, cat, desc, icon in rows:
+            if session.get(Tool, tid):
+                continue
+            session.add(
+                Tool(id=tid, name=name, category=cat, description=desc, icon=icon)
+            )
+        session.commit()
 
 
 def _column_exists(session: Session, table: str, column: str) -> bool:

@@ -1,9 +1,11 @@
 import os
-import httpx
 import re
 import json
 import asyncio
 import time
+import random
+import uuid
+import httpx
 import ollama
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -41,6 +43,9 @@ from .database import (
     save_webhook_event, update_webhook_event, get_recent_webhook_events,
     get_pending_approvals,
     HealthAlert,
+    Tool,
+    ToolAccount,
+    ToolConnectionLog,
 )
 
 load_dotenv()
@@ -1811,6 +1816,364 @@ def api_health_alert_ignore(
         ip_address=request.client.host if request.client else "",
     )
     return {"ok": True}
+
+
+# ── Tool registry (tools / accounts / connection logs) ────────────────────────
+
+_REGISTRY_CATEGORY_ORDER = (
+    "cloud",
+    "source_control",
+    "project_mgmt",
+    "comms",
+    "monitoring",
+    "databases",
+    "kubernetes",
+    "secrets",
+    "cicd",
+)
+
+_REGISTRY_CATEGORY_META: dict[str, tuple[str, str]] = {
+    "cloud": ("Cloud", "☁️"),
+    "source_control": ("Source control", "🐙"),
+    "project_mgmt": ("Project management", "📋"),
+    "comms": ("Communications", "💬"),
+    "monitoring": ("Monitoring", "📊"),
+    "databases": ("Databases", "🐘"),
+    "kubernetes": ("Kubernetes", "🐳"),
+    "secrets": ("Secrets", "🔐"),
+    "cicd": ("CI/CD", "⚙️"),
+}
+
+
+def _tool_to_dict(t: Tool) -> dict:
+    return {
+        "id": t.id,
+        "name": t.name,
+        "category": t.category,
+        "description": t.description,
+        "icon": t.icon,
+        "created_at": t.created_at.isoformat(),
+    }
+
+
+def _latest_connection_for_account(session: Session, account_id: str) -> ToolConnectionLog | None:
+    return session.exec(
+        select(ToolConnectionLog)
+        .where(ToolConnectionLog.account_id == account_id)
+        .order_by(ToolConnectionLog.tested_at.desc())
+    ).first()
+
+
+def _account_to_dict(session: Session, a: ToolAccount) -> dict:
+    log = _latest_connection_for_account(session, a.id)
+    return {
+        "id": a.id,
+        "tool_id": a.tool_id,
+        "account_name": a.account_name,
+        "account_identifier": a.account_identifier,
+        "instance_url": a.instance_url,
+        "environment": a.environment,
+        "region": a.region,
+        "auth_type": a.auth_type,
+        "credentials_vault_ref": a.credentials_vault_ref,
+        "status": a.status,
+        "is_active": bool(a.is_active),
+        "requires_hitl": bool(a.requires_hitl),
+        "created_by": a.created_by,
+        "created_at": a.created_at.isoformat(),
+        "last_connection_status": log.status if log else None,
+        "last_connection_latency_ms": log.latency_ms if log else None,
+        "last_tested_at": log.tested_at.isoformat() if log else None,
+    }
+
+
+class ToolCreateBody(BaseModel):
+    name: str
+    category: str
+    description: str | None = None
+    icon: str | None = None
+
+
+class ToolUpdateBody(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    icon: str | None = None
+
+
+class ToolAccountCreateBody(BaseModel):
+    account_name: str
+    account_identifier: str | None = None
+    instance_url: str | None = None
+    environment: str
+    region: str | None = None
+    auth_type: str
+    credentials_vault_ref: str | None = None
+    requires_hitl: int | None = None
+
+
+class ToolAccountUpdateBody(BaseModel):
+    account_name: str | None = None
+    account_identifier: str | None = None
+    instance_url: str | None = None
+    environment: str | None = None
+    region: str | None = None
+    auth_type: str | None = None
+    credentials_vault_ref: str | None = None
+    status: str | None = None
+    requires_hitl: int | None = None
+
+
+@app.get("/api/tools/categories")
+def api_tools_categories(current_user: User = Depends(get_current_user)):
+    with Session(db_engine) as session:
+        out: list[dict] = []
+        for cat_id in _REGISTRY_CATEGORY_ORDER:
+            label, cicon = _REGISTRY_CATEGORY_META.get(cat_id, (cat_id.replace("_", " ").title(), "📦"))
+            tools_rows = session.exec(select(Tool).where(Tool.category == cat_id)).all()
+            tool_count = len(tools_rows)
+            tids = [t.id for t in tools_rows]
+            if not tids:
+                account_count = 0
+            else:
+                accounts = session.exec(
+                    select(ToolAccount).where(
+                        ToolAccount.tool_id.in_(tids),
+                        ToolAccount.is_active == 1,
+                    )
+                ).all()
+                account_count = len(accounts)
+            out.append(
+                {
+                    "id": cat_id,
+                    "label": label,
+                    "icon": cicon,
+                    "tool_count": tool_count,
+                    "account_count": account_count,
+                }
+            )
+    return out
+
+
+@app.get("/api/tools")
+def api_tools_grouped(current_user: User = Depends(get_current_user)):
+    grouped: dict[str, list[dict]] = {c: [] for c in _REGISTRY_CATEGORY_ORDER}
+    with Session(db_engine) as session:
+        rows = session.exec(select(Tool).order_by(Tool.category, Tool.name)).all()
+        for t in rows:
+            key = t.category
+            if key not in grouped:
+                grouped[key] = []
+            grouped[key].append(_tool_to_dict(t))
+    return grouped
+
+
+@app.post("/api/tools")
+def api_tools_create(
+    body: ToolCreateBody,
+    current_user: User = Depends(get_current_user),
+):
+    if not body.name.strip() or not body.category.strip():
+        raise HTTPException(status_code=400, detail="name and category are required")
+    tid = str(uuid.uuid4())
+    row = Tool(
+        id=tid,
+        name=body.name.strip(),
+        category=body.category.strip(),
+        description=(body.description or "").strip() or None,
+        icon=body.icon,
+    )
+    with Session(db_engine) as session:
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+    return _tool_to_dict(row)
+
+
+@app.put("/api/tools/{tool_id}")
+def api_tools_update(
+    tool_id: str,
+    body: ToolUpdateBody,
+    current_user: User = Depends(get_current_user),
+):
+    data = body.model_dump(exclude_unset=True)
+    with Session(db_engine) as session:
+        row = session.get(Tool, tool_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Tool not found")
+        if "name" in data and data["name"] is not None:
+            nm = str(data["name"]).strip()
+            if not nm:
+                raise HTTPException(status_code=400, detail="name cannot be empty")
+            row.name = nm
+        if "description" in data:
+            row.description = (data["description"] or "").strip() or None
+        if "icon" in data:
+            row.icon = data["icon"]
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+    return _tool_to_dict(row)
+
+
+@app.delete("/api/tools/{tool_id}")
+def api_tools_delete(tool_id: str, current_user: User = Depends(get_current_user)):
+    with Session(db_engine) as session:
+        row = session.get(Tool, tool_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Tool not found")
+        active = session.exec(
+            select(ToolAccount).where(
+                ToolAccount.tool_id == tool_id,
+                ToolAccount.is_active == 1,
+            )
+        ).first()
+        if active:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete tool with active accounts",
+            )
+        session.delete(row)
+        session.commit()
+    return {"ok": True}
+
+
+@app.get("/api/tools/{tool_id}/accounts")
+def api_tool_accounts_list(
+    tool_id: str,
+    environment: str | None = None,
+    status: str | None = None,
+    current_user: User = Depends(get_current_user),
+):
+    with Session(db_engine) as session:
+        tool = session.get(Tool, tool_id)
+        if not tool:
+            raise HTTPException(status_code=404, detail="Tool not found")
+        q = select(ToolAccount).where(ToolAccount.tool_id == tool_id)
+        if environment:
+            q = q.where(ToolAccount.environment == environment)
+        if status:
+            q = q.where(ToolAccount.status == status)
+        rows = session.exec(q.order_by(ToolAccount.created_at.desc())).all()
+        return [_account_to_dict(session, a) for a in rows]
+
+
+@app.post("/api/tools/{tool_id}/accounts")
+def api_tool_accounts_create(
+    tool_id: str,
+    body: ToolAccountCreateBody,
+    current_user: User = Depends(get_current_user),
+):
+    if not body.account_name.strip() or not body.environment.strip() or not body.auth_type.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="account_name, environment, and auth_type are required",
+        )
+    aid = str(uuid.uuid4())
+    rh = body.requires_hitl
+    hitl = 1 if rh is not None and int(rh) != 0 else 0
+    row = ToolAccount(
+        id=aid,
+        tool_id=tool_id,
+        account_name=body.account_name.strip(),
+        account_identifier=(body.account_identifier or "").strip() or None,
+        instance_url=(body.instance_url or "").strip() or None,
+        environment=body.environment.strip(),
+        region=(body.region or "").strip() or None,
+        auth_type=body.auth_type.strip(),
+        credentials_vault_ref=(body.credentials_vault_ref or "").strip() or None,
+        requires_hitl=hitl,
+        created_by=current_user.username,
+    )
+    with Session(db_engine) as session:
+        tool = session.get(Tool, tool_id)
+        if not tool:
+            raise HTTPException(status_code=404, detail="Tool not found")
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return _account_to_dict(session, row)
+
+
+@app.put("/api/tools/{tool_id}/accounts/{account_id}")
+def api_tool_accounts_update(
+    tool_id: str,
+    account_id: str,
+    body: ToolAccountUpdateBody,
+    current_user: User = Depends(get_current_user),
+):
+    data = body.model_dump(exclude_unset=True)
+    with Session(db_engine) as session:
+        row = session.get(ToolAccount, account_id)
+        if not row or row.tool_id != tool_id:
+            raise HTTPException(status_code=404, detail="Account not found")
+        for key in (
+            "account_name",
+            "account_identifier",
+            "instance_url",
+            "environment",
+            "region",
+            "auth_type",
+            "credentials_vault_ref",
+            "status",
+        ):
+            if key in data and data[key] is not None:
+                val = data[key]
+                setattr(row, key, str(val).strip() if isinstance(val, str) else val)
+        if "requires_hitl" in data and data["requires_hitl"] is not None:
+            row.requires_hitl = 1 if int(data["requires_hitl"]) else 0
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return _account_to_dict(session, row)
+
+
+@app.delete("/api/tools/{tool_id}/accounts/{account_id}")
+def api_tool_accounts_delete(
+    tool_id: str,
+    account_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    with Session(db_engine) as session:
+        row = session.get(ToolAccount, account_id)
+        if not row or row.tool_id != tool_id:
+            raise HTTPException(status_code=404, detail="Account not found")
+        row.is_active = 0
+        session.add(row)
+        session.commit()
+    return {"ok": True, "message": "Account deactivated"}
+
+
+@app.post("/api/tools/{tool_id}/accounts/{account_id}/test")
+def api_tool_accounts_test(
+    tool_id: str,
+    account_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    connected = random.choice([True, True, False])
+    latency_ms = random.randint(50, 500) if connected else None
+    err = None if connected else "Simulated connection failure"
+    log_status = "connected" if connected else "failed"
+    with Session(db_engine) as session:
+        acc = session.get(ToolAccount, account_id)
+        if not acc or acc.tool_id != tool_id:
+            raise HTTPException(status_code=404, detail="Account not found")
+        log = ToolConnectionLog(
+            id=str(uuid.uuid4()),
+            account_id=account_id,
+            status=log_status,
+            latency_ms=latency_ms,
+            error_message=err,
+        )
+        session.add(log)
+        acc.status = "connected" if connected else "failed"
+        session.add(acc)
+        session.commit()
+    result = {
+        "connected": connected,
+        "latency_ms": latency_ms,
+        "error": err,
+    }
+    return result
 
 
 @app.get("/health")
