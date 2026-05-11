@@ -245,3 +245,100 @@ def test_24_tool_account_lifecycle(client, admin_token):
     soft = client.delete(f"/api/tools/github/accounts/{aid}", headers=h)
     assert soft.status_code == 200
     assert "deactivated" in soft.json().get("message", "").lower()
+
+
+def test_25_api_context_get_put_pin(client, admin_token):
+    h = auth_headers(admin_token)
+    acc = client.post(
+        "/api/tools/aws/accounts",
+        headers=h,
+        json={
+            "account_name": "ctx-test",
+            "environment": "production",
+            "auth_type": "iam_role",
+            "account_identifier": "111111111111",
+        },
+    )
+    assert acc.status_code == 200, acc.text
+    aid = acc.json()["id"]
+    g = client.get("/api/context", headers=h)
+    assert g.status_code == 200
+    body = g.json()
+    assert body["user_id"] == "admin"
+    assert body["active_environment"] == "development"
+    assert isinstance(body["active_accounts"], dict)
+    assert isinstance(body["pinned_accounts"], list)
+    pu = client.put(
+        "/api/context",
+        headers=h,
+        json={"active_environment": "staging", "active_accounts": {"aws": aid}},
+    )
+    assert pu.status_code == 200, pu.text
+    ctx = pu.json()
+    assert ctx["active_environment"] == "staging"
+    assert "aws" in ctx["active_accounts"]
+    assert ctx["active_accounts"]["aws"]["id"] == aid
+    pin = client.post("/api/context/pin", headers=h, json={"account_id": aid, "pinned": True})
+    assert pin.status_code == 200
+    assert aid in pin.json()["pinned_accounts"]
+
+
+def test_26_api_tools_accounts_matrix(client, admin_token):
+    h = auth_headers(admin_token)
+    acc = client.post(
+        "/api/tools/gitlab/accounts",
+        headers=h,
+        json={
+            "account_name": "mx-test",
+            "environment": "development",
+            "auth_type": "pat",
+        },
+    )
+    assert acc.status_code == 200, acc.text
+    aid = acc.json()["id"]
+    client.post(f"/api/tools/gitlab/accounts/{aid}/test", headers=h)
+    r = client.get("/api/tools/gitlab/accounts/matrix", headers=h)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["tool_id"] == "gitlab"
+    assert data["environments"] == [
+        "local",
+        "development",
+        "test",
+        "staging",
+        "production",
+        "dr",
+    ]
+    row = next(a for a in data["accounts"] if a["id"] == aid)
+    assert row["matrix"]["development"] is not None
+    assert row["matrix"]["development"]["status"] == "connected"
+    assert row["matrix"]["production"] is None
+
+
+def test_27_api_access_requests_flow(client, admin_token):
+    h = auth_headers(admin_token)
+    acc = client.post(
+        "/api/tools/jira/accounts",
+        headers=h,
+        json={
+            "account_name": "ar-test",
+            "environment": "staging",
+            "auth_type": "api_token",
+        },
+    )
+    assert acc.status_code == 200, acc.text
+    aid = acc.json()["id"]
+    cr = client.post(
+        "/api/access-requests",
+        headers=h,
+        json={"account_id": aid, "reason": "Need staging access for incident response"},
+    )
+    assert cr.status_code == 200, cr.text
+    rid = cr.json()["id"]
+    lst = client.get("/api/access-requests", headers=h)
+    assert lst.status_code == 200
+    assert any(x["id"] == rid for x in lst.json())
+    ap = client.put(f"/api/access-requests/{rid}", headers=h, json={"status": "approved"})
+    assert ap.status_code == 200, ap.text
+    assert ap.json()["status"] == "approved"
+    assert ap.json()["reviewed_by"] == "admin"

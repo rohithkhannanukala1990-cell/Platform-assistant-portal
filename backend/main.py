@@ -7,7 +7,7 @@ import uuid
 import httpx
 import ollama
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, WebSocket
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -17,6 +17,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Literal
 from google import genai
 from sqlmodel import Session, select
 from sqlalchemy import text as sa_text
@@ -46,6 +47,9 @@ from .database import (
     Tool,
     ToolAccount,
     ToolConnectionLog,
+    UserContext,
+    AccessRequest,
+    UserAccountAccess,
 )
 
 load_dotenv()
@@ -1887,6 +1891,122 @@ def _account_to_dict(session: Session, a: ToolAccount) -> dict:
     }
 
 
+CONTEXT_PLACEHOLDER_USER_ID = "admin"
+_CONTEXT_MATRIX_ENVS = (
+    "local",
+    "development",
+    "test",
+    "staging",
+    "production",
+    "dr",
+)
+
+
+def _norm_env_key(s: str | None) -> str:
+    return (s or "").strip().lower()
+
+
+def _ensure_user_context_row(session: Session) -> UserContext:
+    uid = CONTEXT_PLACEHOLDER_USER_ID
+    row = session.get(UserContext, uid)
+    if row:
+        return row
+    row = UserContext(
+        user_id=uid,
+        active_environment="development",
+        active_accounts="{}",
+        pinned_accounts="[]",
+        last_switched_at=datetime.now(timezone.utc),
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def _hydrate_active_accounts(session: Session, raw_json: str) -> dict:
+    try:
+        m = json.loads(raw_json or "{}")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        m = {}
+    if not isinstance(m, dict):
+        return {}
+    out: dict = {}
+    for tool_id, acc_id in m.items():
+        if not isinstance(tool_id, str) or not isinstance(acc_id, str):
+            continue
+        acc = session.get(ToolAccount, acc_id)
+        if acc and acc.tool_id == tool_id and acc.is_active == 1:
+            out[tool_id] = _account_to_dict(session, acc)
+    return out
+
+
+def _context_payload(session: Session, row: UserContext) -> dict:
+    try:
+        pinned = json.loads(row.pinned_accounts or "[]")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pinned = []
+    if not isinstance(pinned, list):
+        pinned = []
+    clean_pins = [p for p in pinned if isinstance(p, str)]
+    return {
+        "user_id": row.user_id,
+        "active_environment": row.active_environment or "development",
+        "active_accounts": _hydrate_active_accounts(session, row.active_accounts),
+        "pinned_accounts": clean_pins,
+        "last_switched_at": row.last_switched_at.isoformat() if row.last_switched_at else None,
+    }
+
+
+def _validate_and_dump_active_accounts(session: Session, data: dict[str, str]) -> str:
+    cleaned: dict[str, str] = {}
+    for tool_id, aid in data.items():
+        if not isinstance(tool_id, str) or not isinstance(aid, str):
+            continue
+        acc = session.get(ToolAccount, aid)
+        if not acc or acc.tool_id != tool_id or acc.is_active != 1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid or inactive account for tool {tool_id}: {aid}",
+            )
+        cleaned[tool_id] = aid
+    return json.dumps(cleaned)
+
+
+def _matrix_cell_for_account(session: Session, acc: ToolAccount, env_key: str) -> dict | None:
+    if _norm_env_key(acc.environment) != env_key:
+        return None
+    log = _latest_connection_for_account(session, acc.id)
+    st = (acc.status or "unknown").lower()
+    latency_ms = int(log.latency_ms) if log and log.latency_ms is not None else None
+    return {"status": st, "latency_ms": latency_ms}
+
+
+def _access_request_to_dict(session: Session, r: AccessRequest) -> dict:
+    acc = session.get(ToolAccount, r.account_id)
+    user = session.exec(select(User).where(User.username == r.user_id)).first()
+    return {
+        "id": r.id,
+        "user_id": r.user_id,
+        "account_id": r.account_id,
+        "reason": r.reason,
+        "status": r.status,
+        "reviewed_by": r.reviewed_by,
+        "reviewed_at": r.reviewed_at.isoformat() if r.reviewed_at else None,
+        "created_at": r.created_at.isoformat(),
+        "account": _account_to_dict(session, acc) if acc else None,
+        "user": (
+            {
+                "username": user.username,
+                "email": user.email,
+                "role": user.role,
+            }
+            if user
+            else {"username": r.user_id, "email": None, "role": None}
+        ),
+    }
+
+
 class ToolCreateBody(BaseModel):
     name: str
     category: str
@@ -1921,6 +2041,26 @@ class ToolAccountUpdateBody(BaseModel):
     credentials_vault_ref: str | None = None
     status: str | None = None
     requires_hitl: int | None = None
+
+
+class ContextUpdateBody(BaseModel):
+    active_environment: str | None = None
+    active_accounts: dict[str, str] | None = None
+    pinned_accounts: list[str] | None = None
+
+
+class ContextPinBody(BaseModel):
+    account_id: str
+    pinned: bool
+
+
+class AccessRequestCreateBody(BaseModel):
+    account_id: str
+    reason: str
+
+
+class AccessRequestReviewBody(BaseModel):
+    status: Literal["approved", "denied"]
 
 
 @app.get("/api/tools/categories")
@@ -2051,6 +2191,30 @@ def api_tool_required_fields(tool_id: str, current_user: User = Depends(get_curr
         if not session.get(Tool, tool_id):
             raise HTTPException(status_code=404, detail="Tool not found")
     return get_required_fields(tool_id)
+
+
+@app.get("/api/tools/{tool_id}/accounts/matrix")
+def api_tool_accounts_matrix(tool_id: str, current_user: User = Depends(get_current_user)):
+    """Per-account × environment matrix (connection status for the account's environment)."""
+    with Session(db_engine) as session:
+        if not session.get(Tool, tool_id):
+            raise HTTPException(status_code=404, detail="Tool not found")
+        rows = session.exec(
+            select(ToolAccount)
+            .where(ToolAccount.tool_id == tool_id, ToolAccount.is_active == 1)
+            .order_by(ToolAccount.created_at.desc())
+        ).all()
+        accounts_out: list[dict] = []
+        for acc in rows:
+            matrix: dict[str, dict | None] = {}
+            for env_key in _CONTEXT_MATRIX_ENVS:
+                matrix[env_key] = _matrix_cell_for_account(session, acc, env_key)
+            accounts_out.append({"id": acc.id, "name": acc.account_name, "matrix": matrix})
+    return {
+        "tool_id": tool_id,
+        "environments": list(_CONTEXT_MATRIX_ENVS),
+        "accounts": accounts_out,
+    }
 
 
 @app.get("/api/tools/{tool_id}/accounts")
@@ -2201,6 +2365,193 @@ async def api_tool_accounts_test(
         session.add(acc2)
         session.commit()
     return result
+
+
+@app.get("/api/context")
+def api_context_get(current_user: User = Depends(get_current_user)):
+    with Session(db_engine) as session:
+        row = _ensure_user_context_row(session)
+        return _context_payload(session, row)
+
+
+@app.put("/api/context")
+async def api_context_put(
+    body: ContextUpdateBody,
+    current_user: User = Depends(get_current_user),
+):
+    from .ws_portal import broadcast_json
+
+    with Session(db_engine) as session:
+        row = _ensure_user_context_row(session)
+        if body.active_environment is not None:
+            row.active_environment = _norm_env_key(body.active_environment) or "development"
+        if body.active_accounts is not None:
+            row.active_accounts = _validate_and_dump_active_accounts(session, body.active_accounts)
+        if body.pinned_accounts is not None:
+            pins = [x for x in body.pinned_accounts if isinstance(x, str)]
+            row.pinned_accounts = json.dumps(pins)
+        row.last_switched_at = datetime.now(timezone.utc)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        payload = _context_payload(session, row)
+    await broadcast_json(
+        {
+            "type": "context-changed",
+            "user_id": CONTEXT_PLACEHOLDER_USER_ID,
+            "context": payload,
+        }
+    )
+    return payload
+
+
+@app.post("/api/context/pin")
+async def api_context_pin(
+    body: ContextPinBody,
+    current_user: User = Depends(get_current_user),
+):
+    from .ws_portal import broadcast_json
+
+    aid = (body.account_id or "").strip()
+    if not aid:
+        raise HTTPException(status_code=400, detail="account_id is required")
+    with Session(db_engine) as session:
+        row = _ensure_user_context_row(session)
+        try:
+            pins = json.loads(row.pinned_accounts or "[]")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pins = []
+        if not isinstance(pins, list):
+            pins = []
+        pins = [p for p in pins if isinstance(p, str)]
+        if body.pinned:
+            if aid not in pins:
+                pins.append(aid)
+        else:
+            pins = [p for p in pins if p != aid]
+        row.pinned_accounts = json.dumps(pins)
+        row.last_switched_at = datetime.now(timezone.utc)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        full = _context_payload(session, row)
+    await broadcast_json(
+        {
+            "type": "context-changed",
+            "user_id": CONTEXT_PLACEHOLDER_USER_ID,
+            "context": full,
+        }
+    )
+    return {"pinned_accounts": full["pinned_accounts"]}
+
+
+@app.post("/api/access-requests")
+async def api_access_requests_create(
+    body: AccessRequestCreateBody,
+    current_user: User = Depends(get_current_user),
+):
+    from .ws_portal import broadcast_json
+
+    reason = (body.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required")
+    acc_id = (body.account_id or "").strip()
+    if not acc_id:
+        raise HTTPException(status_code=400, detail="account_id is required")
+    rid = str(uuid.uuid4())
+    uid = CONTEXT_PLACEHOLDER_USER_ID
+    with Session(db_engine) as session:
+        acc = session.get(ToolAccount, acc_id)
+        if not acc or acc.is_active != 1:
+            raise HTTPException(status_code=404, detail="Account not found")
+        row = AccessRequest(
+            id=rid,
+            user_id=uid,
+            account_id=acc_id,
+            reason=reason,
+            status="pending",
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        out = _access_request_to_dict(session, row)
+    await broadcast_json(
+        {
+            "type": "access_request_created",
+            "request_id": rid,
+            "user_id": uid,
+            "account_id": acc_id,
+        }
+    )
+    return out
+
+
+@app.get("/api/access-requests")
+def api_access_requests_list(_admin: User = Depends(require_admin)):
+    with Session(db_engine) as session:
+        rows = session.exec(
+            select(AccessRequest)
+            .where(AccessRequest.status == "pending")
+            .order_by(AccessRequest.created_at.desc())
+        ).all()
+        return [_access_request_to_dict(session, r) for r in rows]
+
+
+@app.put("/api/access-requests/{request_id}")
+async def api_access_requests_review(
+    request_id: str,
+    body: AccessRequestReviewBody,
+    request: Request,
+    admin: User = Depends(require_admin),
+):
+    from .ws_portal import broadcast_json
+
+    with Session(db_engine) as session:
+        row = session.get(AccessRequest, request_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Request not found")
+        if row.status != "pending":
+            raise HTTPException(status_code=400, detail="Request is not pending")
+        st = body.status.lower()
+        row.status = st
+        row.reviewed_by = admin.username
+        row.reviewed_at = datetime.now(timezone.utc)
+        if st == "approved":
+            existing = session.exec(
+                select(UserAccountAccess).where(
+                    UserAccountAccess.user_id == row.user_id,
+                    UserAccountAccess.account_id == row.account_id,
+                )
+            ).first()
+            if not existing:
+                session.add(
+                    UserAccountAccess(
+                        id=str(uuid.uuid4()),
+                        user_id=row.user_id,
+                        account_id=row.account_id,
+                    )
+                )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        out = _access_request_to_dict(session, row)
+    write_audit(
+        admin.username,
+        admin.role,
+        "access_request_review",
+        resource=f"/api/access-requests/{request_id}",
+        detail=f"status={out['status']}",
+        ip_address=request.client.host if request.client else "",
+    )
+    await broadcast_json(
+        {
+            "type": "access_request_updated",
+            "request_id": request_id,
+            "user_id": out["user_id"],
+            "status": out["status"],
+        }
+    )
+    return out
 
 
 @app.get("/health")
