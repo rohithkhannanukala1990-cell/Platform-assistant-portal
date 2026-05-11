@@ -35,11 +35,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d aiops"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 10s
+      retries: 5
+      start_period: 30s
     networks: [app-network]
 
   # ── 2. Redis (Celery broker + result backend) ──
@@ -56,10 +56,9 @@ services:
       - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis123}", "ping"]
-      interval: 5s
-      timeout: 3s
+      interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 5s
     networks: [app-network]
 
   # ── 3. FastAPI Backend ─────────────────────
@@ -84,6 +83,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks: [app-network]
 
   # ── 4. Celery Worker ───────────────────────
@@ -112,13 +117,19 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A backend.worker.celery_app inspect ping -t 5 | grep -q pong || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
     networks: [app-network]
 
   # ── 5. Vite / React Frontend ───────────────
   frontend:
     image: node:20-alpine
     working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    command: sh -c "apk add --no-cache curl && npm install && npm run dev -- --host 0.0.0.0"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -132,7 +143,14 @@ services:
     environment:
       VITE_API_BASE_URL: http://localhost:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks: [app-network]
 
   prometheus:
@@ -148,7 +166,13 @@ services:
       - "--storage.tsdb.retention.time=15d"
     networks: [app-network]
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   grafana:
     image: grafana/grafana:11.0.0
@@ -163,8 +187,15 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning
     networks: [app-network]
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
+  # Loki image is distroless (no shell/curl/wget); Docker HEALTHCHECK not supported in-image.
   loki:
     image: grafana/loki:3.0.0
     restart: unless-stopped
