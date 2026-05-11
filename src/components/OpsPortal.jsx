@@ -4,7 +4,7 @@
  * ToolRegistryView, and the universal HistoryPanel.
  */
 import { useState, useEffect } from 'react'
-import { Heart as HeartIcon } from 'lucide-react'
+import { Heart as HeartIcon, Puzzle as PuzzleIcon } from 'lucide-react'
 import DashboardView from './DashboardView'
 import TriageView from './TriageView'
 import InfraBuilderView from './InfraBuilderView'
@@ -22,7 +22,7 @@ const VIEW_LABELS = {
   cicd: 'CI/CD Pipeline',
   integrations: 'Integrations',
   health: 'System Health',
-  tools: 'Tool Registry',
+  'tool-registry': 'Integrations',
 }
 
 /**
@@ -36,6 +36,13 @@ export const OPS_NAV_ITEMS = [
     icon: HeartIcon,
     component: HealthDashboard,
     requiredPermission: 'settings',
+    adminOnly: true,
+  },
+  {
+    id: 'tool-registry',
+    label: 'Integrations',
+    icon: PuzzleIcon,
+    component: ToolRegistryView,
     adminOnly: true,
   },
 ]
@@ -97,12 +104,14 @@ export default function OpsPortal({ currentView, onViewChange, onBreadcrumb }) {
 
   const healthEntry = OPS_NAV_ITEMS.find((x) => x.id === 'health')
   const HealthCmp = healthEntry?.component ?? HealthDashboard
+  const toolRegistryEntry = OPS_NAV_ITEMS.find((x) => x.id === 'tool-registry')
+  const ToolRegistryCmp = toolRegistryEntry?.component ?? ToolRegistryView
 
   const showHistoryPanel =
     currentView !== 'dashboard' &&
     currentView !== 'integrations' &&
     currentView !== 'health' &&
-    currentView !== 'tools'
+    currentView !== 'tool-registry'
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -147,7 +156,22 @@ export default function OpsPortal({ currentView, onViewChange, onBreadcrumb }) {
             <HealthCmp />
           </div>
         )}
-        {currentView === 'tools' && role === 'Admin' && <ToolRegistryView />}
+        {currentView === 'tool-registry' && role === 'Admin' && (
+          <div>
+            {toolRegistryEntry?.icon
+              ? (() => {
+                  const Icon = toolRegistryEntry.icon
+                  return (
+                    <div className="flex items-center gap-2 mb-4 text-slate-400">
+                      <Icon className="w-5 h-5 text-violet-400" aria-hidden />
+                      <span className="text-xs font-medium uppercase tracking-wider">Integrations</span>
+                    </div>
+                  )
+                })()
+              : null}
+            <ToolRegistryCmp />
+          </div>
+        )}
       </main>
 
       {showHistoryPanel && (

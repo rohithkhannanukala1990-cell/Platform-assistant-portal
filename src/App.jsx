@@ -170,7 +170,7 @@ function AppLayout() {
   function breadcrumb() {
     if (location.pathname === '/system-health') return 'System Health'
   if (location.pathname === '/ops' && currentOpsView === 'health') return 'System Health'
-  if (location.pathname === '/ops' && currentOpsView === 'tools') return 'Tool Registry'
+  if (location.pathname === '/ops' && currentOpsView === 'tool-registry') return 'Integrations'
     if (location.pathname === '/integrations') return 'Integrations'
     if (location.pathname === '/approvals') return 'Agent Approvals'
     if (location.pathname === '/history') return 'History'
