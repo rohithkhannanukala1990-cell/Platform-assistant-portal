@@ -1,6 +1,21 @@
-import { useState, useRef, useCallback } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Loader2, Settings } from 'lucide-react'
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
+function buildPortalWsUrl() {
+  try {
+    const u = new URL(API_BASE)
+    u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
+    u.pathname = '/ws/portal'
+    u.search = ''
+    u.hash = ''
+    return u.toString()
+  } catch {
+    return 'ws://localhost:8000/ws/portal'
+  }
+}
 
 import { RoleProvider, useRole, ROLES } from './contexts/RoleContext'
 import { useAuth } from './contexts/AuthContext'
@@ -46,6 +61,7 @@ function AppLayout() {
   const { isAuthenticated, loading, logout, authFetch } = useAuth()
   const { role, roleInfo } = useRole()
   const location = useLocation()
+  const navigate = useNavigate()
 
   const [currentOpsView,  setCurrentOpsView]  = useState('dashboard')
   const [currentDevView,  setCurrentDevView]  = useState('catalog')
@@ -53,6 +69,64 @@ function AppLayout() {
   const [currentDbView,   setCurrentDbView]   = useState('dbhealth')
   const [opsBreadcrumb,   setOpsBreadcrumb]   = useState('Dashboard')
   const [settingsOpen,    setSettingsOpen]    = useState(false)
+  const [healthStatus, setHealthStatus] = useState('healthy')
+  const [criticalHealthBanner, setCriticalHealthBanner] = useState(null)
+  const [healthWsToast, setHealthWsToast] = useState(null)
+
+  const openHealthDashboard = useCallback(() => {
+    navigate('/ops')
+    setCurrentOpsView('health')
+  }, [navigate])
+
+  useEffect(() => {
+    if (role !== 'Admin') return undefined
+    let cancelled = false
+    async function pollSummary() {
+      try {
+        const r = await fetch(`${API_BASE}/api/health/summary`)
+        if (!r.ok) return
+        const d = await r.json()
+        if (!cancelled) setHealthStatus(d.status || 'healthy')
+      } catch {
+        if (!cancelled) setHealthStatus('warning')
+      }
+    }
+    pollSummary()
+    const id = window.setInterval(pollSummary, 60000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [role])
+
+  useEffect(() => {
+    if (role !== 'Admin') return undefined
+    let ws
+    try {
+      ws = new WebSocket(buildPortalWsUrl())
+      ws.onmessage = (ev) => {
+        let data
+        try {
+          data = JSON.parse(ev.data)
+        } catch {
+          return
+        }
+        if (data.type !== 'health_alert') return
+        window.dispatchEvent(new CustomEvent('portal-health-alert', { detail: data }))
+        if (data.severity === 'critical') {
+          setCriticalHealthBanner(data.message || 'Critical system alert')
+        } else if (data.severity === 'warning') {
+          setHealthWsToast(data.message || 'Health warning')
+          window.setTimeout(() => setHealthWsToast(null), 8000)
+        }
+      }
+    } catch {
+      /* WS optional */
+    }
+    return () => {
+      if (ws && ws.readyState <= 1) ws.close()
+    }
+  }, [role])
 
   // Unified nav handler — routes to the right state based on active role
   function handleNav(viewId) {
@@ -95,6 +169,8 @@ function AppLayout() {
 
   function breadcrumb() {
     if (location.pathname === '/system-health') return 'System Health'
+  if (location.pathname === '/ops' && currentOpsView === 'health') return 'System Health'
+  if (location.pathname === '/ops' && currentOpsView === 'tools') return 'Tool Registry'
     if (location.pathname === '/integrations') return 'Integrations'
     if (location.pathname === '/approvals') return 'Agent Approvals'
     if (location.pathname === '/history') return 'History'
@@ -122,6 +198,35 @@ function AppLayout() {
 
       {/* Main column */}
       <div className="flex flex-col flex-1 overflow-hidden">
+        {criticalHealthBanner && role === 'Admin' && (
+          <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-red-950/80 border-b border-red-700/50 text-red-100 text-sm">
+            <span>
+              🚨 Critical system alert: {criticalHealthBanner}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold"
+                onClick={openHealthDashboard}
+              >
+                View Health Dashboard
+              </button>
+              <button
+                type="button"
+                className="px-2 py-1 text-xs text-red-200/80 hover:text-white"
+                onClick={() => setCriticalHealthBanner(null)}
+                aria-label="Dismiss critical alert"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+        {healthWsToast && role === 'Admin' && (
+          <div className="fixed bottom-6 right-6 z-[60] max-w-sm px-4 py-3 rounded-lg border border-amber-500/40 bg-amber-950/90 text-amber-100 text-sm shadow-xl">
+            ⚠️ {healthWsToast}
+          </div>
+        )}
 
         {/* ── Top Header ─────────────────────────────────────────────────── */}
         <header className="flex items-center justify-between px-6 py-3.5 border-b border-border bg-sidebar shrink-0">
@@ -151,7 +256,32 @@ function AppLayout() {
                   })
                   .catch((err) => { console.error('Failed to navigate to incident:', err) })
               }}
+              onOpenHealthDashboard={openHealthDashboard}
             />
+
+            {role === 'Admin' && (
+              <button
+                type="button"
+                title={
+                  healthStatus === 'critical'
+                    ? 'System issues detected — click to view'
+                    : 'System health'
+                }
+                onClick={openHealthDashboard}
+                className="relative flex items-center justify-center w-8 h-8 rounded-full border border-border hover:bg-card transition-colors"
+                aria-label="Open system health"
+              >
+                <span
+                  className={`w-2.5 h-2.5 rounded-full ${
+                    healthStatus === 'critical'
+                      ? 'bg-red-500 animate-pulse'
+                      : healthStatus === 'warning'
+                        ? 'bg-yellow-400 animate-pulse'
+                        : 'bg-green-500'
+                  }`}
+                />
+              </button>
+            )}
 
             <button
               onClick={() => setSettingsOpen(true)}

@@ -9,7 +9,8 @@ const OPS_NAV = [
   { id: 'infra',         label: 'Infra Builder',  emoji: '🏗️' },
   { id: 'cicd',          label: 'CI/CD Pipeline', emoji: '🚀' },
   { id: 'integrations',  label: 'Integrations',   emoji: '🔌', adminOnly: true },
-  { id: 'systemhealth', label: 'System Health', emoji: '🩺', adminOnly: true, externalPath: '/system-health' },
+  { id: 'health',         label: 'Health',         emoji: '❤️', adminOnly: true },
+  { id: 'tools',          label: 'Tool Registry', emoji: '🔧', adminOnly: true },
 ]
 
 const DEV_NAV = [
@@ -92,9 +93,18 @@ export default function Sidebar({ activeView, onNavigate, showOpsNav }) {
               key={item.id}
               item={item}
               active={item.externalPath ? location.pathname === item.externalPath : activeView === item.id}
-              onNavigate={() =>
-                item.externalPath ? navigate(item.externalPath) : onNavigate(item.id)
-              }
+              onNavigate={() => {
+                if (item.externalPath) {
+                  navigate(item.externalPath)
+                  return
+                }
+                if (item.id === 'health' || item.id === 'tools') {
+                  navigate('/ops')
+                  onNavigate(item.id)
+                  return
+                }
+                onNavigate(item.id)
+              }}
             />
           ))
         }

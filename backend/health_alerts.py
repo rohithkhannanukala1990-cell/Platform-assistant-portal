@@ -71,3 +71,17 @@ async def send_alert(
                 SLACK_WEBHOOK,
                 json={"text": f"{emoji} *Portal Health Alert*\n{message}"},
             )
+
+    try:
+        from . import ws_portal
+
+        await ws_portal.broadcast_json(
+            {
+                "type": "health_alert",
+                "severity": severity,
+                "message": message,
+                "timestamp": created_at.isoformat(),
+            }
+        )
+    except Exception:
+        pass

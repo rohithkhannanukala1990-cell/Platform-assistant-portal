@@ -8,7 +8,7 @@ import ollama
 from contextlib import asynccontextmanager
 from datetime import datetime
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, WebSocket
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -1678,6 +1678,23 @@ def get_analytics(current_user: User = Depends(get_current_user)):
         "incidents_over_time":  incidents_over_time,
         "module_activity":      module_activity,
     }
+
+
+# ── Public health summary (probes, GitHub Actions; no auth) ────────────────────
+
+
+@app.get("/api/health/summary")
+async def api_health_summary():
+    from .health import health_checker
+
+    return await health_checker.get_summary()
+
+
+@app.websocket("/ws/portal")
+async def portal_websocket_route(websocket: WebSocket):
+    from .ws_portal import accept_portal_connection
+
+    await accept_portal_connection(websocket)
 
 
 # ── Admin health dashboard API ────────────────────────────────────────────────

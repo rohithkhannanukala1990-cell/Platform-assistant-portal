@@ -173,3 +173,11 @@ def test_19_api_health_autoheal_admin_ok(client, admin_token):
     body = response.json()
     assert "count" in body
     assert isinstance(body.get("healed"), list)
+
+
+def test_20_api_health_summary_public_no_auth(client):
+    response = client.get("/api/health/summary")
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("status") in ("healthy", "warning", "critical")
+    assert "checked_at" in data

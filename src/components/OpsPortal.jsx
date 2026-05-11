@@ -1,65 +1,108 @@
 /**
  * OpsPortal — the full AIOps operations view.
- * Wraps DashboardView, TriageView, InfraBuilderView, CICDView, and the
- * universal HistoryPanel inside the same state-based navigation that was
- * previously embedded directly in App.jsx.  Extracted here so React Router
- * can mount it at /ops while keeping the sub-navigation state local.
+ * Wraps DashboardView, TriageView, InfraBuilderView, CICDView, HealthDashboard,
+ * ToolRegistryView, and the universal HistoryPanel.
  */
 import { useState, useEffect } from 'react'
-import DashboardView    from './DashboardView'
-import TriageView       from './TriageView'
+import { Heart as HeartIcon } from 'lucide-react'
+import DashboardView from './DashboardView'
+import TriageView from './TriageView'
 import InfraBuilderView from './InfraBuilderView'
-import CICDView         from './CICDView'
-import HistoryPanel     from './HistoryPanel'
+import CICDView from './CICDView'
+import HistoryPanel from './HistoryPanel'
 import IntegrationsPage from './IntegrationsPage'
-import { useRole }      from '../contexts/RoleContext'
+import HealthDashboard from './HealthDashboard'
+import ToolRegistryView from './ToolRegistryView'
+import { useRole } from '../contexts/RoleContext'
 
 const VIEW_LABELS = {
-  dashboard:    'Dashboard',
-  triage:       'Alert Triage',
-  infra:        'Infra Builder',
-  cicd:         'CI/CD Pipeline',
+  dashboard: 'Dashboard',
+  triage: 'Alert Triage',
+  infra: 'Infra Builder',
+  cicd: 'CI/CD Pipeline',
   integrations: 'Integrations',
+  health: 'System Health',
+  tools: 'Tool Registry',
 }
+
+/**
+ * Ops module registry — Sidebar uses matching `id` values.
+ * requiredPermission reserved for future RBAC (currently unused).
+ */
+export const OPS_NAV_ITEMS = [
+  {
+    id: 'health',
+    label: 'Health',
+    icon: HeartIcon,
+    component: HealthDashboard,
+    requiredPermission: 'settings',
+    adminOnly: true,
+  },
+]
 
 export default function OpsPortal({ currentView, onViewChange, onBreadcrumb }) {
   const { role } = useRole()
 
-  // Per-module version counters
-  const [versions, setVersions]         = useState({ alerts: 0, infra: 0, cicd: 0 })
+  const [versions, setVersions] = useState({ alerts: 0, infra: 0, cicd: 0 })
   const [selectedAlert, setSelectedAlert] = useState(null)
   const [selectedInfra, setSelectedInfra] = useState(null)
-  const [selectedCICD,  setSelectedCICD]  = useState(null)
+  const [selectedCICD, setSelectedCICD] = useState(null)
 
-  function bumpVersion(tab) { setVersions((v) => ({ ...v, [tab]: v[tab] + 1 })) }
+  function bumpVersion(tab) {
+    setVersions((v) => ({ ...v, [tab]: v[tab] + 1 }))
+  }
 
-  function handleAnalysisComplete() { bumpVersion('alerts'); setSelectedAlert(null) }
-  function handleInfraComplete()    { bumpVersion('infra');  setSelectedInfra(null) }
-  function handleCICDComplete()     { bumpVersion('cicd');   setSelectedCICD(null)  }
+  function handleAnalysisComplete() {
+    bumpVersion('alerts')
+    setSelectedAlert(null)
+  }
+  function handleInfraComplete() {
+    bumpVersion('infra')
+    setSelectedInfra(null)
+  }
+  function handleCICDComplete() {
+    bumpVersion('cicd')
+    setSelectedCICD(null)
+  }
 
   function handleHistorySelect(tab, item) {
-    if (tab === 'alerts')      { setSelectedAlert(item); onViewChange('triage') }
-    else if (tab === 'infra')  { setSelectedInfra(item); onViewChange('infra') }
-    else if (tab === 'cicd')   { setSelectedCICD(item);  onViewChange('cicd') }
+    if (tab === 'alerts') {
+      setSelectedAlert(item)
+      onViewChange('triage')
+    } else if (tab === 'infra') {
+      setSelectedInfra(item)
+      onViewChange('infra')
+    } else if (tab === 'cicd') {
+      setSelectedCICD(item)
+      onViewChange('cicd')
+    }
   }
 
   const selectedIds = {
     alerts: selectedAlert?.id ?? null,
-    infra:  selectedInfra?.id  ?? null,
-    cicd:   selectedCICD?.id   ?? null,
+    infra: selectedInfra?.id ?? null,
+    cicd: selectedCICD?.id ?? null,
   }
 
-  // Expose the current detail breadcrumb label to parent
   const detailLabel = (() => {
     if (currentView === 'triage' && selectedAlert) return `Incident #${selectedAlert.id}`
-    if (currentView === 'infra'  && selectedInfra) return `Infra Record #${selectedInfra.id}`
-    if (currentView === 'cicd'   && selectedCICD)  return `Pipeline #${selectedCICD.id}`
+    if (currentView === 'infra' && selectedInfra) return `Infra Record #${selectedInfra.id}`
+    if (currentView === 'cicd' && selectedCICD) return `Pipeline #${selectedCICD.id}`
     return VIEW_LABELS[currentView] ?? 'Dashboard'
   })()
 
   useEffect(() => {
     onBreadcrumb?.(detailLabel)
   }, [detailLabel, onBreadcrumb])
+
+  const healthEntry = OPS_NAV_ITEMS.find((x) => x.id === 'health')
+  const HealthCmp = healthEntry?.component ?? HealthDashboard
+
+  const showHistoryPanel =
+    currentView !== 'dashboard' &&
+    currentView !== 'integrations' &&
+    currentView !== 'health' &&
+    currentView !== 'tools'
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -88,9 +131,26 @@ export default function OpsPortal({ currentView, onViewChange, onBreadcrumb }) {
           />
         )}
         {currentView === 'integrations' && <IntegrationsPage />}
+        {currentView === 'health' && role === 'Admin' && (
+          <div>
+            {healthEntry?.icon
+              ? (() => {
+                  const Icon = healthEntry.icon
+                  return (
+                    <div className="flex items-center gap-2 mb-4 text-slate-400">
+                      <Icon className="w-5 h-5 text-rose-400" aria-hidden />
+                      <span className="text-xs font-medium uppercase tracking-wider">Health module</span>
+                    </div>
+                  )
+                })()
+              : null}
+            <HealthCmp />
+          </div>
+        )}
+        {currentView === 'tools' && role === 'Admin' && <ToolRegistryView />}
       </main>
 
-      {currentView !== 'dashboard' && currentView !== 'integrations' && (
+      {showHistoryPanel && (
         <HistoryPanel
           versions={versions}
           onSelect={handleHistorySelect}
