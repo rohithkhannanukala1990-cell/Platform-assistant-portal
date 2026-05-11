@@ -223,10 +223,18 @@ def test_24_tool_account_lifecycle(client, admin_token):
     lst = client.get("/api/tools/github/accounts", headers=h)
     assert lst.status_code == 200
     assert any(a["id"] == aid for a in lst.json())
+    auth_types = client.get("/api/tools/github/auth-types", headers=h)
+    assert auth_types.status_code == 200
+    assert isinstance(auth_types.json(), list)
+    req_fields = client.get("/api/tools/aws/required-fields", headers=h)
+    assert req_fields.status_code == 200
+    assert "region" in req_fields.json()
+
     tst = client.post(f"/api/tools/github/accounts/{aid}/test", headers=h)
     assert tst.status_code == 200
     body = tst.json()
     assert "connected" in body and "latency_ms" in body
+    assert body.get("connected") is True
     upd = client.put(
         f"/api/tools/github/accounts/{aid}",
         headers=h,

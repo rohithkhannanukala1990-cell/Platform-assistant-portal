@@ -3,7 +3,6 @@ import re
 import json
 import asyncio
 import time
-import random
 import uuid
 import httpx
 import ollama
@@ -24,6 +23,7 @@ from sqlalchemy import text as sa_text
 from .database import engine as db_engine
 from .auth import auth_router, get_current_user, write_audit, User, require_admin
 from .auth import seed_default_admin, seed_default_llm_config
+from .connectors.registry import get_auth_types, get_connector, get_required_fields
 from .command_validator import CommandValidator
 from .executor.safe_executor import safe_executor
 from .tasks import process_inbound_webhook, process_webhook_log
@@ -2037,6 +2037,22 @@ def api_tools_delete(tool_id: str, current_user: User = Depends(get_current_user
     return {"ok": True}
 
 
+@app.get("/api/tools/{tool_id}/auth-types")
+def api_tool_auth_types(tool_id: str, current_user: User = Depends(get_current_user)):
+    with Session(db_engine) as session:
+        if not session.get(Tool, tool_id):
+            raise HTTPException(status_code=404, detail="Tool not found")
+    return get_auth_types(tool_id)
+
+
+@app.get("/api/tools/{tool_id}/required-fields")
+def api_tool_required_fields(tool_id: str, current_user: User = Depends(get_current_user)):
+    with Session(db_engine) as session:
+        if not session.get(Tool, tool_id):
+            raise HTTPException(status_code=404, detail="Tool not found")
+    return get_required_fields(tool_id)
+
+
 @app.get("/api/tools/{tool_id}/accounts")
 def api_tool_accounts_list(
     tool_id: str,
@@ -2144,35 +2160,46 @@ def api_tool_accounts_delete(
 
 
 @app.post("/api/tools/{tool_id}/accounts/{account_id}/test")
-def api_tool_accounts_test(
+async def api_tool_accounts_test(
     tool_id: str,
     account_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    connected = random.choice([True, True, False])
-    latency_ms = random.randint(50, 500) if connected else None
-    err = None if connected else "Simulated connection failure"
-    log_status = "connected" if connected else "failed"
     with Session(db_engine) as session:
         acc = session.get(ToolAccount, account_id)
         if not acc or acc.tool_id != tool_id:
+            raise HTTPException(status_code=404, detail="Account not found")
+        account_dict = {
+            "tool_id": acc.tool_id,
+            "account_name": acc.account_name,
+            "account_identifier": acc.account_identifier,
+            "instance_url": acc.instance_url,
+            "environment": acc.environment,
+            "region": acc.region,
+            "auth_type": acc.auth_type,
+            "credentials_vault_ref": acc.credentials_vault_ref,
+        }
+    connector = get_connector(account_dict["tool_id"], account_dict)
+    result = await connector.test_connection()
+    connected = bool(result.get("connected"))
+    latency_ms = result.get("latency_ms")
+    err = result.get("error")
+    log_status = "connected" if connected else "failed"
+    with Session(db_engine) as session:
+        acc2 = session.get(ToolAccount, account_id)
+        if not acc2 or acc2.tool_id != tool_id:
             raise HTTPException(status_code=404, detail="Account not found")
         log = ToolConnectionLog(
             id=str(uuid.uuid4()),
             account_id=account_id,
             status=log_status,
-            latency_ms=latency_ms,
-            error_message=err,
+            latency_ms=int(latency_ms) if latency_ms is not None else None,
+            error_message=str(err) if err else None,
         )
         session.add(log)
-        acc.status = "connected" if connected else "failed"
-        session.add(acc)
+        acc2.status = "connected" if connected else "failed"
+        session.add(acc2)
         session.commit()
-    result = {
-        "connected": connected,
-        "latency_ms": latency_ms,
-        "error": err,
-    }
     return result
 
 
