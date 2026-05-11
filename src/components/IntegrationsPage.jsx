@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Plug, Copy, CheckCheck, RefreshCw, Activity,
   GitBranch, Database, Cloud, Bell, Clock,
@@ -187,6 +188,8 @@ function ActivityRow({ ev }) {
 
 export default function IntegrationsPage() {
   const { role } = useRole()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [activity, setActivity]   = useState([])
   const [loadingAct, setLoadingAct] = useState(false)
   const [firing, setFiring]       = useState(null)    // integration id being test-fired
@@ -234,8 +237,30 @@ export default function IntegrationsPage() {
   const errors    = activity.filter(e => e.status === 'error').length
   const queued    = activity.filter(e => e.status === 'accepted').length
 
+  const rotateName = location.state?.rotateAccountName
+
   return (
     <div className="flex flex-col gap-6 max-w-6xl mx-auto pb-16 animate-fade-in">
+
+      {rotateName && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-100">
+          <p className="text-sm">
+            <span className="font-semibold text-amber-200">Credential rotation:</span>{' '}
+            review integration credentials for <strong className="text-white">{rotateName}</strong>
+            {location.state?.rotateTool ? (
+              <span className="text-amber-200/90"> ({location.state.rotateTool})</span>
+            ) : null}
+            .
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('.', { replace: true, state: {} })}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-900/40 border border-amber-600/50 hover:bg-amber-900/60 text-amber-50"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">

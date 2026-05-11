@@ -17,10 +17,10 @@ from starlette.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google import genai
-from sqlmodel import Session
+from sqlmodel import Session, select
 from sqlalchemy import text as sa_text
 from .database import engine as db_engine
-from .auth import auth_router, get_current_user, write_audit, User
+from .auth import auth_router, get_current_user, write_audit, User, require_admin
 from .auth import seed_default_admin, seed_default_llm_config
 from .command_validator import CommandValidator
 from .executor.safe_executor import safe_executor
@@ -40,6 +40,7 @@ from .database import (
     create_notification, get_all_notifications, mark_notification_read,
     save_webhook_event, update_webhook_event, get_recent_webhook_events,
     get_pending_approvals,
+    HealthAlert,
 )
 
 load_dotenv()
@@ -1677,6 +1678,122 @@ def get_analytics(current_user: User = Depends(get_current_user)):
         "incidents_over_time":  incidents_over_time,
         "module_activity":      module_activity,
     }
+
+
+# ── Admin health dashboard API ────────────────────────────────────────────────
+
+
+@app.get("/api/health/full")
+async def api_health_full(_admin: User = Depends(require_admin)):
+    from .health import health_checker
+
+    return await health_checker.check_all()
+
+
+@app.get("/api/health/alerts")
+def api_health_alerts(_admin: User = Depends(require_admin)):
+    with Session(db_engine) as session:
+        rows = session.exec(
+            select(HealthAlert)
+            .where(HealthAlert.status == "active")
+            .order_by(HealthAlert.created_at.desc())
+        ).all()
+    return [
+        {
+            "id": r.id,
+            "user_id": r.user_id,
+            "message": r.message,
+            "severity": r.severity,
+            "status": r.status,
+            "created_at": r.created_at.isoformat(),
+        }
+        for r in rows
+    ]
+
+
+@app.post("/api/health/autoheal/all")
+async def api_health_autoheal_all(request: Request, _admin: User = Depends(require_admin)):
+    from .auto_heal import auto_healer
+
+    results = await auto_healer.heal_all_low_risk()
+    write_audit(
+        _admin.username,
+        _admin.role,
+        "health_autoheal",
+        resource="/api/health/autoheal/all",
+        detail=f"Ran low-risk auto-heal: {len(results)} action(s)",
+        ip_address=request.client.host if request.client else "",
+    )
+    return {"healed": results, "count": len(results)}
+
+
+@app.post("/api/health/alerts/email")
+async def api_health_alerts_email(request: Request, _admin: User = Depends(require_admin)):
+    """Queue / record a team email digest for active health alerts (integration hook)."""
+    with Session(db_engine) as session:
+        rows = session.exec(
+            select(HealthAlert).where(HealthAlert.status == "active")
+        ).all()
+    write_audit(
+        _admin.username,
+        _admin.role,
+        "health_alerts_email",
+        resource="/api/health/alerts/email",
+        detail=f"Requested alert email digest for {len(rows)} active alert(s)",
+        ip_address=request.client.host if request.client else "",
+    )
+    logger.info("Health alerts email requested", extra={"count": len(rows), "actor": _admin.username})
+    return {"ok": True, "queued": len(rows), "message": "Alert digest recorded for team distribution"}
+
+
+@app.post("/api/health/alerts/{alert_id}/resolve")
+def api_health_alert_resolve(
+    request: Request,
+    alert_id: str,
+    _admin: User = Depends(require_admin),
+):
+    with Session(db_engine) as session:
+        row = session.get(HealthAlert, alert_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        detail_snip = (row.message or "")[:200]
+        row.status = "resolved"
+        session.add(row)
+        session.commit()
+    write_audit(
+        _admin.username,
+        _admin.role,
+        "health_alert_resolve",
+        resource=f"/api/health/alerts/{alert_id}/resolve",
+        detail=detail_snip,
+        ip_address=request.client.host if request.client else "",
+    )
+    return {"ok": True}
+
+
+@app.post("/api/health/alerts/{alert_id}/ignore")
+def api_health_alert_ignore(
+    request: Request,
+    alert_id: str,
+    _admin: User = Depends(require_admin),
+):
+    with Session(db_engine) as session:
+        row = session.get(HealthAlert, alert_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        detail_snip = (row.message or "")[:200]
+        row.status = "ignored"
+        session.add(row)
+        session.commit()
+    write_audit(
+        _admin.username,
+        _admin.role,
+        "health_alert_ignore",
+        resource=f"/api/health/alerts/{alert_id}/ignore",
+        detail=detail_snip,
+        ip_address=request.client.host if request.client else "",
+    )
+    return {"ok": True}
 
 
 @app.get("/health")

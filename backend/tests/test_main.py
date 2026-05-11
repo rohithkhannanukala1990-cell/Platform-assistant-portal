@@ -143,3 +143,33 @@ def test_15_get_endpoints_return_json(client, admin_token):
         kw = {"headers": headers} if headers else {}
         response = client.get(path, **kw)
         assert response.headers.get("content-type", "").startswith("application/json")
+
+
+def test_16_api_health_full_requires_auth(client):
+    assert client.get("/api/health/full").status_code == 401
+
+
+def test_17_api_health_full_admin_ok(client, admin_token):
+    response = client.get("/api/health/full", headers=auth_headers(admin_token))
+    assert response.status_code == 200
+    data = response.json()
+    assert "database" in data
+    assert "redis" in data
+    assert "checked_at" in data
+
+
+def test_18_api_health_alerts_admin_ok(client, admin_token):
+    response = client.get("/api/health/alerts", headers=auth_headers(admin_token))
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_19_api_health_autoheal_admin_ok(client, admin_token):
+    response = client.post(
+        "/api/health/autoheal/all",
+        headers=auth_headers(admin_token),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "count" in body
+    assert isinstance(body.get("healed"), list)

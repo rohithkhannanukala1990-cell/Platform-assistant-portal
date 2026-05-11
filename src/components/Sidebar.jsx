@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Activity } from 'lucide-react'
 import { useRole, ROLES } from '../contexts/RoleContext'
 
@@ -9,6 +9,7 @@ const OPS_NAV = [
   { id: 'infra',         label: 'Infra Builder',  emoji: '🏗️' },
   { id: 'cicd',          label: 'CI/CD Pipeline', emoji: '🚀' },
   { id: 'integrations',  label: 'Integrations',   emoji: '🔌', adminOnly: true },
+  { id: 'systemhealth', label: 'System Health', emoji: '🩺', adminOnly: true, externalPath: '/system-health' },
 ]
 
 const DEV_NAV = [
@@ -42,6 +43,7 @@ const NAV_BY_ROLE = {
 export default function Sidebar({ activeView, onNavigate, showOpsNav }) {
   const { role, roleInfo } = useRole()
   const navigate           = useNavigate()
+  const location           = useLocation()
   const navItems           = NAV_BY_ROLE[role] ?? OPS_NAV
 
   return (
@@ -89,8 +91,10 @@ export default function Sidebar({ activeView, onNavigate, showOpsNav }) {
             <NavItem
               key={item.id}
               item={item}
-              active={activeView === item.id}
-              onNavigate={() => onNavigate(item.id)}
+              active={item.externalPath ? location.pathname === item.externalPath : activeView === item.id}
+              onNavigate={() =>
+                item.externalPath ? navigate(item.externalPath) : onNavigate(item.id)
+              }
             />
           ))
         }

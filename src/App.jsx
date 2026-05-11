@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Loader2, Settings } from 'lucide-react'
 
 import { RoleProvider, useRole, ROLES } from './contexts/RoleContext'
@@ -25,6 +25,7 @@ import RunbooksView         from './components/RunbooksView'
 import InfraBuilderView     from './components/InfraBuilderView'
 import DeploymentsView      from './components/DeploymentsView'
 import LivePipelinesView    from './components/LivePipelinesView'
+import HealthDashboard      from './components/HealthDashboard'
 
 // ── Ops sub-view labels ───────────────────────────────────────────────────────
 const OPS_VIEW_LABELS = {
@@ -44,6 +45,7 @@ function AppLayout() {
   // ── ALL hooks at the very top — no exceptions ──
   const { isAuthenticated, loading, logout, authFetch } = useAuth()
   const { role, roleInfo } = useRole()
+  const location = useLocation()
 
   const [currentOpsView,  setCurrentOpsView]  = useState('dashboard')
   const [currentDevView,  setCurrentDevView]  = useState('catalog')
@@ -92,6 +94,12 @@ function AppLayout() {
   const DB_LABELS   = { dbhealth: 'Database Health', queries: 'Query Analyzer', schemas: 'Schema Browser' }
 
   function breadcrumb() {
+    if (location.pathname === '/system-health') return 'System Health'
+    if (location.pathname === '/integrations') return 'Integrations'
+    if (location.pathname === '/approvals') return 'Agent Approvals'
+    if (location.pathname === '/history') return 'History'
+    if (location.pathname === '/storage') return 'Storage'
+    if (location.pathname === '/runbooks') return 'Runbooks'
     if (role === 'Developer')         return DEV_LABELS[currentDevView]  ?? 'Developer'
     if (role === 'DataEngineer')      return DATA_LABELS[currentDataView] ?? 'Data Engineer'
     if (role === 'DatabaseDeveloper') return DB_LABELS[currentDbView]     ?? 'Database'
@@ -214,6 +222,11 @@ function AppLayout() {
           <Route path="/integrations" element={
             <div className="flex-1 overflow-y-auto px-8 py-8">
               <IntegrationsPage />
+            </div>
+          } />
+          <Route path="/system-health" element={
+            <div className="flex-1 overflow-y-auto px-8 py-8">
+              <HealthDashboard />
             </div>
           } />
           <Route path="/storage" element={
