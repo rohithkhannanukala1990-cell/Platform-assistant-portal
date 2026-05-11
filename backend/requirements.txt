@@ -28,3 +28,4 @@ apscheduler==3.10.4
 # CI / local tests
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
+pip-audit>=2.6.0

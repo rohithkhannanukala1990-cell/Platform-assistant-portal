@@ -9,6 +9,7 @@ if _test_db.exists():
     _test_db.unlink(missing_ok=True)
 
 os.environ["DATABASE_URL"] = f"sqlite:///{_test_db.as_posix()}"
+os.environ["SKIP_BACKGROUND_SCHEDULER"] = "1"
 os.environ.setdefault("JWT_SECRET_KEY", "pytest-jwt-secret-not-for-production")
 # Match docker-compose default so seed_default_admin() hashes the same password tests use.
 os.environ.setdefault("DEFAULT_ADMIN_USERNAME", "admin")

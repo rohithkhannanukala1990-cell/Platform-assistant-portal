@@ -110,6 +110,16 @@ class WebhookEvent(SQLModel, table=True):
     cloud_event_id: str = Field(default="")          # generated CE id
 
 
+class HealthAlert(SQLModel, table=True):
+    """Background health-check / auto-heal notifications (see health_alerts.py)."""
+    id: str = Field(primary_key=True)
+    user_id: str = Field(default="")
+    message: str = Field(default="")
+    severity: str = Field(default="info")   # info | warning | critical
+    status: str = Field(default="active")   # active | resolved
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 DEFAULT_SETTINGS = {

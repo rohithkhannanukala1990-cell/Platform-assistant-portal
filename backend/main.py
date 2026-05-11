@@ -82,6 +82,8 @@ async def _wait_for_db(retries: int = 30, delay: float = 2.0):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from .cron_jobs import shutdown_scheduler, start_scheduler
+
     await _wait_for_db()
     create_db_and_tables()
     from sqlmodel import SQLModel
@@ -89,8 +91,11 @@ async def lifespan(app: FastAPI):
     SQLModel.metadata.create_all(db_engine_ref)
     seed_default_admin()
     seed_default_llm_config()
-    yield
-    # (cleanup on shutdown goes here if needed)
+    start_scheduler()
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
 
 
 app = FastAPI(title="AIOps Portal API", version="0.1.0", lifespan=lifespan)
