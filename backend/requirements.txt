@@ -24,3 +24,7 @@ cryptography>=42.0.0
 
 sentry-sdk==2.3.1
 apscheduler==3.10.4
+
+# CI / local tests
+pytest>=8.0.0
+pytest-asyncio>=0.24.0

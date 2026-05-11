@@ -1,0 +1,70 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio httpx
+      - name: Run tests
+        run: pytest backend/tests/ -v --tb=short
+      - name: Security scan
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit --requirement backend/requirements.txt
+
+  frontend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run ESLint
+        run: npm run lint
+      - name: Check build
+        run: npm run build
+      - name: Audit packages
+        continue-on-error: true
+        run: npm audit --audit-level moderate
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-lint]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare backend .env
+        run: |
+          if [ ! -f backend/.env ]; then
+            cp backend/.env.example backend/.env || true
+          fi
+      - name: Build docker compose
+        run: docker compose -f docker-compose.yml build
+      - name: Test healthchecks
+        run: |
+          docker compose -f docker-compose.yml up -d
+          sleep 90
+          docker compose -f docker-compose.yml ps
+          curl -fsS http://localhost:8000/health
+          docker compose -f docker-compose.yml down -v
