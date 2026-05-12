@@ -1,12 +1,12 @@
 /**
  * OpsPortal — the full AIOps operations view.
  * Wraps DashboardView, TriageView, InfraBuilderView, CICDView, HealthDashboard,
- * ToolRegistryView, environment/account context, and the universal HistoryPanel.
+ * ToolRegistryView, AccountImportView, environment/account context, and the universal HistoryPanel.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { Heart as HeartIcon, Puzzle as PuzzleIcon } from 'lucide-react'
+import { Heart as HeartIcon, Puzzle as PuzzleIcon, Upload as UploadIcon } from 'lucide-react'
 import DashboardView from './DashboardView'
 import TriageView from './TriageView'
 import InfraBuilderView from './InfraBuilderView'
@@ -15,6 +15,7 @@ import HistoryPanel from './HistoryPanel'
 import IntegrationsPage from './IntegrationsPage'
 import HealthDashboard from './HealthDashboard'
 import ToolRegistryView from './ToolRegistryView'
+import AccountImportView from './AccountImportView'
 import EnvironmentSwitcher from './EnvironmentSwitcher'
 import AccountSwitcher from './AccountSwitcher'
 import { ToastProvider, useToast } from './ToastNotification'
@@ -30,6 +31,7 @@ const VIEW_LABELS = {
   integrations: 'Integrations',
   health: 'System Health',
   'tool-registry': 'Integrations',
+  import: 'Import',
 }
 
 /** Map ops nav view → default integration tool for AccountSwitcher */
@@ -58,6 +60,13 @@ export const OPS_NAV_ITEMS = [
     label: 'Integrations',
     icon: PuzzleIcon,
     component: ToolRegistryView,
+    adminOnly: true,
+  },
+  {
+    id: 'import',
+    label: 'Import',
+    icon: UploadIcon,
+    component: AccountImportView,
     adminOnly: true,
   },
 ]
@@ -205,12 +214,15 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
   const HealthCmp = healthEntry?.component ?? HealthDashboard
   const toolRegistryEntry = OPS_NAV_ITEMS.find((x) => x.id === 'tool-registry')
   const ToolRegistryCmp = toolRegistryEntry?.component ?? ToolRegistryView
+  const importEntry = OPS_NAV_ITEMS.find((x) => x.id === 'import')
+  const ImportCmp = importEntry?.component ?? AccountImportView
 
   const showHistoryPanel =
     currentView !== 'dashboard' &&
     currentView !== 'integrations' &&
     currentView !== 'health' &&
-    currentView !== 'tool-registry'
+    currentView !== 'tool-registry' &&
+    currentView !== 'import'
 
   const activeToolId = TOOL_BY_VIEW[currentView] ?? null
 
@@ -334,6 +346,22 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
                   })()
                 : null}
               <ToolRegistryCmp />
+            </div>
+          )}
+          {currentView === 'import' && role === 'Admin' && (
+            <div>
+              {importEntry?.icon
+                ? (() => {
+                    const Icon = importEntry.icon
+                    return (
+                      <div className="flex items-center gap-2 mb-4 text-slate-400">
+                        <Icon className="w-5 h-5 text-sky-400" aria-hidden />
+                        <span className="text-xs font-medium uppercase tracking-wider">Import</span>
+                      </div>
+                    )
+                  })()
+                : null}
+              <ImportCmp />
             </div>
           )}
         </main>

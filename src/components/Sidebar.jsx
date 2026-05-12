@@ -9,6 +9,7 @@ const OPS_NAV = [
   { id: 'infra',         label: 'Infra Builder',  emoji: '🏗️' },
   { id: 'cicd',          label: 'CI/CD Pipeline', emoji: '🚀' },
   { id: 'integrations',  label: 'Integrations',   emoji: '🔌', adminOnly: true },
+  { id: 'import',         label: 'Import',        emoji: '📤', adminOnly: true },
   { id: 'health',         label: 'Health',         emoji: '❤️', adminOnly: true },
   { id: 'tool-registry', label: 'Integration registry', emoji: '🧩', adminOnly: true },
 ]
@@ -98,7 +99,7 @@ export default function Sidebar({ activeView, onNavigate, showOpsNav }) {
                   navigate(item.externalPath)
                   return
                 }
-                if (item.id === 'health' || item.id === 'tool-registry') {
+                if (item.id === 'health' || item.id === 'tool-registry' || item.id === 'import') {
                   navigate('/ops')
                   onNavigate(item.id)
                   return
