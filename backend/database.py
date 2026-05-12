@@ -201,6 +201,22 @@ class UserAccountAccess(SQLModel, table=True):
     granted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ImportHistory(SQLModel, table=True):
+    """Audit log for bulk import / discovery confirm operations."""
+
+    __tablename__ = "import_history"
+
+    id: str = Field(primary_key=True)
+    import_type: str
+    source: str = Field(default="")
+    total_rows: int = Field(default=0)
+    imported: int = Field(default=0)
+    skipped: int = Field(default=0)
+    failed: int = Field(default=0)
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 DEFAULT_SETTINGS = {

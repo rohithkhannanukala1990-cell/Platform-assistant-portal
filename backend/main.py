@@ -50,10 +50,12 @@ from .database import (
     UserContext,
     AccessRequest,
     UserAccountAccess,
+    ImportHistory,
 )
 from .importers.csv_importer import csv_importer
 from .importers.json_importer import json_importer
 from .importers.cloud_discovery import cloud_discovery
+from .importers.service_discovery import service_discovery
 
 load_dotenv()
 
@@ -2513,6 +2515,65 @@ def _bulk_insert_tool_accounts(rows: list[dict], actor_username: str) -> dict:
     return {"imported": imported, "skipped": skipped, "failed": failed, "details": details}
 
 
+def _tool_account_to_discovery_dict(a: ToolAccount) -> dict:
+    return {
+        "id": a.id,
+        "tool_id": a.tool_id,
+        "account_name": a.account_name,
+        "account_identifier": a.account_identifier,
+        "instance_url": a.instance_url,
+        "environment": a.environment,
+        "region": a.region,
+        "auth_type": a.auth_type,
+        "status": a.status,
+        "is_active": a.is_active,
+    }
+
+
+def _record_import_history(
+    import_type: str,
+    source: str,
+    total_rows: int,
+    summary: dict,
+    created_by: str,
+) -> None:
+    with Session(db_engine) as session:
+        session.add(
+            ImportHistory(
+                id=str(uuid.uuid4()),
+                import_type=import_type,
+                source=source or "",
+                total_rows=int(total_rows),
+                imported=int(summary.get("imported", 0)),
+                skipped=int(summary.get("skipped", 0)),
+                failed=int(summary.get("failed", 0)),
+                created_by=created_by,
+            )
+        )
+        session.commit()
+
+
+def _strip_discovery_metadata(rows: list[dict]) -> list[dict]:
+    skip = {"metadata", "discovered_services", "discovered_repos"}
+    out: list[dict] = []
+    for a in rows:
+        if not isinstance(a, dict):
+            continue
+        out.append({k: v for k, v in a.items() if k not in skip})
+    return out
+
+
+def _service_discovery_preview_payload(accounts: list) -> dict:
+    serialized = [_serialize_preview_row(a) for a in accounts]
+    return {
+        "preview": serialized[:5],
+        "rows": serialized,
+        "total_rows": len(serialized),
+        "errors": [],
+        "ready_to_import": len(serialized) > 0,
+    }
+
+
 class ImportConfirmBody(BaseModel):
     rows: list[dict]
 
@@ -2563,7 +2624,9 @@ def api_import_csv_confirm(
 ):
     if not body.rows:
         raise HTTPException(status_code=400, detail="rows is required")
-    return _bulk_insert_tool_accounts(body.rows, current_user.username)
+    summary = _bulk_insert_tool_accounts(body.rows, current_user.username)
+    _record_import_history("csv", "upload", len(body.rows), summary, current_user.username)
+    return summary
 
 
 @app.post("/api/import/json")
@@ -2582,7 +2645,9 @@ def api_import_json_confirm(
 ):
     if not body.rows:
         raise HTTPException(status_code=400, detail="rows is required")
-    return _bulk_insert_tool_accounts(body.rows, current_user.username)
+    summary = _bulk_insert_tool_accounts(body.rows, current_user.username)
+    _record_import_history("json", "upload", len(body.rows), summary, current_user.username)
+    return summary
 
 
 @app.post("/api/import/discover")
@@ -2622,13 +2687,99 @@ def api_import_discover_confirm(
 ):
     if not body.accounts:
         raise HTTPException(status_code=400, detail="accounts is required")
-    rows = []
-    for a in body.accounts:
-        if not isinstance(a, dict):
-            continue
-        row = {k: v for k, v in a.items() if k != "discovered_services" and k != "discovered_repos"}
-        rows.append(row)
-    return _bulk_insert_tool_accounts(rows, current_user.username)
+    rows = _strip_discovery_metadata(body.accounts)
+    summary = _bulk_insert_tool_accounts(rows, current_user.username)
+    _record_import_history("cloud_discover", "provider_stub", len(body.accounts), summary, current_user.username)
+    return summary
+
+
+@app.get("/api/discover/all")
+async def api_discover_all(current_user: User = Depends(get_current_user)):
+    with Session(db_engine) as session:
+        connected = session.exec(
+            select(ToolAccount).where(
+                ToolAccount.status == "connected",
+                ToolAccount.is_active == 1,
+            )
+        ).all()
+        account_dicts = [_tool_account_to_discovery_dict(a) for a in connected]
+    out = await service_discovery.discover_all_from_connected(account_dicts)
+    accts = out.get("accounts") or []
+    payload = _service_discovery_preview_payload(accts)
+    payload["total_discovered"] = out.get("total_discovered", len(accts))
+    payload["sources_scanned"] = out.get("sources_scanned", 0)
+    return payload
+
+
+@app.post("/api/discover/confirm")
+def api_discover_confirm(
+    body: ImportDiscoverConfirmBody,
+    current_user: User = Depends(get_current_user),
+):
+    if not body.accounts:
+        raise HTTPException(status_code=400, detail="accounts is required")
+    rows = _strip_discovery_metadata(body.accounts)
+    summary = _bulk_insert_tool_accounts(rows, current_user.username)
+    _record_import_history("service_discovery", "connected_scan", len(body.accounts), summary, current_user.username)
+    return summary
+
+
+@app.post("/api/discover/{tool_id}/{account_id}")
+async def api_discover_one_account(
+    tool_id: str,
+    account_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    with Session(db_engine) as session:
+        acc = session.get(ToolAccount, account_id)
+        if not acc or acc.tool_id != tool_id:
+            raise HTTPException(status_code=404, detail="Account not found")
+        if acc.status != "connected" or acc.is_active != 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Account must be connected and active for service discovery",
+            )
+        d = _tool_account_to_discovery_dict(acc)
+    tid = tool_id.strip().lower()
+    if tid == "github":
+        out = await service_discovery.discover_from_github(d)
+    elif tid == "jira":
+        out = await service_discovery.discover_from_jira(d)
+    elif tid == "slack":
+        out = await service_discovery.discover_from_slack(d)
+    elif tid == "kubernetes":
+        out = await service_discovery.discover_from_kubernetes(d)
+    elif tid == "datadog":
+        out = await service_discovery.discover_from_datadog(d)
+    else:
+        raise HTTPException(status_code=400, detail=f"Service discovery not implemented for tool '{tool_id}'")
+    disc = out.get("discovered") or []
+    payload = _service_discovery_preview_payload(disc)
+    payload["source"] = out.get("source")
+    payload["source_account"] = out.get("source_account")
+    return payload
+
+
+@app.get("/api/import/history")
+def api_import_history(current_user: User = Depends(get_current_user)):
+    with Session(db_engine) as session:
+        rows = session.exec(
+            select(ImportHistory).order_by(ImportHistory.created_at.desc()).limit(50)
+        ).all()
+    return [
+        {
+            "id": r.id,
+            "import_type": r.import_type,
+            "source": r.source,
+            "total_rows": r.total_rows,
+            "imported": r.imported,
+            "skipped": r.skipped,
+            "failed": r.failed,
+            "created_by": r.created_by,
+            "created_at": r.created_at.isoformat(),
+        }
+        for r in rows
+    ]
 
 
 @app.get("/api/context")

@@ -395,3 +395,50 @@ def test_28_import_csv_json_discover(client, admin_token):
     dconf = client.post("/api/import/discover/confirm", headers=h, json={"accounts": d["accounts"]})
     assert dconf.status_code == 200
     assert dconf.json()["imported"] >= 1
+
+
+def test_29_service_discovery_and_import_history(client, admin_token):
+    h = auth_headers(admin_token)
+    acc = client.post(
+        "/api/tools/github/accounts",
+        headers=h,
+        json={
+            "account_name": "SD Parent GitHub",
+            "environment": "production",
+            "auth_type": "pat",
+        },
+    )
+    assert acc.status_code == 200, acc.text
+    aid = acc.json()["id"]
+    up = client.put(
+        f"/api/tools/github/accounts/{aid}",
+        headers=h,
+        json={"status": "connected"},
+    )
+    assert up.status_code == 200, up.text
+
+    all_r = client.get("/api/discover/all", headers=h)
+    assert all_r.status_code == 200, all_r.text
+    body = all_r.json()
+    assert body.get("sources_scanned", 0) >= 1
+    assert body.get("total_discovered", 0) >= 1
+    assert len(body.get("rows") or []) >= 1
+
+    one = client.post(f"/api/discover/github/{aid}", headers=h)
+    assert one.status_code == 200, one.text
+    ob = one.json()
+    assert ob.get("source") == "github"
+    rows = ob.get("rows") or []
+    assert len(rows) >= 1
+
+    conf = client.post("/api/discover/confirm", headers=h, json={"accounts": rows})
+    assert conf.status_code == 200, conf.text
+    assert conf.json().get("imported", 0) >= 1
+
+    hist = client.get("/api/import/history", headers=h)
+    assert hist.status_code == 200, hist.text
+    entries = hist.json()
+    assert isinstance(entries, list)
+    assert len(entries) >= 1
+    types = {e.get("import_type") for e in entries}
+    assert "service_discovery" in types
