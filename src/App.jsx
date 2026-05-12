@@ -169,8 +169,9 @@ function AppLayout() {
 
   function breadcrumb() {
     if (location.pathname === '/system-health') return 'System Health'
-  if (location.pathname === '/ops' && currentOpsView === 'health') return 'System Health'
-  if (location.pathname === '/ops' && currentOpsView === 'tool-registry') return 'Integrations'
+    if (location.pathname === '/ops' && currentOpsView === 'health') return 'System Health'
+    if (location.pathname === '/ops' && currentOpsView === 'tool-registry') return 'Integrations'
+    if (location.pathname === '/ops' && currentOpsView === 'workspaces') return 'Workspaces'
     if (location.pathname === '/ops' && currentOpsView === 'import') return 'Import'
     if (location.pathname === '/integrations') return 'Integrations'
     if (location.pathname === '/approvals') return 'Agent Approvals'
