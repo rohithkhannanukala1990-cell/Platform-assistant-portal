@@ -114,7 +114,6 @@ export default function AccountImportView() {
   const [discoverKind, setDiscoverKind] = useState(null)
   const [isDiscovering, setIsDiscovering] = useState(false)
   const [discoverProvider, setDiscoverProvider] = useState('aws')
-  const [discoverCredentials, setDiscoverCredentials] = useState({})
   const [selectedDiscoverIds, setSelectedDiscoverIds] = useState(() => new Set())
 
   const [awsAccountId, setAwsAccountId] = useState('')
