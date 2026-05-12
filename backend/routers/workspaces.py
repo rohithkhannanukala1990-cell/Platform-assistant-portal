@@ -323,6 +323,10 @@ def delete_workspace(workspace_id: str, current_user: User = Depends(get_current
             select(WorkspaceTool).where(WorkspaceTool.workspace_id == workspace_id)
         ).all():
             session.delete(wt)
+        for wm in session.exec(
+            select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id)
+        ).all():
+            session.delete(wm)
         session.commit()
         return {"deleted": True}
 
