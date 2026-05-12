@@ -21,6 +21,9 @@ backend/.env
 backend/*.db
 backend/*.db-shm
 backend/*.db-wal
+# Default SQLite at repo root / pytest temp DB
+incidents.db
+test_pytest.db
 
 # ── Virtual environments ───────────────────────────────────────────────────────
 .venv/
