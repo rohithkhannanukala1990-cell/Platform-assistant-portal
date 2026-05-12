@@ -342,3 +342,56 @@ def test_27_api_access_requests_flow(client, admin_token):
     assert ap.status_code == 200, ap.text
     assert ap.json()["status"] == "approved"
     assert ap.json()["reviewed_by"] == "admin"
+
+
+def test_28_import_csv_json_discover(client, admin_token):
+    h = auth_headers(admin_token)
+    tpl = client.get("/api/import/template/csv", headers=h)
+    assert tpl.status_code == 200
+    assert "tool_id" in tpl.text
+
+    csv_body = (
+        "tool_id,account_name,environment,region,account_identifier,instance_url,auth_type,requires_hitl\n"
+        "slack,Import Test Slack,development,,,,api_key,0\n"
+    )
+    prev = client.post(
+        "/api/import/csv",
+        headers=h,
+        files={"file": ("accounts.csv", csv_body.encode("utf-8"), "text/csv")},
+    )
+    assert prev.status_code == 200, prev.text
+    pv = prev.json()
+    assert pv["total_rows"] == 1
+    assert pv["ready_to_import"] is True
+    rows = pv["rows"]
+    conf = client.post("/api/import/csv/confirm", headers=h, json={"rows": rows})
+    assert conf.status_code == 200, conf.text
+    assert conf.json()["imported"] >= 1
+
+    dup = client.post("/api/import/csv/confirm", headers=h, json={"rows": rows})
+    assert dup.status_code == 200
+    assert dup.json()["skipped"] >= 1
+
+    jprev = client.post(
+        "/api/import/json",
+        headers=h,
+        json={"content": '[{"tool_id":"slack","account_name":"JSON Import Acc","environment":"test","auth_type":"api_token"}]'},
+    )
+    assert jprev.status_code == 200
+    jr = jprev.json()
+    assert jr["total_rows"] == 1
+    jconf = client.post("/api/import/json/confirm", headers=h, json={"rows": jr["rows"]})
+    assert jconf.status_code == 200
+    assert jconf.json()["imported"] >= 1
+
+    disc = client.post(
+        "/api/import/discover",
+        headers=h,
+        json={"provider": "gcp", "credentials": {"project_id": "pytest-proj"}},
+    )
+    assert disc.status_code == 200
+    d = disc.json()
+    assert d["discovered_count"] == 1
+    dconf = client.post("/api/import/discover/confirm", headers=h, json={"accounts": d["accounts"]})
+    assert dconf.status_code == 200
+    assert dconf.json()["imported"] >= 1

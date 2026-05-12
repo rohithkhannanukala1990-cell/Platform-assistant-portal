@@ -9,14 +9,14 @@ import ollama
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends, WebSocket
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, UploadFile, File
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Literal
 from google import genai
 from sqlmodel import Session, select
@@ -51,6 +51,9 @@ from .database import (
     AccessRequest,
     UserAccountAccess,
 )
+from .importers.csv_importer import csv_importer
+from .importers.json_importer import json_importer
+from .importers.cloud_discovery import cloud_discovery
 
 load_dotenv()
 
@@ -2365,6 +2368,267 @@ async def api_tool_accounts_test(
         session.add(acc2)
         session.commit()
     return result
+
+
+# ── Bulk import (CSV / JSON / discovery preview + confirm) ───────────────────
+
+
+def _serialize_preview_row(r: dict) -> dict:
+    d = dict(r)
+    ca = d.get("created_at")
+    if isinstance(ca, datetime):
+        d["created_at"] = ca.isoformat()
+    return d
+
+
+def _import_preview_payload(rows: list, errors: list) -> dict:
+    preview = [_serialize_preview_row(x) for x in rows[:5]]
+    all_rows = [_serialize_preview_row(x) for x in rows]
+    total = len(rows)
+    ready = total > 0 and len(errors) == 0
+    return {
+        "preview": preview,
+        "rows": all_rows,
+        "total_rows": total,
+        "errors": errors,
+        "ready_to_import": ready,
+    }
+
+
+def _parse_import_created_at(val) -> datetime:
+    if val is None:
+        return datetime.now(timezone.utc)
+    if isinstance(val, datetime):
+        if val.tzinfo is None:
+            return val.replace(tzinfo=timezone.utc)
+        return val
+    if isinstance(val, str):
+        try:
+            s = val.replace("Z", "+00:00")
+            return datetime.fromisoformat(s)
+        except ValueError:
+            return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc)
+
+
+def _normalize_requires_hitl(val) -> int:
+    if val in (True, 1, "1", "true", "True", "yes", "YES"):
+        return 1
+    return 0
+
+
+def _bulk_insert_tool_accounts(rows: list[dict], actor_username: str) -> dict:
+    imported = 0
+    skipped = 0
+    failed = 0
+    details: list[dict] = []
+    allowed = {
+        "id",
+        "tool_id",
+        "account_name",
+        "account_identifier",
+        "instance_url",
+        "environment",
+        "region",
+        "auth_type",
+        "credentials_vault_ref",
+        "status",
+        "is_active",
+        "requires_hitl",
+        "created_by",
+        "created_at",
+    }
+    with Session(db_engine) as session:
+        for raw in rows:
+            if not isinstance(raw, dict):
+                failed += 1
+                details.append({"status": "failed", "reason": "row is not an object"})
+                continue
+            row = {k: v for k, v in raw.items() if k in allowed}
+            tool_id = (row.get("tool_id") or "").strip()
+            account_name = (row.get("account_name") or "").strip()
+            if not tool_id or not account_name:
+                failed += 1
+                details.append(
+                    {"status": "failed", "reason": "missing tool_id or account_name", "tool_id": tool_id}
+                )
+                continue
+            if not session.get(Tool, tool_id):
+                failed += 1
+                details.append({"status": "failed", "tool_id": tool_id, "reason": "unknown tool"})
+                continue
+            dup = session.exec(
+                select(ToolAccount).where(
+                    ToolAccount.tool_id == tool_id,
+                    ToolAccount.account_name == account_name,
+                    ToolAccount.is_active == 1,
+                )
+            ).first()
+            if dup:
+                skipped += 1
+                details.append(
+                    {
+                        "status": "skipped",
+                        "tool_id": tool_id,
+                        "account_name": account_name,
+                        "reason": "duplicate tool_id + account_name",
+                    }
+                )
+                continue
+            aid = (row.get("id") or "").strip() or str(uuid.uuid4())
+            if session.get(ToolAccount, aid):
+                aid = str(uuid.uuid4())
+            env = (row.get("environment") or "development").strip()
+            auth_type = (row.get("auth_type") or "api_key").strip()
+            hitl = _normalize_requires_hitl(row.get("requires_hitl"))
+            created_by = (row.get("created_by") or "import").strip() or actor_username
+            try:
+                ta = ToolAccount(
+                    id=aid,
+                    tool_id=tool_id,
+                    account_name=account_name,
+                    account_identifier=(row.get("account_identifier") or None)
+                    if row.get("account_identifier")
+                    else None,
+                    instance_url=(row.get("instance_url") or None) if row.get("instance_url") else None,
+                    environment=env,
+                    region=(row.get("region") or None) if row.get("region") else None,
+                    auth_type=auth_type,
+                    credentials_vault_ref=(row.get("credentials_vault_ref") or None)
+                    if row.get("credentials_vault_ref")
+                    else None,
+                    status=str(row.get("status") or "unknown"),
+                    is_active=int(row.get("is_active", 1) or 1),
+                    requires_hitl=hitl,
+                    created_by=created_by,
+                )
+                ta.created_at = _parse_import_created_at(row.get("created_at"))
+                session.add(ta)
+                imported += 1
+                details.append({"status": "imported", "id": aid, "tool_id": tool_id, "account_name": account_name})
+            except Exception as exc:
+                failed += 1
+                details.append({"status": "failed", "tool_id": tool_id, "reason": str(exc)})
+        session.commit()
+    return {"imported": imported, "skipped": skipped, "failed": failed, "details": details}
+
+
+class ImportConfirmBody(BaseModel):
+    rows: list[dict]
+
+
+class ImportJsonBody(BaseModel):
+    content: str
+
+
+class ImportDiscoverBody(BaseModel):
+    provider: Literal["aws", "gcp", "azure", "github"]
+    credentials: dict = Field(default_factory=dict)
+
+
+class ImportDiscoverConfirmBody(BaseModel):
+    accounts: list[dict]
+
+
+@app.get("/api/import/template/csv")
+def api_import_template_csv(current_user: User = Depends(get_current_user)):
+    from starlette.responses import Response
+
+    body = csv_importer.generate_template()
+    return Response(
+        content=body,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="accounts-template.csv"'},
+    )
+
+
+@app.post("/api/import/csv")
+async def api_import_csv(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    raw = await file.read()
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        content = raw.decode("utf-8", errors="replace")
+    parsed = csv_importer.parse_csv(content)
+    return _import_preview_payload(parsed["rows"], parsed["errors"])
+
+
+@app.post("/api/import/csv/confirm")
+def api_import_csv_confirm(
+    body: ImportConfirmBody,
+    current_user: User = Depends(get_current_user),
+):
+    if not body.rows:
+        raise HTTPException(status_code=400, detail="rows is required")
+    return _bulk_insert_tool_accounts(body.rows, current_user.username)
+
+
+@app.post("/api/import/json")
+def api_import_json(
+    body: ImportJsonBody,
+    current_user: User = Depends(get_current_user),
+):
+    parsed = json_importer.parse_json(body.content or "")
+    return _import_preview_payload(parsed["rows"], parsed["errors"])
+
+
+@app.post("/api/import/json/confirm")
+def api_import_json_confirm(
+    body: ImportConfirmBody,
+    current_user: User = Depends(get_current_user),
+):
+    if not body.rows:
+        raise HTTPException(status_code=400, detail="rows is required")
+    return _bulk_insert_tool_accounts(body.rows, current_user.username)
+
+
+@app.post("/api/import/discover")
+async def api_import_discover(
+    body: ImportDiscoverBody,
+    current_user: User = Depends(get_current_user),
+):
+    creds = body.credentials or {}
+    if body.provider == "aws":
+        out = await cloud_discovery.discover_aws(creds)
+    elif body.provider == "gcp":
+        out = await cloud_discovery.discover_gcp(creds)
+    elif body.provider == "azure":
+        out = await cloud_discovery.discover_azure(creds)
+    elif body.provider == "github":
+        out = await cloud_discovery.discover_github_org(creds)
+    else:
+        raise HTTPException(status_code=400, detail="invalid provider")
+    accts = out.get("accounts") or []
+    serialized = [_serialize_preview_row(a) for a in accts]
+    return {
+        "preview": serialized[:5],
+        "rows": serialized,
+        "total_rows": len(accts),
+        "errors": [],
+        "ready_to_import": len(accts) > 0,
+        "provider": out.get("provider"),
+        "discovered_count": out.get("discovered_count"),
+        "accounts": serialized,
+    }
+
+
+@app.post("/api/import/discover/confirm")
+def api_import_discover_confirm(
+    body: ImportDiscoverConfirmBody,
+    current_user: User = Depends(get_current_user),
+):
+    if not body.accounts:
+        raise HTTPException(status_code=400, detail="accounts is required")
+    rows = []
+    for a in body.accounts:
+        if not isinstance(a, dict):
+            continue
+        row = {k: v for k, v in a.items() if k != "discovered_services" and k != "discovered_repos"}
+        rows.append(row)
+    return _bulk_insert_tool_accounts(rows, current_user.username)
 
 
 @app.get("/api/context")
