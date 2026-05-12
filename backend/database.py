@@ -217,6 +217,52 @@ class ImportHistory(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class Workspace(SQLModel, table=True):
+    """Saved grouping of tools + accounts by purpose (multi-account workspaces)."""
+
+    __tablename__ = "workspaces"
+
+    id: str = Field(primary_key=True)
+    name: str
+    slug: str = Field(unique=True, index=True)
+    description: Optional[str] = None
+    icon: str = Field(default="🗂️")
+    color: str = Field(default="#6366f1")
+    environment: str = Field(default="production")
+    tags: str = Field(default="[]")  # JSON array string
+    is_active: int = Field(default=1)
+    is_pinned: int = Field(default=0)
+    created_by: Optional[str] = Field(default="admin")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class WorkspaceTool(SQLModel, table=True):
+    """Tool (and optional account) membership in a workspace."""
+
+    __tablename__ = "workspace_tools"
+
+    id: str = Field(primary_key=True)
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
+    tool_id: str = Field(foreign_key="tools.id")
+    account_id: Optional[str] = Field(default=None, foreign_key="tool_accounts.id")
+    display_order: int = Field(default=0)
+    is_primary: int = Field(default=0)
+    added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class WorkspaceMember(SQLModel, table=True):
+    """User membership on a workspace (user_id is username / subject string)."""
+
+    __tablename__ = "workspace_members"
+
+    id: str = Field(primary_key=True)
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
+    user_id: str = Field(index=True)
+    role: str = Field(default="viewer")
+    added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 DEFAULT_SETTINGS = {
@@ -237,6 +283,7 @@ def create_db_and_tables():
     _migrate()
     _seed_settings()
     _seed_tools()
+    _seed_workspaces()
 
 
 def _seed_tools() -> None:
@@ -275,6 +322,90 @@ def _seed_tools() -> None:
                 continue
             session.add(
                 Tool(id=tid, name=name, category=cat, description=desc, icon=icon)
+            )
+        session.commit()
+
+
+def _seed_workspaces() -> None:
+    """Idempotent seed of default workspaces."""
+    defaults: list[dict] = [
+        {
+            "id": "ws-incident",
+            "name": "Incident Response",
+            "slug": "incident-response",
+            "description": None,
+            "icon": "🚨",
+            "color": "#ef4444",
+            "environment": "production",
+            "tags": json.dumps(["oncall", "sre", "production"]),
+            "is_pinned": 1,
+        },
+        {
+            "id": "ws-deploy",
+            "name": "Deploy Pipeline",
+            "slug": "deploy-pipeline",
+            "description": None,
+            "icon": "🚀",
+            "color": "#8b5cf6",
+            "environment": "production",
+            "tags": json.dumps(["ci", "cd", "kubernetes"]),
+            "is_pinned": 1,
+        },
+        {
+            "id": "ws-cost",
+            "name": "Cost & Audit",
+            "slug": "cost-audit",
+            "description": None,
+            "icon": "💰",
+            "color": "#f59e0b",
+            "environment": "production",
+            "tags": json.dumps(["finops", "billing", "audit"]),
+            "is_pinned": 0,
+        },
+        {
+            "id": "ws-dev",
+            "name": "Developer Tools",
+            "slug": "developer-tools",
+            "description": None,
+            "icon": "🛠️",
+            "color": "#10b981",
+            "environment": "development",
+            "tags": json.dumps(["dev", "local", "testing"]),
+            "is_pinned": 0,
+        },
+        {
+            "id": "ws-security",
+            "name": "Security & Compliance",
+            "slug": "security-compliance",
+            "description": None,
+            "icon": "🔒",
+            "color": "#06b6d4",
+            "environment": "production",
+            "tags": json.dumps(["security", "compliance", "soc2"]),
+            "is_pinned": 0,
+        },
+    ]
+    now = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        for row in defaults:
+            if session.get(Workspace, row["id"]):
+                continue
+            session.add(
+                Workspace(
+                    id=row["id"],
+                    name=row["name"],
+                    slug=row["slug"],
+                    description=row["description"],
+                    icon=row["icon"],
+                    color=row["color"],
+                    environment=row["environment"],
+                    tags=row["tags"],
+                    is_active=1,
+                    is_pinned=row["is_pinned"],
+                    created_by="admin",
+                    created_at=now,
+                    updated_at=now,
+                )
             )
         session.commit()
 

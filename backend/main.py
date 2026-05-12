@@ -56,6 +56,7 @@ from .importers.csv_importer import csv_importer
 from .importers.json_importer import json_importer
 from .importers.cloud_discovery import cloud_discovery
 from .importers.service_discovery import service_discovery
+from .routers.workspaces import router as workspaces_router
 
 load_dotenv()
 
@@ -121,6 +122,7 @@ metrics_app = make_asgi_app()
 from starlette.routing import Mount
 app.router.routes.insert(0, Mount("/metrics", app=metrics_app, name="metrics"))
 app.include_router(auth_router)
+app.include_router(workspaces_router)
 
 app.add_middleware(
     CORSMiddleware,

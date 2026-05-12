@@ -442,3 +442,79 @@ def test_29_service_discovery_and_import_history(client, admin_token):
     assert len(entries) >= 1
     types = {e.get("import_type") for e in entries}
     assert "service_discovery" in types
+
+
+def test_30_workspaces_api(client, admin_token):
+    h = auth_headers(admin_token)
+    lst = client.get("/api/workspaces", headers=h)
+    assert lst.status_code == 200, lst.text
+    data = lst.json()
+    assert isinstance(data, list)
+    assert len(data) >= 5
+    ids = {w["id"] for w in data}
+    assert "ws-incident" in ids
+    inc = next(w for w in data if w["id"] == "ws-incident")
+    assert inc.get("tool_count") == 0
+    assert "tools_preview" in inc
+
+    detail = client.get("/api/workspaces/ws-deploy", headers=h)
+    assert detail.status_code == 200
+    assert detail.json()["slug"] == "deploy-pipeline"
+
+    health = client.get("/api/workspaces/ws-incident/health", headers=h)
+    assert health.status_code == 200
+    hb = health.json()
+    assert hb["overall_status"] == "unknown"
+    assert hb["total_count"] == 0
+
+    create = client.post(
+        "/api/workspaces",
+        headers=h,
+        json={"name": "pytest workspace", "tags": ["t1"], "is_pinned": False},
+    )
+    assert create.status_code == 200, create.text
+    wid = create.json()["id"]
+    assert wid.startswith("ws-")
+
+    add_t = client.post(
+        f"/api/workspaces/{wid}/tools",
+        headers=h,
+        json={"tool_id": "slack", "display_order": 0},
+    )
+    assert add_t.status_code == 200
+    body = add_t.json()
+    assert body.get("already_exists") is False
+    assert len(body.get("tools") or []) == 1
+
+    dup_add = client.post(
+        f"/api/workspaces/{wid}/tools",
+        headers=h,
+        json={"tool_id": "slack", "display_order": 1},
+    )
+    assert dup_add.status_code == 200
+    assert dup_add.json().get("already_exists") is True
+
+    reorder = client.post(
+        f"/api/workspaces/{wid}/tools/reorder",
+        headers=h,
+        json={"tool_ids": [body["tools"][0]["id"]]},
+    )
+    assert reorder.status_code == 200
+
+    dup_ws = client.post(f"/api/workspaces/{wid}/duplicate", headers=h)
+    assert dup_ws.status_code == 200
+    dup_body = dup_ws.json()
+    assert "(Copy)" in dup_body["name"]
+    dup_id = dup_body["id"]
+
+    del_tool = client.delete(f"/api/workspaces/{wid}/tools/slack", headers=h)
+    assert del_tool.status_code == 200
+
+    client.delete(f"/api/workspaces/{dup_id}", headers=h)
+
+    soft = client.delete(f"/api/workspaces/{wid}", headers=h)
+    assert soft.status_code == 200
+    assert soft.json() == {"deleted": True}
+
+    gone = client.get(f"/api/workspaces/{wid}", headers=h)
+    assert gone.status_code == 404
