@@ -113,7 +113,7 @@ class LLMRouter:
         environment = context.get("environment", "production")
         tools = context.get("tools", [])
         tool_list = ", ".join(tools) if tools else "none"
-        return f"""You are an AI assistant embedded in
+        base = f"""You are an AI assistant embedded in
 Platform Assistant Portal, an internal developer platform.
 
 Current context:
@@ -134,6 +134,16 @@ High-risk actions (HITL required) must be
 explicitly approved by the user.
 
 Be concise, technical, and accurate."""
+        extra = ""
+        ts = (context.get("tool_statuses_line") or "").strip()
+        if ts:
+            extra += f"\n\nTool statuses: {ts}"
+        if context.get("production_operating"):
+            extra += (
+                "\n\n⚠️ You are operating in PRODUCTION.\n"
+                "Treat all destructive actions as HITL-required."
+            )
+        return base + extra
 
 
 llm_router = LLMRouter()

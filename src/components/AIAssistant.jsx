@@ -73,7 +73,7 @@ export default function AIAssistant() {
   const { showToast } = useToast()
   const { role } = useRole()
   const isAdmin = role === 'Admin'
-  const { activeWorkspace, currentEnvironment } = usePortalContext()
+  const { activeWorkspace, currentEnvironment, refreshApprovals } = usePortalContext()
 
   const [conversations, setConversations] = useState([])
   const [activeConversation, setActiveConversation] = useState(null)
@@ -260,11 +260,12 @@ export default function AIAssistant() {
         if (activeConversation === id) startNewChat()
         await loadConversations()
         await loadPending()
+        await refreshApprovals()
       } catch (err) {
         showToast(err.message || 'Delete failed', 'error')
       }
     },
-    [authFetch, activeConversation, loadConversations, loadPending, showToast, startNewChat]
+    [authFetch, activeConversation, loadConversations, loadPending, refreshApprovals, showToast, startNewChat]
   )
 
   const sendMessage = useCallback(async () => {
@@ -292,6 +293,7 @@ export default function AIAssistant() {
       await openConversation(cid)
       await loadConversations()
       await loadPending()
+      await refreshApprovals()
     } catch (e) {
       setInputValue(text)
       showToast(e.message || 'Chat failed', 'error')
@@ -309,6 +311,7 @@ export default function AIAssistant() {
     openConversation,
     loadConversations,
     loadPending,
+    refreshApprovals,
     showToast,
   ])
 
@@ -328,6 +331,7 @@ export default function AIAssistant() {
           )
         )
         await loadPending()
+        await refreshApprovals()
         if (opts.reloadConversation && activeConversation) {
           await openConversation(activeConversation)
         }
@@ -335,7 +339,7 @@ export default function AIAssistant() {
         showToast(e.message || 'Approve failed', 'error')
       }
     },
-    [authFetch, loadPending, openConversation, activeConversation, showToast]
+    [authFetch, loadPending, refreshApprovals, openConversation, activeConversation, showToast]
   )
 
   const rejectExec = useCallback(
@@ -355,12 +359,13 @@ export default function AIAssistant() {
             m.pendingExecution?.id === execId ? { ...m, pendingExecution: null } : m
           )
         )
-        await loadPending()
-      } catch (e) {
-        showToast(e.message || 'Reject failed', 'error')
-      }
-    },
-    [authFetch, loadPending, rejectReason, showToast]
+      await loadPending()
+      await refreshApprovals()
+    } catch (e) {
+      showToast(e.message || 'Reject failed', 'error')
+    }
+  },
+    [authFetch, loadPending, refreshApprovals, rejectReason, showToast]
   )
 
   const currentModelLabel = useMemo(() => {

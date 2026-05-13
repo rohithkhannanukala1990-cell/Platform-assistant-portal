@@ -6,6 +6,8 @@ import {
 } from 'lucide-react'
 import { useRole } from '../contexts/RoleContext'
 import { useAuth } from '../contexts/AuthContext'
+import { usePortalContext } from '../contexts/PortalContext'
+import { useToast } from './ToastNotification'
 import { API_BASE } from '../config/apiBase'
 
 const SEV_CFG = {
@@ -98,6 +100,128 @@ function SecurityRiskCard({ incident }) {
   )
 }
 
+
+function AIHitlExecutionCard({ ex, onRemoved, authFetch, refreshApprovals, showToast }) {
+  const [busy, setBusy] = useState(false)
+  const [showReject, setShowReject] = useState(false)
+  const [reason, setReason] = useState('')
+  const ctx = ex.conversation_context
+  const env = ctx?.environment || '—'
+  const prod = String(env).toLowerCase() === 'production'
+
+  async function approve() {
+    setBusy(true)
+    try {
+      const res = await authFetch(`/api/ai/executions/${encodeURIComponent(ex.id)}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved_by: 'admin' }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      showToast('Execution approved', 'success')
+      onRemoved(ex.id)
+      await refreshApprovals()
+    } catch (e) {
+      showToast(e.message || 'Approve failed', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function reject() {
+    setBusy(true)
+    try {
+      const res = await authFetch(`/api/ai/executions/${encodeURIComponent(ex.id)}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rejected_by: 'admin', reason: reason || '' }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      showToast('Execution rejected', 'success')
+      setShowReject(false)
+      setReason('')
+      onRemoved(ex.id)
+      await refreshApprovals()
+    } catch (e) {
+      showToast(e.message || 'Reject failed', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col rounded-xl border border-violet-500/25 bg-violet-500/5 overflow-hidden">
+      <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-violet-500/15">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-violet-500/15 border border-violet-500/30 shrink-0">
+            <Bot className="w-4 h-4 text-violet-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold text-violet-400 uppercase tracking-wide">AI Assistant — HITL</p>
+            <p className="text-xs font-semibold text-white mt-0.5">
+              {ex.tool_id} → {ex.action}
+            </p>
+            <div className="flex flex-wrap gap-2 mt-1">
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-md border font-semibold uppercase ${
+                  prod
+                    ? 'border-red-500/50 text-red-200 bg-red-950/40'
+                    : 'border-slate-600 text-slate-400'
+                }`}
+              >
+                {env}
+              </span>
+              {ctx?.title && (
+                <span className="text-[10px] text-slate-500 truncate max-w-[200px]" title={ctx.title}>
+                  {ctx.title}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="px-4 py-3 flex flex-col gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void approve()}
+            className="flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 rounded-lg bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold hover:bg-emerald-600/30 disabled:opacity-40"
+          >
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+            Approve
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setShowReject((v) => !v)}
+            className="flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-bold hover:bg-red-500/20 disabled:opacity-40"
+          >
+            <XCircle className="w-3.5 h-3.5" /> Reject
+          </button>
+        </div>
+        {showReject && (
+          <div className="flex flex-col gap-2 pt-1">
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Reason (optional)"
+              className="text-xs px-2 py-1.5 rounded-lg bg-slate-950 border border-border text-white"
+            />
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void reject()}
+              className="text-xs text-red-300 font-semibold self-start"
+            >
+              Confirm reject
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function ApprovalCard({ incident, onApprove, onReject }) {
   const { role } = useRole()
@@ -330,33 +454,56 @@ function ApprovalCard({ incident, onApprove, onReject }) {
 
 export default function AgentApprovalsWidget({ roleFilter = null }) {
   const { role } = useRole()
+  const { authFetch } = useAuth()
+  const { refreshApprovals } = usePortalContext()
+  const { showToast } = useToast()
   // roleFilter prop pins the widget to a specific role regardless of the active persona.
   // e.g. DatabasePortal passes roleFilter="DatabaseDeveloper" so it always shows DB incidents.
   const effectiveRole = roleFilter ?? role
 
-  const [incidents,  setIncidents]  = useState([])
-  const [loading,    setLoading]    = useState(true)
+  const [incidents, setIncidents] = useState([])
+  const [aiPending, setAiPending] = useState([])
+  const [loading, setLoading] = useState(true)
 
-  const securityRiskCount = incidents.filter(i => i.status === 'ESCALATED_SECURITY_RISK').length
-  const approvalCount     = incidents.filter(i => i.status === 'AWAITING_APPROVAL').length
+  const securityRiskCount = incidents.filter((i) => i.status === 'ESCALATED_SECURITY_RISK').length
+  const approvalCount = incidents.filter((i) => i.status === 'AWAITING_APPROVAL').length
+  const aiPendingCount = aiPending.length
 
-  const fetchApprovals = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     try {
       const param = effectiveRole === 'Admin' ? '' : `?role=${effectiveRole}`
-      const res   = await fetch(`${API_BASE}/api/incidents/approvals${param}`)
+      const res = await fetch(`${API_BASE}/api/incidents/approvals${param}`)
       if (res.ok) setIncidents(await res.json())
-    } catch (_) {}
-    finally { setLoading(false) }
-  }, [effectiveRole])
+      else setIncidents([])
+
+      if (effectiveRole === 'Admin') {
+        const ar = await authFetch('/api/ai/executions/pending')
+        if (ar.ok) setAiPending(await ar.json())
+        else setAiPending([])
+      } else {
+        setAiPending([])
+      }
+    } catch {
+      setIncidents([])
+      setAiPending([])
+    } finally {
+      setLoading(false)
+    }
+  }, [effectiveRole, authFetch])
 
   useEffect(() => {
-    fetchApprovals()
-    const t = setInterval(fetchApprovals, 10000)
+    setLoading(true)
+    void fetchAll()
+    const t = setInterval(() => void fetchAll(), 10000)
     return () => clearInterval(t)
-  }, [fetchApprovals])
+  }, [fetchAll])
 
   function removeIncident(id) {
-    setIncidents(prev => prev.filter(i => i.id !== id))
+    setIncidents((prev) => prev.filter((i) => i.id !== id))
+  }
+
+  function removeAiExecution(id) {
+    setAiPending((prev) => prev.filter((x) => x.id !== id))
   }
 
   if (loading) return (
@@ -374,8 +521,13 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
             <Bot className="w-4.5 h-4.5 text-orange-400" />
           </div>
           <div>
-            <p className="text-sm font-bold text-white flex items-center gap-2">
+            <p className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
               Agent Pending Approvals
+              {aiPendingCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-bold">
+                  AI {aiPendingCount}
+                </span>
+              )}
               {securityRiskCount > 0 && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
                   bg-red-500 text-white text-[10px] font-bold animate-pulse">
@@ -390,7 +542,7 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
               )}
             </p>
             <p className="text-[10px] text-slate-500">
-              HITL queue for <span className="text-orange-400 font-semibold">{effectiveRole}</span> — HIGH/CRITICAL incidents awaiting your approval
+              HITL queue for <span className="text-orange-400 font-semibold">{effectiveRole}</span> — incidents and AI tool actions awaiting approval
             </p>
           </div>
         </div>
@@ -406,14 +558,24 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
         )}
       </div>
 
-      {incidents.length === 0 ? (
+      {incidents.length === 0 && aiPending.length === 0 ? (
         <div className="flex items-center gap-2 px-4 py-5 rounded-xl border border-dashed border-slate-700 text-slate-600 text-xs justify-center">
           <CheckCircle2 className="w-4 h-4 text-green-600" />
-          No incidents awaiting approval — agent queue is clear.
+          No incidents or AI actions awaiting approval — queue is clear.
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {incidents.map(inc =>
+          {aiPending.map((ex) => (
+            <AIHitlExecutionCard
+              key={ex.id}
+              ex={ex}
+              onRemoved={removeAiExecution}
+              authFetch={authFetch}
+              refreshApprovals={refreshApprovals}
+              showToast={showToast}
+            />
+          ))}
+          {incidents.map((inc) =>
             inc.status === 'ESCALATED_SECURITY_RISK' ? (
               <SecurityRiskCard key={inc.id} incident={inc} />
             ) : (

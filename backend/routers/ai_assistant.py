@@ -24,6 +24,7 @@ from ..database import (
     Workspace,
     WorkspaceTool,
 )
+from ..routers.workspaces import _resolve_account, _tool_rows_ordered
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -67,6 +68,17 @@ def _detect_keyword_action(text: str) -> Optional[str]:
     return None
 
 
+def _tool_statuses_line(session: Session, workspace_id: Optional[str]) -> str:
+    if not workspace_id:
+        return ""
+    parts: list[str] = []
+    for wt in _tool_rows_ordered(session, workspace_id):
+        acc = _resolve_account(session, wt.tool_id, wt.account_id)
+        status = acc.status if acc else "unknown"
+        parts.append(f"{wt.tool_id}={status}")
+    return ", ".join(parts)
+
+
 def _build_context(session: Session, workspace_id: Optional[str], environment: str) -> dict[str, Any]:
     workspace_name = "None"
     tools: list[str] = []
@@ -83,10 +95,14 @@ def _build_context(session: Session, workspace_id: Optional[str], environment: s
                 tools.append(t.name)
             else:
                 tools.append(wt.tool_id)
+    env_norm = (environment or "production").strip().lower()
+    tool_statuses_line = _tool_statuses_line(session, workspace_id) if workspace_id else ""
     return {
         "workspace_name": workspace_name,
-        "environment": environment or "production",
+        "environment": env_norm,
         "tools": tools,
+        "tool_statuses_line": tool_statuses_line,
+        "production_operating": env_norm == "production",
     }
 
 
@@ -136,7 +152,13 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
 
     uid = current_user.username
     env = (req.environment or "production").strip().lower()
-    model = (req.model or "gemini-1.5-flash").strip()
+    model = (req.model or os.getenv("AI_DEFAULT_MODEL", "gemini-1.5-flash") or "gemini-1.5-flash").strip()
+    try:
+        hist_limit = int(os.getenv("AI_MAX_HISTORY_MESSAGES", "20"))
+    except ValueError:
+        hist_limit = 20
+    hist_limit = max(1, min(hist_limit, 100))
+    hitl_enabled = os.getenv("AI_HITL_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
 
     with Session(engine) as session:
         conv_id = req.conversation_id
@@ -189,7 +211,7 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
             select(AIMessage)
             .where(AIMessage.conversation_id == conv_id)
             .order_by(AIMessage.created_at.desc())
-            .limit(20)
+            .limit(hist_limit)
         ).all()
         history_rows = list(reversed(history_rows))
 
@@ -224,7 +246,7 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
         session.commit()
 
         pending_execution = None
-        action = _detect_keyword_action(response_text or "")
+        action = _detect_keyword_action(response_text or "") if hitl_enabled else None
         if action:
             exec_payload = await tool_executor.execute(
                 tool_id="platform",

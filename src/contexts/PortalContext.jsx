@@ -26,6 +26,26 @@ export function PortalProvider({ children }) {
   const [pinnedWorkspaces, setPinnedWorkspaces] = useState([])
   const [currentEnvironment, setCurrentEnvironment] = useState('development')
   const [currentUser, setCurrentUser] = useState(() => ({ ...DEFAULT_PORTAL_USER }))
+  const [pendingApprovals, setPendingApprovals] = useState([])
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0)
+
+  const refreshApprovals = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/ai/executions/pending')
+      if (!res.ok) {
+        setPendingApprovals([])
+        setPendingApprovalCount(0)
+        return
+      }
+      const data = await res.json()
+      const list = Array.isArray(data) ? data : []
+      setPendingApprovals(list)
+      setPendingApprovalCount(list.length)
+    } catch {
+      setPendingApprovals([])
+      setPendingApprovalCount(0)
+    }
+  }, [authFetch])
 
   const refreshEnvironment = useCallback(async () => {
     try {
@@ -125,6 +145,8 @@ export function PortalProvider({ children }) {
       setPinnedWorkspaces([])
       setPortalContextHeaders({ activeWorkspaceId: null })
       setCurrentUser({ ...DEFAULT_PORTAL_USER })
+      setPendingApprovals([])
+      setPendingApprovalCount(0)
       return undefined
     }
 
@@ -182,6 +204,13 @@ export function PortalProvider({ children }) {
     }
   }, [isAuthenticated, authFetch, refreshEnvironment])
 
+  useEffect(() => {
+    if (!isAuthenticated) return undefined
+    void refreshApprovals()
+    const t = setInterval(() => void refreshApprovals(), 60000)
+    return () => clearInterval(t)
+  }, [isAuthenticated, refreshApprovals])
+
   const refetchPinnedWorkspaces = useCallback(async () => {
     try {
       const pinnedRes = await authFetch('/api/workspaces?pinned=true')
@@ -201,6 +230,9 @@ export function PortalProvider({ children }) {
       currentEnvironment,
       currentUser,
       setCurrentUser,
+      pendingApprovals,
+      pendingApprovalCount,
+      refreshApprovals,
       setActiveWorkspace,
       setEnvironment,
       refetchPinnedWorkspaces,
@@ -210,6 +242,9 @@ export function PortalProvider({ children }) {
       pinnedWorkspaces,
       currentEnvironment,
       currentUser,
+      pendingApprovals,
+      pendingApprovalCount,
+      refreshApprovals,
       setActiveWorkspace,
       setEnvironment,
       refetchPinnedWorkspaces,
