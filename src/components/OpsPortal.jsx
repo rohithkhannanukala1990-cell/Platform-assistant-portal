@@ -10,6 +10,7 @@ import {
   Upload as UploadIcon,
   Layers as LayersIcon,
   BookOpen as BookOpenIcon,
+  Shield as ShieldIcon,
 } from 'lucide-react'
 import DashboardView from './DashboardView'
 import TriageView from './TriageView'
@@ -22,6 +23,7 @@ import ToolRegistryView from './ToolRegistryView'
 import AccountImportView from './AccountImportView'
 import WorkspaceBuilder from './WorkspaceBuilder'
 import TemplateGallery from './TemplateGallery'
+import RBACManager from './RBACManager'
 import { useToast } from './ToastNotification'
 import { useRole } from '../contexts/RoleContext'
 import { useAuth } from '../contexts/AuthContext'
@@ -38,6 +40,7 @@ const VIEW_LABELS = {
   workspaces: 'Workspaces',
   import: 'Import',
   templates: 'Templates',
+  rbac: 'Access Control',
 }
 
 /**
@@ -72,6 +75,13 @@ export const OPS_NAV_ITEMS = [
     label: 'Templates',
     icon: BookOpenIcon,
     component: TemplateGallery,
+    adminOnly: true,
+  },
+  {
+    id: 'rbac',
+    label: 'Access Control',
+    icon: ShieldIcon,
+    component: RBACManager,
     adminOnly: true,
   },
   {
@@ -212,6 +222,8 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
   const WorkspacesCmp = workspacesEntry?.component ?? WorkspaceBuilder
   const templatesEntry = OPS_NAV_ITEMS.find((x) => x.id === 'templates')
   const TemplatesCmp = templatesEntry?.component ?? TemplateGallery
+  const rbacEntry = OPS_NAV_ITEMS.find((x) => x.id === 'rbac')
+  const RBACCmp = rbacEntry?.component ?? RBACManager
 
   const showHistoryPanel =
     currentView !== 'dashboard' &&
@@ -220,7 +232,8 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
     currentView !== 'tool-registry' &&
     currentView !== 'import' &&
     currentView !== 'workspaces' &&
-    currentView !== 'templates'
+    currentView !== 'templates' &&
+    currentView !== 'rbac'
 
   const exitProduction = useCallback(async () => {
     try {
@@ -369,6 +382,28 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
                 </>
               ) : (
                 <p className="text-slate-400 text-sm">Templates are available to administrators only.</p>
+              )}
+            </div>
+          )}
+          {currentView === 'rbac' && (
+            <div>
+              {role === 'Admin' ? (
+                <>
+                  {rbacEntry?.icon
+                    ? (() => {
+                        const Icon = rbacEntry.icon
+                        return (
+                          <div className="flex items-center gap-2 mb-4 text-slate-400">
+                            <Icon className="w-5 h-5 text-emerald-400" aria-hidden />
+                            <span className="text-xs font-medium uppercase tracking-wider">Access Control</span>
+                          </div>
+                        )
+                      })()
+                    : null}
+                  <RBACCmp />
+                </>
+              ) : (
+                <p className="text-slate-400 text-sm">Access Control is available to administrators only.</p>
               )}
             </div>
           )}

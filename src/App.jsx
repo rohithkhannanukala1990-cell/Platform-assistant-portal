@@ -56,6 +56,7 @@ const OPS_URL_VIEWS = new Set([
   'tool-registry',
   'workspaces',
   'templates',
+  'rbac',
   'import',
 ])
 
@@ -189,6 +190,7 @@ function AppLayout() {
     if (location.pathname === '/ops' && currentOpsView === 'tool-registry') return 'Integrations'
     if (location.pathname === '/ops' && currentOpsView === 'workspaces') return 'Workspaces'
     if (location.pathname === '/ops' && currentOpsView === 'templates') return 'Templates'
+    if (location.pathname === '/ops' && currentOpsView === 'rbac') return 'Access Control'
     if (location.pathname === '/ops' && currentOpsView === 'import') return 'Import'
     if (location.pathname === '/integrations') return 'Integrations'
     if (location.pathname === '/approvals') return 'Agent Approvals'
