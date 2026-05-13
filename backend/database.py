@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field, create_engine, Session, select
@@ -263,6 +264,54 @@ class WorkspaceMember(SQLModel, table=True):
     added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class Template(SQLModel, table=True):
+    """Admin-defined reusable blueprint for workspaces."""
+
+    __tablename__ = "templates"
+
+    id: str = Field(primary_key=True)
+    name: str
+    slug: str = Field(unique=True, index=True)
+    description: Optional[str] = None
+    icon: str = Field(default="📋")
+    color: str = Field(default="#6366f1")
+    category: str = Field(default="general")
+    environment: str = Field(default="production")
+    tags: str = Field(default="[]")  # JSON array string
+    is_active: int = Field(default=1)
+    is_published: int = Field(default=0)
+    use_count: int = Field(default=0)
+    created_by: Optional[str] = Field(default="admin")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class TemplateTool(SQLModel, table=True):
+    """Tool line item on a template."""
+
+    __tablename__ = "template_tools"
+
+    id: str = Field(primary_key=True)
+    template_id: str = Field(foreign_key="templates.id", index=True)
+    tool_id: str = Field(foreign_key="tools.id", index=True)
+    account_id: Optional[str] = Field(default=None, foreign_key="tool_accounts.id")
+    display_order: int = Field(default=0)
+    is_required: int = Field(default=1)
+    config_hints: str = Field(default="{}")  # JSON object string
+
+
+class TemplateApplication(SQLModel, table=True):
+    """Record of a workspace created from a template."""
+
+    __tablename__ = "template_applications"
+
+    id: str = Field(primary_key=True)
+    template_id: str = Field(foreign_key="templates.id", index=True)
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
+    applied_by: Optional[str] = Field(default="admin")
+    applied_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 DEFAULT_SETTINGS = {
@@ -284,6 +333,7 @@ def create_db_and_tables():
     _seed_settings()
     _seed_tools()
     _seed_workspaces()
+    _seed_templates()
 
 
 def _seed_tools() -> None:
@@ -297,6 +347,7 @@ def _seed_tools() -> None:
         ("gitlab", "GitLab", "source_control", "GitLab Repositories", "🦊"),
         ("bitbucket", "Bitbucket", "source_control", "Bitbucket Repositories", "🪣"),
         ("jira", "Jira", "project_mgmt", "Jira Project Management", "📋"),
+        ("confluence", "Confluence", "project_mgmt", "Atlassian Confluence", "📘"),
         ("linear", "Linear", "project_mgmt", "Linear Issue Tracking", "📐"),
         ("servicenow", "ServiceNow", "project_mgmt", "ServiceNow ITSM", "🔧"),
         ("slack", "Slack", "comms", "Slack Messaging", "💬"),
@@ -407,6 +458,104 @@ def _seed_workspaces() -> None:
                     updated_at=now,
                 )
             )
+        session.commit()
+
+
+def _seed_templates() -> None:
+    """Idempotent seed of default workspace templates."""
+    specs: list[dict] = [
+        {
+            "id": "tmpl-incident",
+            "name": "Incident Response Team",
+            "slug": "incident-response-team",
+            "description": None,
+            "icon": "🚨",
+            "color": "#ef4444",
+            "category": "operations",
+            "environment": "production",
+            "tags": json.dumps(["sre", "oncall", "production"]),
+            "is_published": 1,
+            "tools": ["aws", "kubernetes", "datadog", "pagerduty", "slack"],
+        },
+        {
+            "id": "tmpl-deploy",
+            "name": "Deploy Pipeline",
+            "slug": "deploy-pipeline",
+            "description": None,
+            "icon": "🚀",
+            "color": "#8b5cf6",
+            "category": "engineering",
+            "environment": "production",
+            "tags": json.dumps(["ci", "cd", "devops"]),
+            "is_published": 1,
+            "tools": ["github", "kubernetes", "argocd", "datadog"],
+        },
+        {
+            "id": "tmpl-new-team",
+            "name": "New Team Onboarding",
+            "slug": "new-team-onboarding",
+            "description": None,
+            "icon": "👥",
+            "color": "#10b981",
+            "category": "onboarding",
+            "environment": "development",
+            "tags": json.dumps(["onboarding", "new-team", "setup"]),
+            "is_published": 1,
+            "tools": ["github", "jira", "slack", "confluence"],
+        },
+        {
+            "id": "tmpl-cost",
+            "name": "FinOps & Cost Review",
+            "slug": "finops-cost-review",
+            "description": None,
+            "icon": "💰",
+            "color": "#f59e0b",
+            "category": "finops",
+            "environment": "production",
+            "tags": json.dumps(["finops", "billing", "cloud-cost"]),
+            "is_published": 1,
+            "tools": ["aws", "gcp", "azure", "datadog"],
+        },
+    ]
+    now = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        for spec in specs:
+            tid = spec["id"]
+            if session.get(Template, tid):
+                continue
+            session.add(
+                Template(
+                    id=tid,
+                    name=spec["name"],
+                    slug=spec["slug"],
+                    description=spec["description"],
+                    icon=spec["icon"],
+                    color=spec["color"],
+                    category=spec["category"],
+                    environment=spec["environment"],
+                    tags=spec["tags"],
+                    is_active=1,
+                    is_published=spec["is_published"],
+                    use_count=0,
+                    created_by="admin",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            for order, tool_id in enumerate(spec["tools"]):
+                if not session.get(Tool, tool_id):
+                    continue
+                session.add(
+                    TemplateTool(
+                        id=str(uuid.uuid4()),
+                        template_id=tid,
+                        tool_id=tool_id,
+                        account_id=None,
+                        display_order=order,
+                        is_required=1,
+                        config_hints="{}",
+                    )
+                )
         session.commit()
 
 

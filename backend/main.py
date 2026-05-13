@@ -57,6 +57,7 @@ from .importers.json_importer import json_importer
 from .importers.cloud_discovery import cloud_discovery
 from .importers.service_discovery import service_discovery
 from .routers.workspaces import router as workspaces_router
+from .routers.templates import router as templates_router
 
 load_dotenv()
 
@@ -123,6 +124,7 @@ from starlette.routing import Mount
 app.router.routes.insert(0, Mount("/metrics", app=metrics_app, name="metrics"))
 app.include_router(auth_router)
 app.include_router(workspaces_router)
+app.include_router(templates_router)
 
 app.add_middleware(
     CORSMiddleware,
