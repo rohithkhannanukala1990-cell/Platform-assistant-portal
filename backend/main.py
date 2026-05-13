@@ -58,6 +58,7 @@ from .importers.cloud_discovery import cloud_discovery
 from .importers.service_discovery import service_discovery
 from .routers.workspaces import router as workspaces_router
 from .routers.templates import router as templates_router
+from .routers.rbac import router as rbac_router
 
 load_dotenv()
 
@@ -125,6 +126,9 @@ app.router.routes.insert(0, Mount("/metrics", app=metrics_app, name="metrics"))
 app.include_router(auth_router)
 app.include_router(workspaces_router)
 app.include_router(templates_router)
+app.include_router(rbac_router)
+# Sprint 6: enforce RBAC on selected routes via Depends(require_permission("resource", "action"))
+# from .middleware.rbac_middleware import require_permission
 
 app.add_middleware(
     CORSMiddleware,

@@ -312,6 +312,60 @@ class TemplateApplication(SQLModel, table=True):
     applied_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class Role(SQLModel, table=True):
+    """RBAC role definition (system or custom)."""
+
+    __tablename__ = "roles"
+
+    id: str = Field(primary_key=True)
+    name: str = Field(unique=True)
+    slug: str = Field(unique=True, index=True)
+    description: Optional[str] = None
+    is_system: int = Field(default=0)
+    is_active: int = Field(default=1)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class Permission(SQLModel, table=True):
+    """Atomic permission (resource + action)."""
+
+    __tablename__ = "permissions"
+    __table_args__ = (UniqueConstraint("resource", "action", name="uq_permissions_resource_action"),)
+
+    id: str = Field(primary_key=True)
+    resource: str = Field(index=True)
+    action: str = Field(index=True)
+    description: Optional[str] = None
+
+
+class RolePermission(SQLModel, table=True):
+    """Many-to-many role ↔ permission."""
+
+    __tablename__ = "role_permissions"
+    __table_args__ = (UniqueConstraint("role_id", "permission_id", name="uq_role_permissions_role_perm"),)
+
+    id: str = Field(primary_key=True)
+    role_id: str = Field(foreign_key="roles.id", index=True)
+    permission_id: str = Field(foreign_key="permissions.id", index=True)
+
+
+class UserRole(SQLModel, table=True):
+    """Assignment of a role to a user (global or scoped)."""
+
+    __tablename__ = "user_roles"
+    __table_args__ = (
+        UniqueConstraint("user_id", "role_id", "scope_type", "scope_id", name="uq_user_roles_scope"),
+    )
+
+    id: str = Field(primary_key=True)
+    user_id: str = Field(index=True)
+    role_id: str = Field(foreign_key="roles.id", index=True)
+    scope_type: str = Field(default="global")
+    scope_id: str = Field(default="")
+    granted_by: Optional[str] = Field(default="admin")
+    granted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 DEFAULT_SETTINGS = {
@@ -334,6 +388,7 @@ def create_db_and_tables():
     _seed_tools()
     _seed_workspaces()
     _seed_templates()
+    _seed_rbac()
 
 
 def _seed_tools() -> None:
@@ -556,6 +611,145 @@ def _seed_templates() -> None:
                         config_hints="{}",
                     )
                 )
+        session.commit()
+
+
+def _seed_rbac() -> None:
+    """Idempotent seed of RBAC permissions and system roles."""
+    matrix: dict[str, list[str]] = {
+        "workspaces": ["read", "create", "update", "delete", "manage"],
+        "tools": ["read", "create", "update", "delete", "manage"],
+        "tool_accounts": ["read", "create", "update", "delete", "test", "manage"],
+        "templates": ["read", "create", "update", "delete", "apply", "manage"],
+        "import": ["read", "create", "update", "delete", "export", "manage"],
+        "roles": ["read", "create", "update", "delete", "manage"],
+        "user_roles": ["read", "create", "update", "delete", "manage"],
+        "health": ["read", "manage"],
+        "audit_logs": ["read", "export", "manage"],
+    }
+    now = datetime.now(timezone.utc)
+
+    def pid(resource: str, action: str) -> str:
+        return f"perm-{resource}-{action}"
+
+    with Session(engine) as session:
+        for resource, actions in matrix.items():
+            for action in actions:
+                rid = pid(resource, action)
+                if session.get(Permission, rid):
+                    continue
+                session.add(
+                    Permission(
+                        id=rid,
+                        resource=resource,
+                        action=action,
+                        description=f"{action.title()} on {resource}",
+                    )
+                )
+        session.commit()
+
+        def all_perm_ids() -> list[str]:
+            return [p.id for p in session.exec(select(Permission)).all()]
+
+        def link_role(role_id: str, perm_ids: list[str]) -> None:
+            for p in perm_ids:
+                exists = session.exec(
+                    select(RolePermission).where(
+                        RolePermission.role_id == role_id,
+                        RolePermission.permission_id == p,
+                    )
+                ).first()
+                if exists:
+                    continue
+                session.add(
+                    RolePermission(
+                        id=f"rp-{uuid.uuid4().hex[:12]}",
+                        role_id=role_id,
+                        permission_id=p,
+                    )
+                )
+
+        roles_spec = [
+            {
+                "id": "role-superadmin",
+                "name": "Super Admin",
+                "slug": "superadmin",
+                "description": "Full platform access",
+                "is_system": 1,
+                "perm_filter": None,
+            },
+            {
+                "id": "role-admin",
+                "name": "Admin",
+                "slug": "admin",
+                "description": "Administrative access except destructive RBAC deletes",
+                "is_system": 1,
+                "perm_filter": "exclude",
+                "exclude": {pid("user_roles", "delete"), pid("roles", "delete")},
+            },
+            {
+                "id": "role-operator",
+                "name": "Operator",
+                "slug": "operator",
+                "description": "Day-2 operations",
+                "is_system": 1,
+                "perm_filter": "include",
+                "include": [
+                    pid("workspaces", "read"),
+                    pid("workspaces", "create"),
+                    pid("workspaces", "update"),
+                    pid("tools", "read"),
+                    pid("tool_accounts", "read"),
+                    pid("tool_accounts", "test"),
+                    pid("templates", "read"),
+                    pid("templates", "apply"),
+                    pid("import", "read"),
+                ],
+            },
+            {
+                "id": "role-viewer",
+                "name": "Viewer",
+                "slug": "viewer",
+                "description": "Read-only access",
+                "is_system": 1,
+                "perm_filter": "include",
+                "include": [
+                    pid("workspaces", "read"),
+                    pid("tools", "read"),
+                    pid("templates", "read"),
+                    pid("health", "read"),
+                ],
+            },
+        ]
+
+        for spec in roles_spec:
+            rid = spec["id"]
+            if not session.get(Role, rid):
+                session.add(
+                    Role(
+                        id=rid,
+                        name=spec["name"],
+                        slug=spec["slug"],
+                        description=spec.get("description"),
+                        is_system=spec["is_system"],
+                        is_active=1,
+                        created_at=now,
+                    )
+                )
+        session.commit()
+
+        all_ids = all_perm_ids()
+        for spec in roles_spec:
+            rid = spec["id"]
+            flt = spec.get("perm_filter")
+            if flt is None:
+                chosen = all_ids
+            elif flt == "exclude":
+                ex = spec.get("exclude") or set()
+                chosen = [p for p in all_ids if p not in ex]
+            else:
+                chosen = list(spec.get("include") or [])
+            link_role(rid, chosen)
         session.commit()
 
 
