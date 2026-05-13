@@ -237,6 +237,20 @@ export default function WorkspaceBuilder() {
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams, openCreate])
 
+  useEffect(() => {
+    const wsId = searchParams.get('ws')
+    if (!wsId || searchParams.get('view') !== 'workspaces') return
+    void loadWorkspaceDetail(wsId).then((d) => {
+      const next = new URLSearchParams(searchParams)
+      next.delete('ws')
+      setSearchParams(next, { replace: true })
+      if (d) {
+        setSelectedWorkspace(d)
+        setView('detail')
+      }
+    })
+  }, [searchParams, setSearchParams, loadWorkspaceDetail])
+
   const activateWorkspace = useCallback(
     async (w) => {
       await setActiveWorkspace(w)

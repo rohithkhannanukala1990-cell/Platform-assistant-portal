@@ -50,6 +50,7 @@ const OPS_URL_VIEWS = new Set([
   'health',
   'tool-registry',
   'workspaces',
+  'templates',
   'import',
 ])
 
@@ -182,6 +183,7 @@ function AppLayout() {
     if (location.pathname === '/ops' && currentOpsView === 'health') return 'System Health'
     if (location.pathname === '/ops' && currentOpsView === 'tool-registry') return 'Integrations'
     if (location.pathname === '/ops' && currentOpsView === 'workspaces') return 'Workspaces'
+    if (location.pathname === '/ops' && currentOpsView === 'templates') return 'Templates'
     if (location.pathname === '/ops' && currentOpsView === 'import') return 'Import'
     if (location.pathname === '/integrations') return 'Integrations'
     if (location.pathname === '/approvals') return 'Agent Approvals'

@@ -10,6 +10,7 @@ const OPS_NAV = [
   { id: 'cicd',          label: 'CI/CD Pipeline', emoji: '🚀' },
   { id: 'integrations',  label: 'Integrations',   emoji: '🔌', adminOnly: true },
   { id: 'workspaces',    label: 'Workspaces',     emoji: '🗂️', adminOnly: false },
+  { id: 'templates',     label: 'Templates',     emoji: '📖', adminOnly: true },
   { id: 'import',         label: 'Import',        emoji: '📤', adminOnly: true },
   { id: 'health',         label: 'Health',         emoji: '❤️', adminOnly: true },
   { id: 'tool-registry', label: 'Integration registry', emoji: '🧩', adminOnly: true },
@@ -104,7 +105,8 @@ export default function Sidebar({ activeView, onNavigate, showOpsNav }) {
                   item.id === 'health' ||
                   item.id === 'tool-registry' ||
                   item.id === 'import' ||
-                  item.id === 'workspaces'
+                  item.id === 'workspaces' ||
+                  item.id === 'templates'
                 ) {
                   navigate('/ops')
                   onNavigate(item.id)

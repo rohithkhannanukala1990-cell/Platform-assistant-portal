@@ -1,10 +1,16 @@
 /**
  * OpsPortal — the full AIOps operations view.
  * Wraps DashboardView, TriageView, InfraBuilderView, CICDView, HealthDashboard,
- * ToolRegistryView, AccountImportView, WorkspaceBuilder, environment/account context, and the universal HistoryPanel.
+ * ToolRegistryView, AccountImportView, WorkspaceBuilder, TemplateGallery, environment/account context, and the universal HistoryPanel.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Heart as HeartIcon, Puzzle as PuzzleIcon, Upload as UploadIcon, Layers as LayersIcon } from 'lucide-react'
+import {
+  Heart as HeartIcon,
+  Puzzle as PuzzleIcon,
+  Upload as UploadIcon,
+  Layers as LayersIcon,
+  BookOpen as BookOpenIcon,
+} from 'lucide-react'
 import DashboardView from './DashboardView'
 import TriageView from './TriageView'
 import InfraBuilderView from './InfraBuilderView'
@@ -15,6 +21,7 @@ import HealthDashboard from './HealthDashboard'
 import ToolRegistryView from './ToolRegistryView'
 import AccountImportView from './AccountImportView'
 import WorkspaceBuilder from './WorkspaceBuilder'
+import TemplateGallery from './TemplateGallery'
 import { useToast } from './ToastNotification'
 import { useRole } from '../contexts/RoleContext'
 import { useAuth } from '../contexts/AuthContext'
@@ -30,6 +37,7 @@ const VIEW_LABELS = {
   'tool-registry': 'Integrations',
   workspaces: 'Workspaces',
   import: 'Import',
+  templates: 'Templates',
 }
 
 /**
@@ -58,6 +66,13 @@ export const OPS_NAV_ITEMS = [
     icon: LayersIcon,
     component: WorkspaceBuilder,
     adminOnly: false,
+  },
+  {
+    id: 'templates',
+    label: 'Templates',
+    icon: BookOpenIcon,
+    component: TemplateGallery,
+    adminOnly: true,
   },
   {
     id: 'import',
@@ -195,6 +210,8 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
   const ImportCmp = importEntry?.component ?? AccountImportView
   const workspacesEntry = OPS_NAV_ITEMS.find((x) => x.id === 'workspaces')
   const WorkspacesCmp = workspacesEntry?.component ?? WorkspaceBuilder
+  const templatesEntry = OPS_NAV_ITEMS.find((x) => x.id === 'templates')
+  const TemplatesCmp = templatesEntry?.component ?? TemplateGallery
 
   const showHistoryPanel =
     currentView !== 'dashboard' &&
@@ -202,7 +219,8 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
     currentView !== 'health' &&
     currentView !== 'tool-registry' &&
     currentView !== 'import' &&
-    currentView !== 'workspaces'
+    currentView !== 'workspaces' &&
+    currentView !== 'templates'
 
   const exitProduction = useCallback(async () => {
     try {
@@ -330,6 +348,28 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
                   })()
                 : null}
               <WorkspacesCmp />
+            </div>
+          )}
+          {currentView === 'templates' && (
+            <div>
+              {role === 'Admin' ? (
+                <>
+                  {templatesEntry?.icon
+                    ? (() => {
+                        const Icon = templatesEntry.icon
+                        return (
+                          <div className="flex items-center gap-2 mb-4 text-slate-400">
+                            <Icon className="w-5 h-5 text-indigo-400" aria-hidden />
+                            <span className="text-xs font-medium uppercase tracking-wider">Templates</span>
+                          </div>
+                        )
+                      })()
+                    : null}
+                  <TemplatesCmp />
+                </>
+              ) : (
+                <p className="text-slate-400 text-sm">Templates are available to administrators only.</p>
+              )}
             </div>
           )}
           {currentView === 'import' && role === 'Admin' && (
