@@ -27,6 +27,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import { useToast } from './ToastNotification'
+import { PermissionGate } from './PermissionGate'
 
 const ENV_OPTIONS = [
   { id: 'local', label: 'Local' },
@@ -606,16 +607,18 @@ export default function WorkspaceBuilder() {
         >
           📋 Copy
         </button>
-        <button
-          type="button"
-          className="px-2 py-1 rounded-md bg-red-900/80 text-xs text-red-100"
-          onClick={(e) => {
-            e.stopPropagation()
-            void deleteWs(ws)
-          }}
-        >
-          🗑️ Delete
-        </button>
+        <PermissionGate resource="workspaces" action="delete">
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-red-900/80 text-xs text-red-100"
+            onClick={(e) => {
+              e.stopPropagation()
+              void deleteWs(ws)
+            }}
+          >
+            🗑️ Delete
+          </button>
+        </PermissionGate>
       </div>
     </div>
   )
@@ -874,13 +877,15 @@ export default function WorkspaceBuilder() {
             >
               <Zap className="w-4 h-4" /> Activate Workspace
             </button>
-            <button
-              type="button"
-              onClick={() => void deleteWs(ws)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-950/50 border border-red-800 text-sm text-red-200"
-            >
-              <Trash2 className="w-4 h-4" /> Delete
-            </button>
+            <PermissionGate resource="workspaces" action="delete">
+              <button
+                type="button"
+                onClick={() => void deleteWs(ws)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-950/50 border border-red-800 text-sm text-red-200"
+              >
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            </PermissionGate>
           </div>
         </div>
 
@@ -1095,13 +1100,15 @@ export default function WorkspaceBuilder() {
             Saved tool collections for quick context switching
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold shrink-0"
-        >
-          <Plus className="w-5 h-5" /> New Workspace
-        </button>
+        <PermissionGate resource="workspaces" action="create">
+          <button
+            type="button"
+            onClick={openCreate}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold shrink-0"
+          >
+            <Plus className="w-5 h-5" /> New Workspace
+          </button>
+        </PermissionGate>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">

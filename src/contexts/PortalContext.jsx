@@ -11,13 +11,21 @@ import { setPortalContextHeaders } from '../utils/portalContextHeaders'
 
 const LS_ACTIVE_WORKSPACE = 'active_workspace_id'
 
-const PortalContext = createContext(null)
+export const PortalContext = createContext(null)
+
+const DEFAULT_PORTAL_USER = {
+  id: 'admin',
+  name: 'Admin User',
+  role: 'superadmin',
+  permissions: ['*:*'],
+}
 
 export function PortalProvider({ children }) {
   const { authFetch, isAuthenticated } = useAuth()
   const [activeWorkspace, setActiveWorkspaceState] = useState(null)
   const [pinnedWorkspaces, setPinnedWorkspaces] = useState([])
   const [currentEnvironment, setCurrentEnvironment] = useState('development')
+  const [currentUser, setCurrentUser] = useState(() => ({ ...DEFAULT_PORTAL_USER }))
 
   const refreshEnvironment = useCallback(async () => {
     try {
@@ -116,6 +124,7 @@ export function PortalProvider({ children }) {
       setActiveWorkspaceState(null)
       setPinnedWorkspaces([])
       setPortalContextHeaders({ activeWorkspaceId: null })
+      setCurrentUser({ ...DEFAULT_PORTAL_USER })
       return undefined
     }
 
@@ -190,6 +199,8 @@ export function PortalProvider({ children }) {
       activeWorkspace,
       pinnedWorkspaces,
       currentEnvironment,
+      currentUser,
+      setCurrentUser,
       setActiveWorkspace,
       setEnvironment,
       refetchPinnedWorkspaces,
@@ -198,6 +209,7 @@ export function PortalProvider({ children }) {
       activeWorkspace,
       pinnedWorkspaces,
       currentEnvironment,
+      currentUser,
       setActiveWorkspace,
       setEnvironment,
       refetchPinnedWorkspaces,

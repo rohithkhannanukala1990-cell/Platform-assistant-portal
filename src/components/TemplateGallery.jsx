@@ -27,6 +27,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { useRole } from '../contexts/RoleContext'
 import { useToast } from './ToastNotification'
+import { PermissionGate } from './PermissionGate'
 
 const ENV_OPTIONS = [
   { id: 'local', label: 'Local' },
@@ -730,28 +731,32 @@ export default function TemplateGallery() {
           </button>
           {isAdmin ? (
             <>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-700 text-xs text-white"
-                onClick={() => {
-                  void loadTemplateDetail(t.id).then((d) => {
-                    if (!d) return
-                    populateEditFromTemplate(d)
-                    setView('edit')
-                  })
-                }}
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-                Edit
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-700 text-xs text-white"
-                onClick={() => void duplicateTemplate(t)}
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Copy
-              </button>
+              <PermissionGate resource="templates" action="update">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-700 text-xs text-white"
+                  onClick={() => {
+                    void loadTemplateDetail(t.id).then((d) => {
+                      if (!d) return
+                      populateEditFromTemplate(d)
+                      setView('edit')
+                    })
+                  }}
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  Edit
+                </button>
+              </PermissionGate>
+              <PermissionGate resource="templates" action="create">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-700 text-xs text-white"
+                  onClick={() => void duplicateTemplate(t)}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Copy
+                </button>
+              </PermissionGate>
             </>
           ) : null}
         </div>
@@ -1010,33 +1015,39 @@ export default function TemplateGallery() {
             </button>
             {isAdmin ? (
               <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    populateEditFromTemplate(t)
-                    setView('edit')
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 border border-border text-sm text-white"
-                >
-                  <Edit2 className="w-4 h-4" />
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void duplicateTemplate(t)}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 border border-border text-sm text-white"
-                >
-                  <Copy className="w-4 h-4" />
-                  Duplicate
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void deleteTemplate(t)}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-900/50 border border-red-800 text-sm text-red-100"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete
-                </button>
+                <PermissionGate resource="templates" action="update">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      populateEditFromTemplate(t)
+                      setView('edit')
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 border border-border text-sm text-white"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                    Edit
+                  </button>
+                </PermissionGate>
+                <PermissionGate resource="templates" action="create">
+                  <button
+                    type="button"
+                    onClick={() => void duplicateTemplate(t)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 border border-border text-sm text-white"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Duplicate
+                  </button>
+                </PermissionGate>
+                <PermissionGate resource="templates" action="delete">
+                  <button
+                    type="button"
+                    onClick={() => void deleteTemplate(t)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-900/50 border border-red-800 text-sm text-red-100"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </button>
+                </PermissionGate>
               </>
             ) : null}
           </div>
@@ -1101,14 +1112,16 @@ export default function TemplateGallery() {
                           {row.is_required ? 'Required' : 'Optional'}
                         </span>
                         {isAdmin ? (
-                          <button
-                            type="button"
-                            onClick={() => void removeToolFromTemplate(row.tool_id)}
-                            className="p-1.5 rounded-lg hover:bg-red-950/50 text-red-400"
-                            aria-label="Remove tool"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <PermissionGate resource="templates" action="update">
+                            <button
+                              type="button"
+                              onClick={() => void removeToolFromTemplate(row.tool_id)}
+                              className="p-1.5 rounded-lg hover:bg-red-950/50 text-red-400"
+                              aria-label="Remove tool"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </PermissionGate>
                         ) : null}
                       </div>
                     </div>
@@ -1280,17 +1293,19 @@ export default function TemplateGallery() {
           <p className="text-sm text-slate-400 mt-1">Reusable workspace blueprints for your team</p>
         </div>
         {isAdmin ? (
-          <button
-            type="button"
-            onClick={() => {
-              setCreateForm(emptyTemplateForm())
-              setTagDraft('')
-              setView('create')
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold shrink-0"
-          >
-            <Plus className="w-5 h-5" /> New Template
-          </button>
+          <PermissionGate resource="templates" action="create">
+            <button
+              type="button"
+              onClick={() => {
+                setCreateForm(emptyTemplateForm())
+                setTagDraft('')
+                setView('create')
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold shrink-0"
+            >
+              <Plus className="w-5 h-5" /> New Template
+            </button>
+          </PermissionGate>
         ) : null}
       </div>
 
@@ -1345,17 +1360,19 @@ export default function TemplateGallery() {
           <Package className="w-14 h-14 text-slate-600 mb-4" aria-hidden />
           <p className="text-slate-400 font-medium">No templates yet</p>
           {isAdmin ? (
-            <button
-              type="button"
-              onClick={() => {
-                setCreateForm(emptyTemplateForm())
-                setTagDraft('')
-                setView('create')
-              }}
-              className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm"
-            >
-              <Plus className="w-4 h-4" /> Create First Template
-            </button>
+            <PermissionGate resource="templates" action="create">
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateForm(emptyTemplateForm())
+                  setTagDraft('')
+                  setView('create')
+                }}
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm"
+              >
+                <Plus className="w-4 h-4" /> Create First Template
+              </button>
+            </PermissionGate>
           ) : null}
         </div>
       ) : (

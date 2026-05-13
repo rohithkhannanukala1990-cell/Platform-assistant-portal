@@ -28,6 +28,7 @@ import { useToast } from './ToastNotification'
 import { useRole } from '../contexts/RoleContext'
 import { useAuth } from '../contexts/AuthContext'
 import { setPortalContextHeaders } from '../utils/portalContextHeaders'
+import { usePermissions } from '../hooks/usePermissions'
 
 const VIEW_LABELS = {
   dashboard: 'Dashboard',
@@ -97,6 +98,12 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
   const { role } = useRole()
   const { authFetch } = useAuth()
   const { showToast } = useToast()
+  const { isAdmin } = usePermissions()
+  const permAdmin = isAdmin()
+  const visibleOpsNavItems = useMemo(
+    () => OPS_NAV_ITEMS.filter((item) => !item.adminOnly || permAdmin),
+    [permAdmin]
+  )
 
   const [versions, setVersions] = useState({ alerts: 0, infra: 0, cicd: 0 })
   const [selectedAlert, setSelectedAlert] = useState(null)
@@ -212,17 +219,17 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
     onBreadcrumb?.(detailLabel)
   }, [detailLabel, onBreadcrumb])
 
-  const healthEntry = OPS_NAV_ITEMS.find((x) => x.id === 'health')
+  const healthEntry = visibleOpsNavItems.find((x) => x.id === 'health')
   const HealthCmp = healthEntry?.component ?? HealthDashboard
-  const toolRegistryEntry = OPS_NAV_ITEMS.find((x) => x.id === 'tool-registry')
+  const toolRegistryEntry = visibleOpsNavItems.find((x) => x.id === 'tool-registry')
   const ToolRegistryCmp = toolRegistryEntry?.component ?? ToolRegistryView
-  const importEntry = OPS_NAV_ITEMS.find((x) => x.id === 'import')
+  const importEntry = visibleOpsNavItems.find((x) => x.id === 'import')
   const ImportCmp = importEntry?.component ?? AccountImportView
-  const workspacesEntry = OPS_NAV_ITEMS.find((x) => x.id === 'workspaces')
+  const workspacesEntry = visibleOpsNavItems.find((x) => x.id === 'workspaces')
   const WorkspacesCmp = workspacesEntry?.component ?? WorkspaceBuilder
-  const templatesEntry = OPS_NAV_ITEMS.find((x) => x.id === 'templates')
+  const templatesEntry = visibleOpsNavItems.find((x) => x.id === 'templates')
   const TemplatesCmp = templatesEntry?.component ?? TemplateGallery
-  const rbacEntry = OPS_NAV_ITEMS.find((x) => x.id === 'rbac')
+  const rbacEntry = visibleOpsNavItems.find((x) => x.id === 'rbac')
   const RBACCmp = rbacEntry?.component ?? RBACManager
 
   const showHistoryPanel =

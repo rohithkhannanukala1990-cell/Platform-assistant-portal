@@ -17,6 +17,7 @@ import {
   Plus,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { PermissionGate } from './PermissionGate'
 
 const AWS_REGION_OPTIONS = [
   { id: 'us-east-1', label: 'us-east-1' },
@@ -582,14 +583,16 @@ export default function AccountImportView() {
                 <span className="font-medium text-white">{fileName}</span>
                 <span className="text-slate-500">loaded</span>
               </p>
-              <button
-                type="button"
-                onClick={() => void runParse()}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 border border-border text-sm font-semibold text-white hover:bg-slate-700"
-              >
-                <Search className="w-4 h-4" />
-                Parse & Preview
-              </button>
+              <PermissionGate resource="import" action="create">
+                <button
+                  type="button"
+                  onClick={() => void runParse()}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 border border-border text-sm font-semibold text-white hover:bg-slate-700"
+                >
+                  <Search className="w-4 h-4" />
+                  Parse & Preview
+                </button>
+              </PermissionGate>
             </div>
           )}
 
@@ -706,15 +709,17 @@ export default function AccountImportView() {
                 </table>
               </div>
 
-              <button
-                type="button"
-                disabled={!selectedRowObjects.length || isImporting}
-                onClick={() => void runUploadImport()}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:pointer-events-none text-white font-semibold text-sm"
-              >
-                <Upload className="w-4 h-4" />
-                {isImporting ? importProgress || 'Importing...' : `Import ${selectedRowObjects.length} Selected Accounts`}
-              </button>
+              <PermissionGate resource="import" action="create">
+                <button
+                  type="button"
+                  disabled={!selectedRowObjects.length || isImporting}
+                  onClick={() => void runUploadImport()}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:pointer-events-none text-white font-semibold text-sm"
+                >
+                  <Upload className="w-4 h-4" />
+                  {isImporting ? importProgress || 'Importing...' : `Import ${selectedRowObjects.length} Selected Accounts`}
+                </button>
+              </PermissionGate>
 
               {importResult && (
                 <div className="rounded-lg border border-emerald-500/30 bg-emerald-950/25 p-4 text-sm space-y-1">
@@ -755,15 +760,17 @@ export default function AccountImportView() {
                   Automatically discover additional accounts from your already-connected integrations (GitHub, Jira, Slack,
                   Kubernetes, Datadog, …).
                 </p>
-                <button
-                  type="button"
-                  disabled={isDiscovering}
-                  onClick={() => void runDiscoverAll()}
-                  className="mt-4 w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-sm"
-                >
-                  {isDiscovering ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                  Discover Now
-                </button>
+                <PermissionGate resource="import" action="create">
+                  <button
+                    type="button"
+                    disabled={isDiscovering}
+                    onClick={() => void runDiscoverAll()}
+                    className="mt-4 w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-sm"
+                  >
+                    {isDiscovering ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                    Discover Now
+                  </button>
+                </PermissionGate>
               </div>
             </div>
           </div>
@@ -821,14 +828,16 @@ export default function AccountImportView() {
                       </label>
                     ))}
                   </div>
-                  <button
-                    type="button"
-                    disabled={isDiscovering}
-                    onClick={() => void runCloudDiscover()}
-                    className="w-full py-2.5 rounded-lg bg-slate-800 border border-border text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
-                  >
-                    Discover AWS Accounts
-                  </button>
+                  <PermissionGate resource="import" action="create">
+                    <button
+                      type="button"
+                      disabled={isDiscovering}
+                      onClick={() => void runCloudDiscover()}
+                      className="w-full py-2.5 rounded-lg bg-slate-800 border border-border text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      Discover AWS Accounts
+                    </button>
+                  </PermissionGate>
                 </>
               )}
 
@@ -841,14 +850,16 @@ export default function AccountImportView() {
                     placeholder="my-gcp-project"
                     className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-border text-sm text-white"
                   />
-                  <button
-                    type="button"
-                    disabled={isDiscovering}
-                    onClick={() => void runCloudDiscover()}
-                    className="w-full py-2.5 rounded-lg bg-slate-800 border border-border text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
-                  >
-                    Discover GCP Accounts
-                  </button>
+                  <PermissionGate resource="import" action="create">
+                    <button
+                      type="button"
+                      disabled={isDiscovering}
+                      onClick={() => void runCloudDiscover()}
+                      className="w-full py-2.5 rounded-lg bg-slate-800 border border-border text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      Discover GCP Accounts
+                    </button>
+                  </PermissionGate>
                 </>
               )}
 
@@ -866,14 +877,16 @@ export default function AccountImportView() {
                     onChange={(e) => setAzureTenantId(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-border text-sm text-white"
                   />
-                  <button
-                    type="button"
-                    disabled={isDiscovering}
-                    onClick={() => void runCloudDiscover()}
-                    className="w-full py-2.5 rounded-lg bg-slate-800 border border-border text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
-                  >
-                    Discover Azure Accounts
-                  </button>
+                  <PermissionGate resource="import" action="create">
+                    <button
+                      type="button"
+                      disabled={isDiscovering}
+                      onClick={() => void runCloudDiscover()}
+                      className="w-full py-2.5 rounded-lg bg-slate-800 border border-border text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      Discover Azure Accounts
+                    </button>
+                  </PermissionGate>
                 </>
               )}
 
@@ -886,14 +899,16 @@ export default function AccountImportView() {
                     placeholder="acme-corp"
                     className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-border text-sm text-white"
                   />
-                  <button
-                    type="button"
-                    disabled={isDiscovering}
-                    onClick={() => void runCloudDiscover()}
-                    className="w-full py-2.5 rounded-lg bg-slate-800 border border-border text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
-                  >
-                    Discover GitHub Accounts
-                  </button>
+                  <PermissionGate resource="import" action="create">
+                    <button
+                      type="button"
+                      disabled={isDiscovering}
+                      onClick={() => void runCloudDiscover()}
+                      className="w-full py-2.5 rounded-lg bg-slate-800 border border-border text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      Discover GitHub Accounts
+                    </button>
+                  </PermissionGate>
                 </>
               )}
             </div>
@@ -968,15 +983,17 @@ export default function AccountImportView() {
                 })}
               </ul>
 
-              <button
-                type="button"
-                disabled={!selectedDiscoverAccounts.length || isImporting}
-                onClick={() => void runDiscoverImport()}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:pointer-events-none text-white font-semibold text-sm"
-              >
-                <Plus className="w-4 h-4" />
-                {isImporting ? importProgress || 'Importing...' : `Import ${selectedDiscoverAccounts.length} Selected`}
-              </button>
+              <PermissionGate resource="import" action="create">
+                <button
+                  type="button"
+                  disabled={!selectedDiscoverAccounts.length || isImporting}
+                  onClick={() => void runDiscoverImport()}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:pointer-events-none text-white font-semibold text-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  {isImporting ? importProgress || 'Importing...' : `Import ${selectedDiscoverAccounts.length} Selected`}
+                </button>
+              </PermissionGate>
 
               {importResult && activeTab === 'discover' && (
                 <div className="rounded-lg border border-emerald-500/30 bg-emerald-950/25 p-4 text-sm space-y-1">
@@ -1010,14 +1027,16 @@ export default function AccountImportView() {
             <div className="flex flex-col items-center justify-center py-16 rounded-xl border border-dashed border-border text-center">
               <Clock className="w-10 h-10 text-slate-600 mb-3" />
               <p className="text-slate-400 font-medium">No import history yet</p>
-              <button
-                type="button"
-                onClick={() => setActiveTab('upload')}
-                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold"
-              >
-                <Upload className="w-4 h-4" />
-                Import your first accounts
-              </button>
+              <PermissionGate resource="import" action="create">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('upload')}
+                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold"
+                >
+                  <Upload className="w-4 h-4" />
+                  Import your first accounts
+                </button>
+              </PermissionGate>
             </div>
           ) : (
             <>
