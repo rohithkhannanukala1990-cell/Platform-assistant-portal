@@ -12,6 +12,7 @@ const OPS_NAV = [
   { id: 'workspaces',    label: 'Workspaces',     emoji: '🗂️', adminOnly: false },
   { id: 'templates',     label: 'Templates',     emoji: '📖', adminOnly: true },
   { id: 'rbac',          label: 'Access Control', emoji: '🔐', adminOnly: true },
+  { id: 'ai-assistant',  label: 'AI Assistant',   emoji: '🤖', adminOnly: false },
   { id: 'import',         label: 'Import',        emoji: '📤', adminOnly: true },
   { id: 'health',         label: 'Health',         emoji: '❤️', adminOnly: true },
   { id: 'tool-registry', label: 'Integration registry', emoji: '🧩', adminOnly: true },
@@ -108,7 +109,8 @@ export default function Sidebar({ activeView, onNavigate, showOpsNav }) {
                   item.id === 'import' ||
                   item.id === 'workspaces' ||
                   item.id === 'templates' ||
-                  item.id === 'rbac'
+                  item.id === 'rbac' ||
+                  item.id === 'ai-assistant'
                 ) {
                   navigate('/ops')
                   onNavigate(item.id)

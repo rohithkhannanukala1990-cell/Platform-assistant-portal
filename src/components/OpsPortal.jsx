@@ -11,6 +11,7 @@ import {
   Layers as LayersIcon,
   BookOpen as BookOpenIcon,
   Shield as ShieldIcon,
+  Bot as BotIcon,
 } from 'lucide-react'
 import DashboardView from './DashboardView'
 import TriageView from './TriageView'
@@ -24,6 +25,7 @@ import AccountImportView from './AccountImportView'
 import WorkspaceBuilder from './WorkspaceBuilder'
 import TemplateGallery from './TemplateGallery'
 import RBACManager from './RBACManager'
+import AIAssistant from './AIAssistant'
 import { useToast } from './ToastNotification'
 import { useRole } from '../contexts/RoleContext'
 import { useAuth } from '../contexts/AuthContext'
@@ -42,6 +44,7 @@ const VIEW_LABELS = {
   import: 'Import',
   templates: 'Templates',
   rbac: 'Access Control',
+  'ai-assistant': 'AI Assistant',
 }
 
 /**
@@ -84,6 +87,13 @@ export const OPS_NAV_ITEMS = [
     icon: ShieldIcon,
     component: RBACManager,
     adminOnly: true,
+  },
+  {
+    id: 'ai-assistant',
+    label: 'AI Assistant',
+    icon: BotIcon,
+    component: AIAssistant,
+    adminOnly: false,
   },
   {
     id: 'import',
@@ -231,6 +241,8 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
   const TemplatesCmp = templatesEntry?.component ?? TemplateGallery
   const rbacEntry = visibleOpsNavItems.find((x) => x.id === 'rbac')
   const RBACCmp = rbacEntry?.component ?? RBACManager
+  const aiAssistantEntry = visibleOpsNavItems.find((x) => x.id === 'ai-assistant')
+  const AIAssistantCmp = aiAssistantEntry?.component ?? AIAssistant
 
   const showHistoryPanel =
     currentView !== 'dashboard' &&
@@ -240,7 +252,8 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
     currentView !== 'import' &&
     currentView !== 'workspaces' &&
     currentView !== 'templates' &&
-    currentView !== 'rbac'
+    currentView !== 'rbac' &&
+    currentView !== 'ai-assistant'
 
   const exitProduction = useCallback(async () => {
     try {
@@ -294,7 +307,11 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
       )}
 
       <div className="flex flex-1 overflow-hidden min-h-0">
-        <main className="flex-1 overflow-y-auto px-8 py-8 flex flex-col min-w-0">
+        <main
+          className={`flex-1 px-8 py-8 flex flex-col min-w-0 min-h-0 ${
+            currentView === 'ai-assistant' ? 'overflow-hidden' : 'overflow-y-auto'
+          }`}
+        >
           {currentView === 'dashboard' && <DashboardView />}
           {currentView === 'triage' && (
             <TriageView
@@ -412,6 +429,22 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
               ) : (
                 <p className="text-slate-400 text-sm">Access Control is available to administrators only.</p>
               )}
+            </div>
+          )}
+          {currentView === 'ai-assistant' && (
+            <div className="flex flex-col flex-1 min-h-0 min-w-0">
+              {aiAssistantEntry?.icon
+                ? (() => {
+                    const Icon = aiAssistantEntry.icon
+                    return (
+                      <div className="flex items-center gap-2 mb-4 text-slate-400 shrink-0">
+                        <Icon className="w-5 h-5 text-blue-400" aria-hidden />
+                        <span className="text-xs font-medium uppercase tracking-wider">AI Assistant</span>
+                      </div>
+                    )
+                  })()
+                : null}
+              <AIAssistantCmp />
             </div>
           )}
           {currentView === 'import' && role === 'Admin' && (
