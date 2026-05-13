@@ -65,7 +65,7 @@ export function PortalProvider({ children }) {
         return
       }
 
-      let envNow = currentEnvironment
+      let envNow = 'development'
       try {
         const res = await authFetch('/api/context')
         if (res.ok) {
