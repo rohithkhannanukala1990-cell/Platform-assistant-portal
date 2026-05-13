@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Plus,
   Edit2,
@@ -24,6 +25,7 @@ import {
   Activity,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { usePortalContext } from '../contexts/PortalContext'
 import { useToast } from './ToastNotification'
 
 const ENV_OPTIONS = [
@@ -105,6 +107,8 @@ function envBadge(env) {
 export default function WorkspaceBuilder() {
   const { authFetch } = useAuth()
   const { showToast } = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { setActiveWorkspace, refetchPinnedWorkspaces } = usePortalContext()
 
   const [view, setView] = useState('list')
   const [workspaces, setWorkspaces] = useState([])
@@ -219,11 +223,30 @@ export default function WorkspaceBuilder() {
     return { healthy, degraded, unknown }
   }, [health])
 
-  const openCreate = () => {
+  const openCreate = useCallback(() => {
     setCreateForm(emptyForm())
     setTagDraft('')
     setView('create')
-  }
+  }, [])
+
+  useEffect(() => {
+    if (searchParams.get('view') !== 'workspaces' || searchParams.get('create') !== 'true') return
+    openCreate()
+    const next = new URLSearchParams(searchParams)
+    next.delete('create')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams, openCreate])
+
+  const activateWorkspace = useCallback(
+    async (w) => {
+      await setActiveWorkspace(w)
+      await refetchPinnedWorkspaces()
+      const tc = w.tool_count ?? (Array.isArray(w.tools) ? w.tools.length : 0)
+      const env = w.environment || 'production'
+      showToast(`✅ Workspace activated — ${tc} tools loaded for ${env}`, 'success')
+    },
+    [setActiveWorkspace, refetchPinnedWorkspaces, showToast]
+  )
 
   const populateEditFromWorkspace = useCallback((d) => {
     setEditForm({
@@ -829,6 +852,13 @@ export default function WorkspaceBuilder() {
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 border border-border text-sm text-white"
             >
               <Copy className="w-4 h-4" /> Duplicate
+            </button>
+            <button
+              type="button"
+              onClick={() => void activateWorkspace(ws)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 border border-blue-500/40 text-sm text-white font-semibold hover:bg-blue-500"
+            >
+              <Zap className="w-4 h-4" /> Activate Workspace
             </button>
             <button
               type="button"

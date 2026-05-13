@@ -4,8 +4,6 @@
  * ToolRegistryView, AccountImportView, WorkspaceBuilder, environment/account context, and the universal HistoryPanel.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { createPortal } from 'react-dom'
-import { useLocation } from 'react-router-dom'
 import { Heart as HeartIcon, Puzzle as PuzzleIcon, Upload as UploadIcon, Layers as LayersIcon } from 'lucide-react'
 import DashboardView from './DashboardView'
 import TriageView from './TriageView'
@@ -17,9 +15,7 @@ import HealthDashboard from './HealthDashboard'
 import ToolRegistryView from './ToolRegistryView'
 import AccountImportView from './AccountImportView'
 import WorkspaceBuilder from './WorkspaceBuilder'
-import EnvironmentSwitcher from './EnvironmentSwitcher'
-import AccountSwitcher from './AccountSwitcher'
-import { ToastProvider, useToast } from './ToastNotification'
+import { useToast } from './ToastNotification'
 import { useRole } from '../contexts/RoleContext'
 import { useAuth } from '../contexts/AuthContext'
 import { setPortalContextHeaders } from '../utils/portalContextHeaders'
@@ -34,14 +30,6 @@ const VIEW_LABELS = {
   'tool-registry': 'Integrations',
   workspaces: 'Workspaces',
   import: 'Import',
-}
-
-/** Map ops nav view → default integration tool for AccountSwitcher */
-const TOOL_BY_VIEW = {
-  triage: 'pagerduty',
-  cicd: 'github',
-  infra: 'kubernetes',
-  database: 'postgres',
 }
 
 /**
@@ -81,7 +69,6 @@ export const OPS_NAV_ITEMS = [
 ]
 
 function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
-  const location = useLocation()
   const { role } = useRole()
   const { authFetch } = useAuth()
   const { showToast } = useToast()
@@ -94,22 +81,16 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
   const [showProductionBanner, setShowProductionBanner] = useState(false)
   const [activeContext, setActiveContext] = useState(null)
   const [activeEnvironment, setActiveEnvironment] = useState('development')
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState(null)
-  const [envHeaderSlot, setEnvHeaderSlot] = useState(null)
 
   const bumpVersion = useCallback((tab) => {
     setVersions((v) => ({ ...v, [tab]: v[tab] + 1 }))
   }, [])
 
-  /** Same keys merged into authFetch (see setPortalContextHeaders). */
-  const getContextHeaders = useCallback(
-    () => ({
-      'X-Active-Environment': activeEnvironment,
-      'X-Workspace-Id': activeWorkspaceId || 'default',
-      'X-User-Id': 'admin',
-    }),
-    [activeEnvironment, activeWorkspaceId]
-  )
+  useEffect(() => {
+    setPortalContextHeaders({
+      activeEnvironment,
+    })
+  }, [activeEnvironment])
 
   const fetchContext = useCallback(async () => {
     try {
@@ -143,7 +124,7 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
         })
       }
 
-      if (d.source !== 'account-pin') {
+      if (d.source !== 'account-pin' && d.source !== 'portal-context') {
         const envLabel = String(
           d.environment ?? d.context?.active_environment ?? 'development'
         ).toLowerCase()
@@ -158,23 +139,10 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
   )
 
   useEffect(() => {
-    const h = getContextHeaders()
-    setPortalContextHeaders({
-      activeEnvironment: h['X-Active-Environment'],
-      activeWorkspaceId,
-    })
-  }, [getContextHeaders, activeWorkspaceId])
-
-  useEffect(() => {
     void fetchContext()
     window.addEventListener('context-changed', handleContextChange)
     return () => window.removeEventListener('context-changed', handleContextChange)
   }, [fetchContext, handleContextChange])
-
-  useEffect(() => {
-    const el = document.getElementById('ops-header-environment-slot')
-    setEnvHeaderSlot(el)
-  }, [currentView, location.pathname])
 
   const handleAnalysisComplete = useCallback(() => {
     bumpVersion('alerts')
@@ -236,10 +204,6 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
     currentView !== 'import' &&
     currentView !== 'workspaces'
 
-  const activeToolId = TOOL_BY_VIEW[currentView] ?? null
-
-  const handleAccountChanged = useCallback(() => {}, [])
-
   const exitProduction = useCallback(async () => {
     try {
       const res = await authFetch('/api/context', {
@@ -291,16 +255,8 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
         </div>
       )}
 
-      {envHeaderSlot && createPortal(<EnvironmentSwitcher />, envHeaderSlot)}
-
       <div className="flex flex-1 overflow-hidden min-h-0">
         <main className="flex-1 overflow-y-auto px-8 py-8 flex flex-col min-w-0">
-          {activeToolId && (
-            <div className="flex flex-wrap items-center justify-end gap-3 mb-6 pb-4 border-b border-border/60">
-              <AccountSwitcher toolId={activeToolId} onAccountChanged={handleAccountChanged} />
-            </div>
-          )}
-
           {currentView === 'dashboard' && <DashboardView />}
           {currentView === 'triage' && (
             <TriageView
@@ -409,9 +365,5 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
 }
 
 export default function OpsPortal(props) {
-  return (
-    <ToastProvider>
-      <OpsPortalInner {...props} />
-    </ToastProvider>
-  )
+  return <OpsPortalInner {...props} />
 }

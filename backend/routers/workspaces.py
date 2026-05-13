@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -182,13 +182,16 @@ def _workspace_base_dict(w: Workspace) -> dict[str, Any]:
 
 
 @router.get("")
-def list_workspaces(current_user: User = Depends(get_current_user)):
+def list_workspaces(
+    pinned: Optional[bool] = Query(None, description="If true, return only pinned workspaces"),
+    current_user: User = Depends(get_current_user),
+):
     with Session(engine) as session:
-        rows = session.exec(
-            select(Workspace)
-            .where(Workspace.is_active == 1)
-            .order_by(Workspace.is_pinned.desc(), Workspace.created_at.desc())
-        ).all()
+        q = select(Workspace).where(Workspace.is_active == 1)
+        if pinned is True:
+            q = q.where(Workspace.is_pinned == 1)
+        q = q.order_by(Workspace.is_pinned.desc(), Workspace.created_at.desc())
+        rows = session.exec(q).all()
         out: list[dict[str, Any]] = []
         for w in rows:
             wts = session.exec(

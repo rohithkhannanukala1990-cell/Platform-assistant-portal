@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Loader2, Settings } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -27,10 +27,8 @@ import DataEngineerPortal   from './components/DataEngineerPortal'
 import DatabasePortal       from './components/DatabasePortal'
 import LoginPage            from './components/LoginPage'
 import SettingsModal        from './components/SettingsModal'
-import NotificationDropdown from './components/NotificationDropdown'
 import ChatBot              from './components/ChatBot'
-import UserMenu             from './components/UserMenu'
-import PersonaSwitcher      from './components/PersonaSwitcher'
+import Header               from './components/Header'
 import AgentApprovalsWidget from './components/AgentApprovalsWidget'
 import HistoryPanel         from './components/HistoryPanel'
 import IntegrationsPage     from './components/IntegrationsPage'
@@ -41,14 +39,19 @@ import InfraBuilderView     from './components/InfraBuilderView'
 import DeploymentsView      from './components/DeploymentsView'
 import LivePipelinesView    from './components/LivePipelinesView'
 import HealthDashboard      from './components/HealthDashboard'
+import { OPS_HEADER_TOOL_BY_VIEW } from './constants/opsHeaderTools'
 
-// ── Ops sub-view labels ───────────────────────────────────────────────────────
-const OPS_VIEW_LABELS = {
-  dashboard: 'Dashboard',
-  triage:    'Alert Triage',
-  infra:     'Infra Builder',
-  cicd:      'CI/CD Pipeline',
-}
+const OPS_URL_VIEWS = new Set([
+  'dashboard',
+  'triage',
+  'infra',
+  'cicd',
+  'integrations',
+  'health',
+  'tool-registry',
+  'workspaces',
+  'import',
+])
 
 // ── Per-role default portal path ──────────────────────────────────────────────
 function defaultPortalForRole(role) {
@@ -150,6 +153,13 @@ function AppLayout() {
     setOpsBreadcrumb((prev) => (prev === label ? prev : label))
   }, [])
 
+  useEffect(() => {
+    if (location.pathname !== '/ops') return
+    const p = new URLSearchParams(location.search)
+    const v = p.get('view')
+    if (v && OPS_URL_VIEWS.has(v)) setCurrentOpsView(v)
+  }, [location.pathname, location.search])
+
   // ── Auth gate AFTER all hooks ──
   if (loading) {
     return (
@@ -186,6 +196,23 @@ function AppLayout() {
   }
 
   const showOpsNav = role === 'Admin' || role === 'NetworkEngineer'
+  const showOpsChrome = showOpsNav
+  const opsToolId =
+    showOpsNav && location.pathname === '/ops'
+      ? OPS_HEADER_TOOL_BY_VIEW[currentOpsView] ?? null
+      : null
+
+  const breadcrumbLeft = (
+    <>
+      {roleInfo && (
+        <>
+          <span className={`text-xs font-semibold ${roleInfo.color}`}>{roleInfo.label}</span>
+          <span className="text-slate-700">/</span>
+        </>
+      )}
+      <span className="text-xs font-semibold text-white truncate">{breadcrumb()}</span>
+    </>
+  )
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface text-slate-200">
@@ -230,82 +257,33 @@ function AppLayout() {
           </div>
         )}
 
-        {/* ── Top Header ─────────────────────────────────────────────────── */}
-        <header className="flex items-center gap-4 px-6 py-3.5 border-b border-border bg-sidebar shrink-0">
-          <div className="flex items-center gap-2 min-w-0 flex-1 justify-start">
-            <span className="text-xs font-medium text-slate-500">Platform Engineering</span>
-            <span className="text-slate-700">/</span>
-            {roleInfo && (
-              <>
-                <span className={`text-xs font-semibold ${roleInfo.color}`}>{roleInfo.label}</span>
-                <span className="text-slate-700">/</span>
-              </>
-            )}
-            <span className="text-xs font-semibold text-white truncate">{breadcrumb()}</span>
-          </div>
-
-          {showOpsNav && location.pathname === '/ops' && (
-            <div
-              id="ops-header-environment-slot"
-              className="flex justify-center items-center shrink-0 min-h-[40px]"
-            />
-          )}
-
-          <div className="flex items-center gap-3 shrink-0 justify-end">
-            {/* Persona switcher — visible to all (Admin can switch, others see read-only) */}
-            <PersonaSwitcher />
-
-            <NotificationDropdown
-              onSelectIncident={(incidentId) => {
-                authFetch(`/api/incidents`)
-                  .then((r) => r.json())
-                  .then((incidents) => {
-                    const found = incidents.find((i) => i.id === incidentId)
-                    if (found) { setCurrentOpsView('triage') }
-                  })
-                  .catch((err) => { console.error('Failed to navigate to incident:', err) })
-              }}
-              onOpenHealthDashboard={openHealthDashboard}
-            />
-
-            {role === 'Admin' && (
-              <button
-                type="button"
-                title={
-                  healthStatus === 'critical'
-                    ? 'System issues detected — click to view'
-                    : 'System health'
+        <Header
+          breadcrumbLeft={breadcrumbLeft}
+          showOpsChrome={showOpsChrome}
+          opsToolId={opsToolId}
+          showHealthButton={role === 'Admin'}
+          healthStatus={healthStatus}
+          onOpenHealthDashboard={openHealthDashboard}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onLogout={() => {
+            logout()
+            setCurrentOpsView('dashboard')
+          }}
+          onSelectIncident={(incidentId) => {
+            authFetch(`/api/incidents`)
+              .then((r) => r.json())
+              .then((incidents) => {
+                const found = incidents.find((i) => i.id === incidentId)
+                if (found) {
+                  navigate('/ops')
+                  setCurrentOpsView('triage')
                 }
-                onClick={openHealthDashboard}
-                className="relative flex items-center justify-center w-8 h-8 rounded-full border border-border hover:bg-card transition-colors"
-                aria-label="Open system health"
-              >
-                <span
-                  className={`w-2.5 h-2.5 rounded-full ${
-                    healthStatus === 'critical'
-                      ? 'bg-red-500 animate-pulse'
-                      : healthStatus === 'warning'
-                        ? 'bg-yellow-400 animate-pulse'
-                        : 'bg-green-500'
-                  }`}
-                />
-              </button>
-            )}
-
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="p-2 rounded-lg hover:bg-card transition-colors group"
-              title="Settings"
-            >
-              <Settings className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" />
-            </button>
-
-            <UserMenu
-              onLogout={() => { logout(); setCurrentOpsView('dashboard') }}
-              onOpenSettings={() => setSettingsOpen(true)}
-            />
-          </div>
-        </header>
+              })
+              .catch((err) => {
+                console.error('Failed to navigate to incident:', err)
+              })
+          }}
+        />
 
         {/* ── Portal routes ───────────────────────────────────────────────── */}
         <Routes>
