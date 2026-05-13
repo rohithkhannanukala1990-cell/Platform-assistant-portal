@@ -11,8 +11,8 @@ import {
   Heart as HeartIcon,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { API_BASE } from '../config/apiBase'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const API_NOTIFICATIONS = `${API_BASE}/api/notifications`
 const API_MARK_READ = (id) => `${API_BASE}/api/notifications/${id}/read`
 

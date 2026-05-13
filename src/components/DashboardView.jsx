@@ -13,8 +13,8 @@ import {
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
 import { useAuth } from '../contexts/AuthContext'
+import { API_BASE } from '../config/apiBase'
 
-const API_BASE   = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const API        = `${API_BASE}/api/analytics`
 const SCAN_API   = `${API_BASE}/api/logs/scan-anomalies`
 const DORA_API   = `${API_BASE}/api/cicd/dora-metrics`

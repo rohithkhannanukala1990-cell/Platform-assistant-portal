@@ -7,8 +7,8 @@ import {
 import AgentApprovalsWidget from './AgentApprovalsWidget'
 import StorageView     from './StorageView'
 import DataLineageView from './DataLineageView'
+import { API_BASE } from '../config/apiBase'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const CICD_API = `${API_BASE}/api/cicd/active-runs`
 
 const DBT_RUNS = [

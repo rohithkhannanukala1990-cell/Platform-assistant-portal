@@ -7,10 +7,10 @@ import {
   Zap, Terminal,
 } from 'lucide-react'
 import { useRole } from '../contexts/RoleContext'
+import { API_BASE } from '../config/apiBase'
 
-const BASE_URL    = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const GATEWAY_URL = `${BASE_URL}/api/webhooks/inbound`
-const ACTIVITY_URL = `${BASE_URL}/api/webhooks/activity`
+const GATEWAY_URL = `${API_BASE}/api/webhooks/inbound`
+const ACTIVITY_URL = `${API_BASE}/api/webhooks/activity`
 
 // ── Webhook source catalogue ──────────────────────────────────────────────────
 const INTEGRATIONS = [

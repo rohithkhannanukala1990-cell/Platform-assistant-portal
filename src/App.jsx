@@ -2,11 +2,16 @@ import { useState, useCallback, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+import { API_BASE } from './config/apiBase'
 
 function buildPortalWsUrl() {
+  if (!API_BASE) {
+    const proto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:5173'
+    return `${proto}//${host}/ws/portal`
+  }
   try {
-    const u = new URL(API_BASE)
+    const u = new URL(API_BASE.startsWith('http') ? API_BASE : `http://${API_BASE}`)
     u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
     u.pathname = '/ws/portal'
     u.search = ''

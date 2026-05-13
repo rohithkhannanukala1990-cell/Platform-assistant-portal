@@ -3,8 +3,8 @@ import {
   GitBranch, RefreshCw, CheckCircle2, XCircle,
   Clock, AlertTriangle, Loader2, User, Zap,
 } from 'lucide-react'
+import { API_BASE } from '../config/apiBase'
 
-const API_BASE     = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const ACTIVE_API   = `${API_BASE}/api/cicd/active-runs`
 const MONITOR_API  = `${API_BASE}/api/cicd/monitor`
 

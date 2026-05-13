@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { getPortalContextHeaders } from '../utils/portalContextHeaders'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+import { API_BASE } from '../config/apiBase'
 
 // ── PRIVATE HELPERS (not exported) ────────────────────────────────────────────
 function parseJWT(token) {

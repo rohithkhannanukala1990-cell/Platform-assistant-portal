@@ -12,8 +12,8 @@ import {
   Cpu,
   Cloud,
 } from 'lucide-react'
+import { API_BASE } from '../config/apiBase'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const API_URL = `${API_BASE}/api/infra/generate`
 
 const PROVIDERS = [

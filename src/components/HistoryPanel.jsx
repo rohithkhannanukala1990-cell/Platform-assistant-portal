@@ -7,8 +7,7 @@ import {
   RefreshCw, Inbox,
   Zap, Construction, Rocket,
 } from 'lucide-react'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+import { API_BASE } from '../config/apiBase'
 
 const ENDPOINTS = {
   alerts: `${API_BASE}/api/incidents`,

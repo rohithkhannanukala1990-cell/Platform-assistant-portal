@@ -6,8 +6,7 @@ import {
 } from 'lucide-react'
 import { useRole } from '../contexts/RoleContext'
 import { useAuth } from '../contexts/AuthContext'
-
-const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+import { API_BASE } from '../config/apiBase'
 
 const SEV_CFG = {
   Critical: { cls: 'bg-red-500/15 border-red-500/40 text-red-400',    dot: 'bg-red-400'    },
@@ -344,7 +343,7 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
   const fetchApprovals = useCallback(async () => {
     try {
       const param = effectiveRole === 'Admin' ? '' : `?role=${effectiveRole}`
-      const res   = await fetch(`${BASE}/api/incidents/approvals${param}`)
+      const res   = await fetch(`${API_BASE}/api/incidents/approvals${param}`)
       if (res.ok) setIncidents(await res.json())
     } catch (_) {}
     finally { setLoading(false) }

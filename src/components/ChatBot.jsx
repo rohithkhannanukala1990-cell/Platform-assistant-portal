@@ -3,8 +3,8 @@ import {
   MessageSquare, X, Send, Bot, User,
   Loader2, AlertCircle, Sparkles,
 } from 'lucide-react'
+import { API_BASE } from '../config/apiBase'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const API = `${API_BASE}/api/chat`
 
 const SUGGESTIONS = [

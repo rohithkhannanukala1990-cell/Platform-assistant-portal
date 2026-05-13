@@ -14,8 +14,8 @@ import {
   GitBranch,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { API_BASE } from '../config/apiBase'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const API_URL = `${API_BASE}/api/cicd/generate`
 
 const TOOLS = [

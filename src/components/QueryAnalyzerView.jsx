@@ -3,8 +3,7 @@ import {
   Search, Play, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Lightbulb, Terminal, Sparkles, RefreshCw, Copy, Check,
 } from 'lucide-react'
-
-const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+import { API_BASE } from '../config/apiBase'
 
 const DB_OPTIONS = [
   'prod-postgres-primary',
@@ -56,7 +55,7 @@ export default function QueryAnalyzerView() {
     setResult(null)
     setError(null)
     try {
-      const res = await fetch(`${BASE}/api/db/analyze-query`, {
+      const res = await fetch(`${API_BASE}/api/db/analyze-query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query.trim(), database }),
