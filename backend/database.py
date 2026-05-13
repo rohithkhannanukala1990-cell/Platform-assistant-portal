@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field, create_engine, Session, select
-from sqlalchemy import text as sa_text, UniqueConstraint
+from sqlalchemy import Column, Text, text as sa_text, UniqueConstraint
 
 # Use DATABASE_URL from env.
 # - Docker / production: set to postgresql://...
@@ -364,6 +364,57 @@ class UserRole(SQLModel, table=True):
     scope_id: str = Field(default="")
     granted_by: Optional[str] = Field(default="admin")
     granted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AIConversation(SQLModel, table=True):
+    """AI assistant chat thread (Sprint 6)."""
+
+    __tablename__ = "ai_conversations"
+
+    id: str = Field(primary_key=True)
+    user_id: str = Field(index=True)
+    workspace_id: Optional[str] = Field(default=None, index=True)
+    environment: str = Field(default="production")
+    title: Optional[str] = Field(default=None)
+    model: str = Field(default="gemini")
+    is_active: int = Field(default=1)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AIMessage(SQLModel, table=True):
+    """Single turn in an AI conversation."""
+
+    __tablename__ = "ai_messages"
+
+    id: str = Field(primary_key=True)
+    conversation_id: str = Field(foreign_key="ai_conversations.id", index=True)
+    role: str
+    content: str
+    tool_calls: str = Field(default="[]")
+    # Column name "metadata" (spec); Python attr cannot be "metadata" (SQLAlchemy reserved).
+    message_metadata: str = Field(default="{}", sa_column=Column("metadata", Text, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AIToolExecution(SQLModel, table=True):
+    """Tracked tool / action execution from assistant flow (incl. HITL)."""
+
+    __tablename__ = "ai_tool_executions"
+
+    id: str = Field(primary_key=True)
+    conversation_id: str = Field(foreign_key="ai_conversations.id", index=True)
+    message_id: Optional[str] = Field(default=None, index=True)
+    tool_id: str
+    action: str
+    parameters: str = Field(default="{}")
+    result: str = Field(default="{}")
+    status: str = Field(default="pending")
+    requires_hitl: int = Field(default=0)
+    approved_by: Optional[str] = Field(default=None)
+    approved_at: Optional[datetime] = Field(default=None)
+    executed_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
