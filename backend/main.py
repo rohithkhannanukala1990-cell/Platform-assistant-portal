@@ -341,10 +341,7 @@ async def call_gemini(logs: str, system_prompt: str = SYSTEM_PROMPT) -> str:
 
 # ── Shared triage core ────────────────────────────────────────────────────────
 
-async def _ask_ai(prompt: str) -> str:
-    if AI_PROVIDER == "ollama":
-        return await call_ollama(prompt)
-    return await call_gemini(prompt)
+from .ai.ai_utils import ask_ai as _ask_ai  # re-exported for legacy callers
 
 async def _run_triage(log_text: str, source: str = "manual", owner_role: str = "Admin") -> dict:
     """

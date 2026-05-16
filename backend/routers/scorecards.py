@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Field, Session, SQLModel, select
 
+from ..ai.ai_utils import ask_ai
 from ..auth import User, get_current_user
 from ..database import engine
 from .catalog import CatalogEntity
@@ -206,9 +207,7 @@ async def evaluate_scorecard(entity_id: str, current_user: User = Depends(get_cu
         prompt = _evaluation_prompt(entity)
         checks_data: list[dict[str, Any]]
         try:
-            from ..main import _ask_ai
-
-            raw = await _ask_ai(prompt)
+            raw = await ask_ai(prompt)
             checks_data = _parse_scorecard_json(raw)
         except Exception:
             checks_data = _rule_based_checks(entity)
