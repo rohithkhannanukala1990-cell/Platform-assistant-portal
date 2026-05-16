@@ -27,6 +27,7 @@ const NAV_GROUPS = [
     items: [
       { label: 'Home', path: '/', icon: Home },
       { label: 'Catalog', path: '/catalog', icon: Package },
+      { label: 'Standards', path: '/standards', icon: ShieldCheck },
       { label: 'Dependency Map', path: '/dependency-graph', icon: GitBranch },
     ],
   },

@@ -440,6 +440,10 @@ def create_db_and_tables():
     _seed_workspaces()
     _seed_templates()
     _seed_rbac()
+    with Session(engine) as session:
+        from .routers.standards import seed_production_readiness_standard
+
+        seed_production_readiness_standard(session)
 
 
 def _seed_tools() -> None:

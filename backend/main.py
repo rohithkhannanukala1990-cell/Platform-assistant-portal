@@ -62,6 +62,7 @@ from .routers.rbac import router as rbac_router
 from .routers.ai_assistant import router as ai_router
 from .routers.catalog import router as catalog_router
 from .routers.scorecards import router as scorecards_router
+from .routers import standards as standards_module
 
 load_dotenv()
 
@@ -111,6 +112,11 @@ async def lifespan(app: FastAPI):
     from .database import engine as db_engine_ref
     from .routers.catalog import CatalogEntity, ServiceDependency  # noqa: F401 — register table metadata
     from .routers.scorecards import ScorecardCheck  # noqa: F401 — register table metadata
+    from .routers.standards import (  # noqa: F401 — register table metadata
+        EntityStandardEvaluation,
+        Standard,
+        StandardCheck,
+    )
 
     SQLModel.metadata.create_all(db_engine_ref)
     seed_default_admin()
@@ -134,6 +140,8 @@ app.include_router(workspaces_router)
 app.include_router(templates_router)
 app.include_router(rbac_router)
 app.include_router(ai_router)
+app.include_router(standards_module.catalog_router)
+app.include_router(standards_module.router)
 app.include_router(catalog_router)
 app.include_router(scorecards_router)
 # Sprint 6: enforce RBAC on selected routes via Depends(require_permission("resource", "action"))
