@@ -3082,6 +3082,113 @@ async def platform_chat(request: Request, chat_in: ChatRequest, current_user: Us
     return {"response": response.strip()}
 
 
+@app.get("/api/search")
+def unified_search(
+    q: str = "",
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+):
+    """Search across catalog entities, incidents, tools, cicd, infra."""
+    if not q.strip() or len(q.strip()) < 2:
+        return []
+
+    term = f"%{q.strip().lower()}%"
+    results = []
+
+    with Session(db_engine) as session:
+        # Catalog entities
+        try:
+            from .routers.catalog import CatalogEntity
+
+            cats = session.exec(
+                select(CatalogEntity)
+                .where(
+                    CatalogEntity.is_active == 1,
+                    sa_text(
+                        "LOWER(name) LIKE :t OR LOWER(owner_team) LIKE :t OR LOWER(COALESCE(description, '')) LIKE :t"
+                    ),
+                )
+                .limit(5),
+                {"t": term},
+            ).all()
+            for c in cats:
+                results.append(
+                    {
+                        "type": "Catalog",
+                        "id": c.id,
+                        "title": c.name,
+                        "subtitle": f"{c.kind} · {c.owner_team}",
+                        "url": "/catalog",
+                    }
+                )
+        except Exception:
+            pass
+
+        # Incidents
+        incidents_all = get_all_incidents()
+        for i in incidents_all:
+            if term.strip("%") in (i.get("summary") or "").lower() or term.strip("%") in (
+                i.get("root_cause") or ""
+            ).lower():
+                results.append(
+                    {
+                        "type": "Incident",
+                        "id": str(i["id"]),
+                        "title": (i.get("summary") or "")[:80],
+                        "subtitle": f"{i.get('severity', '?')} · {i.get('status', '?')}",
+                        "url": "/incidents",
+                    }
+                )
+                if len(results) >= limit:
+                    break
+
+        # Tools
+        tools = session.exec(
+            select(Tool).where(sa_text("LOWER(name) LIKE :t OR LOWER(category) LIKE :t")).limit(5),
+            {"t": term},
+        ).all()
+        for t_row in tools:
+            results.append(
+                {
+                    "type": "Tool",
+                    "id": t_row.id,
+                    "title": t_row.name,
+                    "subtitle": t_row.category,
+                    "url": "/tools",
+                }
+            )
+
+        # Infra
+        infra_all = get_all_infra()
+        for item in infra_all:
+            if term.strip("%") in (item.get("resource_name") or "").lower():
+                results.append(
+                    {
+                        "type": "Infra",
+                        "id": str(item.get("id", "")),
+                        "title": (item.get("resource_name") or "")[:60],
+                        "subtitle": item.get("provider_used", ""),
+                        "url": "/infra",
+                    }
+                )
+
+        # CI/CD
+        cicd_all = get_all_cicd()
+        for item in cicd_all:
+            if term.strip("%") in (item.get("tool_name") or "").lower():
+                results.append(
+                    {
+                        "type": "CI/CD",
+                        "id": str(item.get("id", "")),
+                        "title": item.get("tool_name", ""),
+                        "subtitle": (item.get("prompt") or "")[:60],
+                        "url": "/cicd",
+                    }
+                )
+
+    return results[:limit]
+
+
 # ── Log Anomaly Detection ─────────────────────────────────────────────────────
 
 ANOMALY_INCIDENT = {
