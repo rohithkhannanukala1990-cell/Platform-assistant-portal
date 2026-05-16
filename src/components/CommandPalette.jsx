@@ -22,11 +22,11 @@ const TYPE_BADGE = {
 }
 
 const NAV_URL_MAP = {
-  '/catalog': '/developer',
-  '/incidents': '/ops?view=triage',
-  '/tools': '/ops?view=tool-registry',
-  '/infra': '/ops?view=infra',
-  '/cicd': '/ops?view=cicd',
+  '/catalog': '/catalog',
+  '/incidents': '/incidents',
+  '/tools': '/tools',
+  '/infra': '/infra',
+  '/cicd': '/cicd',
 }
 
 function resolveNavUrl(url) {
@@ -98,6 +98,12 @@ export default function CommandPalette() {
     },
     [navigate]
   )
+
+  useEffect(() => {
+    const onOpenEvent = () => setOpen(true)
+    window.addEventListener('open-command-palette', onOpenEvent)
+    return () => window.removeEventListener('open-command-palette', onOpenEvent)
+  }, [])
 
   useEffect(() => {
     const onKeyDown = (e) => {

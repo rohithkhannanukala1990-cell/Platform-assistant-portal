@@ -289,7 +289,7 @@ export default function DependencyGraph() {
 
   const viewInCatalog = () => {
     if (!selectedEntity) return
-    navigate('/developer', { state: { catalogSearch: selectedEntity.name } })
+    navigate('/catalog', { state: { catalogSearch: selectedEntity.name } })
   }
 
   return (

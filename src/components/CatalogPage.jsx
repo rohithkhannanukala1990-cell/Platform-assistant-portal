@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   XCircle,
 } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 const KIND_TABS = ['All', 'Service', 'API', 'Library', 'Website']
@@ -73,6 +74,7 @@ function tagsToDisplay(tags) {
 }
 
 export default function CatalogPage() {
+  const location = useLocation()
   const { authFetch } = useAuth()
 
   const [entities, setEntities] = useState([])
@@ -152,6 +154,11 @@ export default function CatalogPage() {
   useEffect(() => {
     void loadEntities()
   }, [loadEntities])
+
+  useEffect(() => {
+    const q = location.state?.catalogSearch
+    if (typeof q === 'string' && q.trim()) setSearchQuery(q.trim())
+  }, [location.state])
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()

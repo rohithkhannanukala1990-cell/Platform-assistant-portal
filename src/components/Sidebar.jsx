@@ -1,172 +1,174 @@
-import { useNavigate, useLocation } from 'react-router-dom'
-import { Activity } from 'lucide-react'
-import { useRole, ROLES } from '../contexts/RoleContext'
+import { useEffect, useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
+import {
+  Home,
+  Package,
+  GitBranch,
+  AlertTriangle,
+  Webhook,
+  ShieldCheck,
+  Bot,
+  Boxes,
+  Workflow,
+  Database,
+  Shield,
+  Wrench,
+  Settings,
+  Heart,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
+import { useRole } from '../contexts/RoleContext'
 
-// ── Nav item sets by role ─────────────────────────────────────────────────────
-const OPS_NAV = [
-  { id: 'dashboard',     label: 'Dashboard',      emoji: '📊' },
-  { id: 'triage',        label: 'Alert Triage',   emoji: '⚡' },
-  { id: 'infra',         label: 'Infra Builder',  emoji: '🏗️' },
-  { id: 'cicd',          label: 'CI/CD Pipeline', emoji: '🚀' },
-  { id: 'integrations',  label: 'Integrations',   emoji: '🔌', adminOnly: true },
-  { id: 'workspaces',    label: 'Workspaces',     emoji: '🗂️', adminOnly: false },
-  { id: 'templates',     label: 'Templates',     emoji: '📖', adminOnly: true },
-  { id: 'rbac',          label: 'Access Control', emoji: '🔐', adminOnly: true },
-  { id: 'ai-assistant',  label: 'AI Assistant',   emoji: '🤖', adminOnly: false },
-  { id: 'import',         label: 'Import',        emoji: '📤', adminOnly: true },
-  { id: 'health',         label: 'Health',         emoji: '❤️', adminOnly: true },
-  { id: 'tool-registry', label: 'Integration registry', emoji: '🧩', adminOnly: true },
+const NAV_GROUPS = [
+  {
+    label: 'PLATFORM',
+    items: [
+      { label: 'Home', path: '/', icon: Home },
+      { label: 'Catalog', path: '/catalog', icon: Package },
+      { label: 'Dependency Map', path: '/dependency-graph', icon: GitBranch },
+    ],
+  },
+  {
+    label: 'OPERATIONS',
+    items: [
+      { label: 'Incidents', path: '/incidents', icon: AlertTriangle },
+      { label: 'Webhooks', path: '/webhooks', icon: Webhook },
+      { label: 'HITL Approvals', path: '/approvals', icon: ShieldCheck },
+    ],
+  },
+  {
+    label: 'DEVELOPER TOOLS',
+    items: [
+      { label: 'AI Assistant', path: '/ai-assistant', icon: Bot },
+      { label: 'Infra Builder', path: '/infra', icon: Boxes },
+      { label: 'CI/CD Generator', path: '/cicd', icon: Workflow },
+      { label: 'DB Analyzer', path: '/db-analyzer', icon: Database },
+    ],
+  },
+  {
+    label: 'ADMIN',
+    items: [
+      { label: 'RBAC', path: '/rbac', icon: Shield },
+      { label: 'Tool Registry', path: '/tools', icon: Wrench },
+      { label: 'Settings', path: '/settings', icon: Settings },
+      { label: 'Health', path: '/health', icon: Heart },
+    ],
+  },
 ]
 
-const DEV_NAV = [
-  { id: 'catalog',    label: 'Software Catalog', emoji: '📦' },
-  { id: 'deploys',    label: 'Deployments',       emoji: '🚀' },
-  { id: 'livepipes',  label: 'Live Pipelines',    emoji: '🔄' },
-  { id: 'runbooks',   label: 'Runbooks',          emoji: '📋' },
-]
-
-const DATA_NAV = [
-  { id: 'pipelines', label: 'Pipeline Health',  emoji: '⚙️' },
-  { id: 'storage',   label: 'Storage',           emoji: '🗄️' },
-  { id: 'lineage',   label: 'Data Lineage',      emoji: '🔗' },
-]
-
-const DB_NAV = [
-  { id: 'dbhealth',  label: 'Database Health',  emoji: '🗄️' },
-  { id: 'queries',   label: 'Query Analyzer',    emoji: '🔍' },
-  { id: 'schemas',   label: 'Schema Browser',    emoji: '📐' },
-]
-
-const NAV_BY_ROLE = {
-  Admin:             OPS_NAV,
-  NetworkEngineer:   OPS_NAV,
-  Developer:         DEV_NAV,
-  DataEngineer:      DATA_NAV,
-  DatabaseDeveloper: DB_NAV,
+function userInitial(user) {
+  const name = user?.username || user?.name || '?'
+  return String(name).charAt(0).toUpperCase()
 }
 
-// ── Sidebar ───────────────────────────────────────────────────────────────────
-export default function Sidebar({ activeView, onNavigate, showOpsNav }) {
-  const { role, roleInfo } = useRole()
-  const navigate           = useNavigate()
-  const location           = useLocation()
-  const navItems           = NAV_BY_ROLE[role] ?? OPS_NAV
+export default function Sidebar({ user, onLogout }) {
+  const location = useLocation()
+  const { role } = useRole()
+  const [collapsed, setCollapsed] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  )
+
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth < 768) setCollapsed(true)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  const widthClass = collapsed ? 'w-14' : 'w-60'
 
   return (
-    <aside className="flex flex-col w-60 min-h-screen bg-sidebar border-r border-border shrink-0">
-
-      {/* Logo — click to go home */}
+    <aside
+      className={`relative flex flex-col shrink-0 bg-neutral-900 border-r border-neutral-800 ${widthClass} transition-[width] duration-200`}
+    >
       <button
-        onClick={() => { onNavigate('dashboard'); navigate(roleInfo.portal) }}
-        className="flex items-center gap-3 px-5 py-5 border-b border-border w-full text-left
-          hover:bg-card/50 transition-colors group cursor-pointer"
-        title="Go to Home"
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        className="absolute top-3 right-2 z-10 p-1 rounded-md text-neutral-400 hover:text-white hover:bg-neutral-800"
+        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
-        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10 border border-accent/30
-          group-hover:bg-accent/20 group-hover:border-accent/50 transition-colors shrink-0">
-          <Activity className="w-4 h-4 text-accent" strokeWidth={2.5} />
-        </div>
-        <div>
-          <h1 className="text-sm font-bold text-white tracking-wide group-hover:text-accent transition-colors">
-            AIOps Portal
-          </h1>
-          <p className="text-[10px] text-muted font-medium uppercase tracking-widest">Platform Ops</p>
-        </div>
+        {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>
 
-      {/* Role badge */}
-      <div className="px-4 pt-4 pb-2">
-        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold ${roleInfo.bg} ${roleInfo.color}`}>
-          <span>{roleInfo.emoji}</span>
-          {roleInfo.label}
-        </div>
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden pt-10 pb-2 ${collapsed ? 'px-1' : ''}`}>
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label} className="mb-1">
+            {!collapsed && (
+              <p className="text-[10px] uppercase tracking-widest text-neutral-500 px-3 mb-1 mt-4 first:mt-2">
+                {group.label}
+              </p>
+            )}
+            <nav className="flex flex-col gap-0.5">
+              {group.items.map((item) => {
+                const Icon = item.icon
+                const active = location.pathname === item.path
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    end={item.path === '/'}
+                    title={collapsed ? item.label : undefined}
+                    className={`flex items-center gap-3 py-2 rounded-lg mx-2 text-sm transition-colors ${
+                      collapsed ? 'justify-center px-2' : 'px-3'
+                    } ${
+                      active
+                        ? 'bg-indigo-600 text-white font-medium'
+                        : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" strokeWidth={2} />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                  </NavLink>
+                )
+              })}
+            </nav>
+          </div>
+        ))}
       </div>
 
-      {/* Nav */}
-      <nav className="flex flex-col gap-1 px-3 pt-2 flex-1">
-        <p className="text-[10px] text-muted font-semibold uppercase tracking-widest px-2 mb-2">
-          {role === 'Developer'         ? 'Dev Tools'
-         : role === 'DataEngineer'      ? 'Data Tools'
-         : role === 'DatabaseDeveloper' ? 'DB Tools'
-         : 'Modules'}
-        </p>
-
-        {navItems
-          .filter((item) => !item.adminOnly || role === 'Admin')
-          .map((item) => (
-            <NavItem
-              key={item.id}
-              item={item}
-              active={item.externalPath ? location.pathname === item.externalPath : activeView === item.id}
-              onNavigate={() => {
-                if (item.externalPath) {
-                  navigate(item.externalPath)
-                  return
-                }
-                if (
-                  item.id === 'health' ||
-                  item.id === 'tool-registry' ||
-                  item.id === 'import' ||
-                  item.id === 'workspaces' ||
-                  item.id === 'templates' ||
-                  item.id === 'rbac' ||
-                  item.id === 'ai-assistant'
-                ) {
-                  navigate('/ops')
-                  onNavigate(item.id)
-                  return
-                }
-                onNavigate(item.id)
-              }}
-            />
-          ))
-        }
-      </nav>
-
-      {/* Footer */}
-      <div className="px-4 py-4 border-t border-border">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-          <span className="text-xs text-muted">v0.1.0 — MVP Build</span>
+      <div
+        className={`border-t border-neutral-800 p-3 flex items-center gap-2 ${
+          collapsed ? 'justify-center flex-col' : ''
+        }`}
+      >
+        <div
+          className="w-8 h-8 rounded-full bg-indigo-700 flex items-center justify-center text-sm font-bold text-white shrink-0"
+          title={user?.username}
+        >
+          {userInitial(user)}
         </div>
+        {!collapsed && (
+          <>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-white truncate">{user?.username || 'User'}</p>
+              <span className="text-xs bg-neutral-800 text-neutral-300 px-1.5 rounded inline-block mt-0.5">
+                {role || user?.role || '—'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onLogout}
+              className="p-2 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 shrink-0"
+              title="Log out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </>
+        )}
+        {collapsed && (
+          <button
+            type="button"
+            onClick={onLogout}
+            className="p-2 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800"
+            title="Log out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </aside>
-  )
-}
-
-// ── NavItem ───────────────────────────────────────────────────────────────────
-function NavItem({ item, active, onNavigate }) {
-  const { emoji, label, disabled } = item
-
-  if (disabled) {
-    return (
-      <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-not-allowed select-none">
-        <span className="text-base opacity-40">{emoji}</span>
-        <span className="text-sm font-medium text-slate-600">{label}</span>
-        <span className="ml-auto text-[9px] font-semibold uppercase tracking-wider text-slate-700 border border-slate-700 rounded px-1 py-0.5">
-          Soon
-        </span>
-      </div>
-    )
-  }
-
-  if (active) {
-    return (
-      <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-accent/10 border border-accent/20 cursor-pointer">
-        <span className="text-base">{emoji}</span>
-        <span className="text-sm font-semibold text-accent">{label}</span>
-        <div className="ml-auto w-1.5 h-1.5 rounded-full bg-accent" />
-      </div>
-    )
-  }
-
-  return (
-    <button
-      onClick={onNavigate}
-      className="group flex items-center gap-3 px-3 py-2.5 rounded-lg w-full text-left cursor-pointer hover:bg-card transition-colors"
-    >
-      <span className="text-base">{emoji}</span>
-      <span className="text-sm font-medium text-slate-400 group-hover:text-white transition-colors">{label}</span>
-    </button>
   )
 }
