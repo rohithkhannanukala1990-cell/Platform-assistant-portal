@@ -109,7 +109,7 @@ async def lifespan(app: FastAPI):
     create_db_and_tables()
     from sqlmodel import SQLModel
     from .database import engine as db_engine_ref
-    from .routers.catalog import CatalogEntity  # noqa: F401 — register table metadata
+    from .routers.catalog import CatalogEntity, ServiceDependency  # noqa: F401 — register table metadata
     from .routers.scorecards import ScorecardCheck  # noqa: F401 — register table metadata
 
     SQLModel.metadata.create_all(db_engine_ref)

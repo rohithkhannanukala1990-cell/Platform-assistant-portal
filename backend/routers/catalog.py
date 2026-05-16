@@ -34,6 +34,16 @@ class CatalogEntity(SQLModel, table=True):
     is_active: int = 1
 
 
+class ServiceDependency(SQLModel, table=True):
+    __tablename__ = "service_dependencies"
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    from_entity_id: str
+    to_entity_id: str
+    dep_type: str = "calls"  # calls | uses | depends_on
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class CatalogCreate(BaseModel):
     name: str
     kind: str
@@ -44,6 +54,12 @@ class CatalogCreate(BaseModel):
     description: Optional[str] = None
     tags: Optional[str] = None
     health_status: Optional[str] = "unknown"
+
+
+class DependencyCreate(BaseModel):
+    from_entity_id: str
+    to_entity_id: str
+    dep_type: str = "calls"
 
 
 class CatalogUpdate(BaseModel):
@@ -93,6 +109,25 @@ def _get_active(session: Session, entity_id: str) -> CatalogEntity:
     return row
 
 
+def _entity_name_map(session: Session) -> dict[str, str]:
+    rows = session.exec(select(CatalogEntity).where(CatalogEntity.is_active == 1)).all()
+    return {r.id: r.name for r in rows}
+
+
+def _serialize_dependency(row: ServiceDependency, names: dict[str, str]) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "from_entity_id": row.from_entity_id,
+        "to_entity_id": row.to_entity_id,
+        "dep_type": row.dep_type,
+        "from_name": names.get(row.from_entity_id, row.from_entity_id),
+        "to_name": names.get(row.to_entity_id, row.to_entity_id),
+    }
+
+
+_VALID_DEP_TYPES = frozenset({"calls", "uses", "depends_on"})
+
+
 @router.get("")
 def list_catalog(
     kind: Optional[str] = Query(None),
@@ -111,6 +146,49 @@ def list_catalog(
         q = q.order_by(CatalogEntity.name.asc())
         rows = session.exec(q).all()
         return [_serialize(r) for r in rows]
+
+
+@router.get("/dependencies")
+def list_dependencies(current_user: User = Depends(get_current_user)):
+    with Session(engine) as session:
+        names = _entity_name_map(session)
+        rows = session.exec(select(ServiceDependency).order_by(ServiceDependency.created_at.desc())).all()
+        return [_serialize_dependency(r, names) for r in rows]
+
+
+@router.post("/dependencies")
+def create_dependency(body: DependencyCreate, current_user: User = Depends(get_current_user)):
+    dep_type = (body.dep_type or "calls").strip()
+    if dep_type not in _VALID_DEP_TYPES:
+        raise HTTPException(status_code=400, detail="dep_type must be calls, uses, or depends_on")
+    if body.from_entity_id == body.to_entity_id:
+        raise HTTPException(status_code=400, detail="from and to must differ")
+    with Session(engine) as session:
+        _get_active(session, body.from_entity_id)
+        _get_active(session, body.to_entity_id)
+        names = _entity_name_map(session)
+        row = ServiceDependency(
+            id=str(uuid.uuid4()),
+            from_entity_id=body.from_entity_id,
+            to_entity_id=body.to_entity_id,
+            dep_type=dep_type,
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return _serialize_dependency(row, names)
+
+
+@router.delete("/dependencies/{dep_id}")
+def delete_dependency(dep_id: str, current_user: User = Depends(get_current_user)):
+    with Session(engine) as session:
+        row = session.get(ServiceDependency, dep_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Dependency not found")
+        session.delete(row)
+        session.commit()
+    return {"ok": True}
 
 
 @router.post("")
@@ -137,6 +215,20 @@ def create_catalog(body: CatalogCreate, current_user: User = Depends(get_current
         session.commit()
         session.refresh(row)
         return _serialize(row)
+
+
+@router.get("/{entity_id}/dependencies")
+def list_entity_dependencies(entity_id: str, current_user: User = Depends(get_current_user)):
+    with Session(engine) as session:
+        _get_active(session, entity_id)
+        names = _entity_name_map(session)
+        rows = session.exec(
+            select(ServiceDependency).where(
+                (ServiceDependency.from_entity_id == entity_id)
+                | (ServiceDependency.to_entity_id == entity_id)
+            )
+        ).all()
+        return [_serialize_dependency(r, names) for r in rows]
 
 
 @router.get("/{entity_id}")
