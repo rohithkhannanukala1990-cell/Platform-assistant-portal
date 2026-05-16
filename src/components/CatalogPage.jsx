@@ -9,6 +9,10 @@ import {
   Loader2,
   Pencil,
   Trash2,
+  RefreshCw,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -81,6 +85,54 @@ export default function CatalogPage() {
   const [saving, setSaving] = useState(false)
   const [filterKind, setFilterKind] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
+  const [scorecard, setScorecard] = useState(null)
+  const [scorecardLoading, setScorecardLoading] = useState(false)
+  const [scorecardEvaluating, setScorecardEvaluating] = useState(false)
+
+  const loadScorecard = useCallback(
+    async (entityId) => {
+      if (!entityId) return
+      setScorecardLoading(true)
+      try {
+        const res = await authFetch(`/api/catalog/${encodeURIComponent(entityId)}/scorecard`)
+        if (!res.ok) throw new Error(await res.text())
+        setScorecard(await res.json())
+      } catch {
+        setScorecard({ overall_score: 0, checks: [], by_category: [] })
+      } finally {
+        setScorecardLoading(false)
+      }
+    },
+    [authFetch]
+  )
+
+  const evaluateScorecard = useCallback(
+    async (entityId) => {
+      if (!entityId) return
+      setScorecardEvaluating(true)
+      try {
+        const res = await authFetch(
+          `/api/catalog/${encodeURIComponent(entityId)}/scorecard/evaluate`,
+          { method: 'POST' }
+        )
+        if (!res.ok) throw new Error(await res.text())
+        setScorecard(await res.json())
+      } catch (e) {
+        setError(e.message || 'Scorecard evaluation failed')
+      } finally {
+        setScorecardEvaluating(false)
+      }
+    },
+    [authFetch]
+  )
+
+  useEffect(() => {
+    if (!selectedEntity?.id) {
+      setScorecard(null)
+      return
+    }
+    void loadScorecard(selectedEntity.id)
+  }, [selectedEntity?.id, loadScorecard])
 
   const loadEntities = useCallback(async () => {
     setLoading(true)
@@ -336,6 +388,12 @@ export default function CatalogPage() {
                 <p className="text-slate-300 whitespace-pre-wrap">{selectedEntity.description || '—'}</p>
               </div>
               <DetailRow label="Created" value={selectedEntity.created_at ? new Date(selectedEntity.created_at).toLocaleString() : '—'} />
+              <ScoreSection
+                scorecard={scorecard}
+                loading={scorecardLoading}
+                evaluating={scorecardEvaluating}
+                onReevaluate={() => void evaluateScorecard(selectedEntity.id)}
+              />
             </div>
             <div className="px-5 py-4 border-t border-border flex gap-2">
               <button
@@ -477,6 +535,144 @@ export default function CatalogPage() {
             </form>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function scoreRingColor(score) {
+  if (score >= 80) return { stroke: '#22c55e', text: 'text-emerald-400' }
+  if (score >= 60) return { stroke: '#eab308', text: 'text-amber-400' }
+  return { stroke: '#ef4444', text: 'text-red-400' }
+}
+
+function ScoreRing({ score }) {
+  const size = 96
+  const stroke = 8
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference - (score / 100) * circumference
+  const { stroke: ringStroke, text } = scoreRingColor(score)
+
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={stroke}
+          className="text-slate-700"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={ringStroke}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+        />
+      </svg>
+      <div className={`absolute inset-0 flex flex-col items-center justify-center ${text}`}>
+        <span className="text-2xl font-bold text-white leading-none">{score}</span>
+        <span className="text-[10px] text-slate-500 mt-0.5">/ 100</span>
+      </div>
+    </div>
+  )
+}
+
+function CheckStatusIcon({ status }) {
+  if (status === 'pass') return <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+  if (status === 'fail') return <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+  return <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+}
+
+function scoreBarColor(score) {
+  if (score >= 80) return 'bg-emerald-500'
+  if (score >= 60) return 'bg-amber-500'
+  return 'bg-red-500'
+}
+
+function CheckRow({ check }) {
+  return (
+    <div className="flex items-center gap-2 text-sm py-1">
+      <CheckStatusIcon status={check.status} />
+      <span className="flex-1 min-w-0 text-slate-300 truncate">{check.check_name}</span>
+      <span className="text-slate-400 tabular-nums w-8 text-right">{check.score}</span>
+      <div className="w-20 h-1.5 rounded-full bg-gray-700 overflow-hidden flex-shrink-0">
+        <div className={`h-full rounded-full ${scoreBarColor(check.score)}`} style={{ width: `${check.score}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function ScoreSection({ scorecard, loading, evaluating, onReevaluate }) {
+  const overall = scorecard?.overall_score ?? 0
+  let grouped = scorecard?.by_category ?? []
+  if (!grouped.length && scorecard?.checks?.length) {
+    const byCat = {}
+    for (const c of scorecard.checks) {
+      if (!byCat[c.category]) byCat[c.category] = []
+      byCat[c.category].push(c)
+    }
+    grouped = Object.entries(byCat).map(([category, checks]) => ({ category, checks }))
+  }
+  const hasChecks = (scorecard?.checks?.length ?? 0) > 0
+
+  return (
+    <div className="pt-4 mt-4 border-t border-border">
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Scorecard</h4>
+        <button
+          type="button"
+          onClick={onReevaluate}
+          disabled={evaluating || loading}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-400 hover:text-blue-300 disabled:opacity-50"
+        >
+          {evaluating ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="w-3.5 h-3.5" />
+          )}
+          Re-evaluate
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin text-slate-500" />
+        </div>
+      ) : (
+        <>
+          <div className="flex justify-center mb-5">
+            <ScoreRing score={overall} />
+          </div>
+          {!hasChecks ? (
+            <p className="text-center text-sm text-slate-500 pb-2">
+              No scorecard yet — click Re-evaluate
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {grouped.map(({ category, checks }) => (
+                <div key={category}>
+                  <p className="text-xs font-semibold text-slate-400 mb-2 border-b border-border/60 pb-1">
+                    {category}
+                  </p>
+                  <div className="space-y-0.5">
+                    {checks.map((c) => (
+                      <CheckRow key={`${category}-${c.check_name}`} check={c} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
