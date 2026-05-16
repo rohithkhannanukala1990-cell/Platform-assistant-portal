@@ -1,0 +1,349 @@
+"""Entity actions — contextual self-service operations per catalog entity."""
+
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlmodel import Field, Session, SQLModel, select
+
+from ..auth import User, get_current_user
+from ..database import engine
+from .catalog import CatalogEntity
+
+router = APIRouter(prefix="/api/entity-actions", tags=["entity-actions"])
+catalog_router = APIRouter(prefix="/api/catalog", tags=["entity-actions"])
+runs_router = APIRouter(prefix="/api/entity-action-runs", tags=["entity-actions"])
+
+
+class EntityAction(SQLModel, table=True):
+    __tablename__ = "entity_actions"
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    name: str
+    slug: str
+    description: str = ""
+    entity_kind: str = "all"
+    action_type: str = "internal"
+    icon: str = "Zap"
+    config_json: str = "{}"
+    requires_approval: int = 0
+    is_active: int = 1
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class EntityActionRun(SQLModel, table=True):
+    __tablename__ = "entity_action_runs"
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    action_id: str = Field(foreign_key="entity_actions.id", index=True)
+    entity_id: str = Field(foreign_key="catalog_entities.id", index=True)
+    requested_by: str
+    status: str = "pending"
+    inputs_json: str = "{}"
+    result_json: str = "{}"
+    execution_logs: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class EntityActionCreate(BaseModel):
+    name: str
+    slug: str
+    description: str = ""
+    entity_kind: str = "all"
+    action_type: str = "internal"
+    icon: str = "Zap"
+    config_json: str = "{}"
+    requires_approval: int = 0
+
+
+class ActionRunRequest(BaseModel):
+    inputs_json: Optional[dict[str, Any]] = None
+
+
+def _get_active_entity(session: Session, entity_id: str) -> CatalogEntity:
+    row = session.get(CatalogEntity, entity_id)
+    if not row or not row.is_active:
+        raise HTTPException(status_code=404, detail="Catalog entity not found")
+    return row
+
+
+def _log_line(logs: list[str], message: str) -> None:
+    ts = datetime.now(timezone.utc).isoformat()
+    logs.append(f"[{ts}] {message}")
+
+
+def _serialize_action(row: EntityAction) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "slug": row.slug,
+        "description": row.description or "",
+        "entity_kind": row.entity_kind,
+        "action_type": row.action_type,
+        "icon": row.icon,
+        "config_json": row.config_json,
+        "requires_approval": bool(row.requires_approval),
+        "is_active": bool(row.is_active),
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def _serialize_run(row: EntityActionRun, action_name: str | None = None) -> dict[str, Any]:
+    try:
+        result = json.loads(row.result_json or "{}")
+    except json.JSONDecodeError:
+        result = {}
+    try:
+        inputs = json.loads(row.inputs_json or "{}")
+    except json.JSONDecodeError:
+        inputs = {}
+    return {
+        "id": row.id,
+        "action_id": row.action_id,
+        "action_name": action_name,
+        "entity_id": row.entity_id,
+        "requested_by": row.requested_by,
+        "status": row.status,
+        "inputs": inputs,
+        "result": result,
+        "execution_logs": row.execution_logs or "",
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+async def _run_internal_action(
+    session: Session, action: EntityAction, entity: CatalogEntity, logs: list[str]
+) -> dict[str, Any]:
+    slug = action.slug
+
+    if slug == "re-eval-scorecard":
+        from ..ai.ai_utils import ask_ai
+        from .scorecards import (
+            _build_payload,
+            _evaluation_prompt,
+            _parse_scorecard_json,
+            _persist_checks,
+            _rule_based_checks,
+        )
+
+        _log_line(logs, "Invoking scorecard evaluation")
+        prompt = _evaluation_prompt(entity)
+        try:
+            raw = await ask_ai(prompt)
+            checks = _parse_scorecard_json(raw)
+        except Exception as exc:
+            _log_line(logs, f"AI evaluation failed, using rules: {exc}")
+            checks = _rule_based_checks(entity)
+        rows = _persist_checks(session, entity.id, checks)
+        payload = _build_payload(rows)
+        _log_line(logs, f"Scorecard updated with {len(checks)} checks")
+        return {"message": "Scorecard re-evaluated", "overall_score": payload.get("overall_score")}
+
+    if slug == "flag-prod-readiness":
+        from .standards import Standard, _run_evaluation
+
+        std = session.exec(select(Standard).where(Standard.slug == "prod-readiness-v1")).first()
+        if not std:
+            _log_line(logs, "Production readiness standard not found")
+            return {"simulated": True, "message": "Standard not seeded"}
+        ev = _run_evaluation(session, entity, std)
+        _log_line(logs, f"Standards evaluation status={ev.status} score={ev.overall_score}")
+        return {
+            "message": "Production readiness evaluation complete",
+            "overall_score": ev.overall_score,
+            "status": ev.status,
+        }
+
+    if slug in ("generate-cicd", "generate-infra", "create-jira-ticket"):
+        _log_line(logs, f"Internal handler for {slug} not wired — queuing")
+        return {"simulated": True, "message": "Action queued"}
+
+    _log_line(logs, "No specific handler — simulated queue")
+    return {"simulated": True, "message": "Action queued"}
+
+
+async def _dispatch_action(
+    session: Session,
+    action: EntityAction,
+    entity: CatalogEntity,
+    logs: list[str],
+) -> tuple[str, dict[str, Any]]:
+    if action.action_type == "approval" or action.requires_approval:
+        _log_line(logs, "Awaiting approval")
+        return "pending", {"message": "Submitted for approval"}
+
+    if action.action_type == "webhook":
+        _log_line(logs, "Webhook action queued")
+        return "completed", {"simulated": True, "message": "Webhook action queued"}
+
+    if action.action_type == "internal":
+        _log_line(logs, f"Running internal action: {action.slug}")
+        result = await _run_internal_action(session, action, entity, logs)
+        return "completed", result
+
+    _log_line(logs, f"Unknown action_type={action.action_type}")
+    return "completed", {"simulated": True, "message": "Action queued"}
+
+
+def seed_default_actions(session: Session) -> None:
+    defaults = [
+        ("Re-evaluate Scorecard", "re-eval-scorecard", "all", "internal", "RefreshCw", 0),
+        ("Generate CI/CD Config", "generate-cicd", "Service", "internal", "GitBranch", 0),
+        ("Generate Infra Scaffold", "generate-infra", "Service", "internal", "Server", 1),
+        ("Request Production Access", "request-prod-access", "all", "approval", "KeyRound", 1),
+        ("Create Jira Ticket", "create-jira-ticket", "all", "internal", "Ticket", 0),
+        ("Flag for Production Readiness", "flag-prod-readiness", "all", "internal", "ShieldCheck", 0),
+    ]
+    for name, slug, kind, atype, icon, approval in defaults:
+        exists = session.exec(select(EntityAction).where(EntityAction.slug == slug)).first()
+        if exists:
+            continue
+        session.add(
+            EntityAction(
+                id=str(uuid.uuid4()),
+                name=name,
+                slug=slug,
+                description=f"Default action: {name}",
+                entity_kind=kind,
+                action_type=atype,
+                icon=icon,
+                requires_approval=approval,
+                is_active=1,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+    session.commit()
+
+
+@router.get("")
+def list_entity_actions(current_user: User = Depends(get_current_user)):
+    with Session(engine) as session:
+        rows = session.exec(
+            select(EntityAction).where(EntityAction.is_active == 1).order_by(EntityAction.name)
+        ).all()
+        return [_serialize_action(r) for r in rows]
+
+
+@router.post("")
+def create_entity_action(body: EntityActionCreate, current_user: User = Depends(get_current_user)):
+    with Session(engine) as session:
+        dup = session.exec(select(EntityAction).where(EntityAction.slug == body.slug.strip())).first()
+        if dup:
+            raise HTTPException(status_code=400, detail="Action slug already exists")
+        row = EntityAction(
+            id=str(uuid.uuid4()),
+            name=body.name.strip(),
+            slug=body.slug.strip(),
+            description=(body.description or "").strip(),
+            entity_kind=(body.entity_kind or "all").strip(),
+            action_type=(body.action_type or "internal").strip(),
+            icon=(body.icon or "Zap").strip(),
+            config_json=body.config_json or "{}",
+            requires_approval=int(body.requires_approval or 0),
+            is_active=1,
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return _serialize_action(row)
+
+
+@catalog_router.get("/{entity_id}/actions")
+def list_applicable_actions(entity_id: str, current_user: User = Depends(get_current_user)):
+    with Session(engine) as session:
+        entity = _get_active_entity(session, entity_id)
+        rows = session.exec(select(EntityAction).where(EntityAction.is_active == 1)).all()
+        applicable = [
+            _serialize_action(a)
+            for a in rows
+            if a.entity_kind in ("all", "") or a.entity_kind == entity.kind
+        ]
+        return applicable
+
+
+@catalog_router.post("/{entity_id}/actions/{action_id}/run")
+async def run_entity_action(
+    entity_id: str,
+    action_id: str,
+    body: ActionRunRequest | None = None,
+    current_user: User = Depends(get_current_user),
+):
+    with Session(engine) as session:
+        entity = _get_active_entity(session, entity_id)
+        action = session.get(EntityAction, action_id)
+        if not action or not action.is_active:
+            raise HTTPException(status_code=404, detail="Action not found")
+        if action.entity_kind not in ("all", "") and action.entity_kind != entity.kind:
+            raise HTTPException(status_code=400, detail="Action not applicable to this entity kind")
+
+        now = datetime.now(timezone.utc)
+        logs: list[str] = []
+        _log_line(logs, f"Run requested by {current_user.username}")
+
+        inputs = body.inputs_json if body and body.inputs_json else {}
+        run = EntityActionRun(
+            id=str(uuid.uuid4()),
+            action_id=action.id,
+            entity_id=entity.id,
+            requested_by=current_user.username,
+            status="running",
+            inputs_json=json.dumps(inputs),
+            result_json="{}",
+            execution_logs="",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(run)
+        session.commit()
+
+        try:
+            final_status, result = await _dispatch_action(session, action, entity, logs)
+        except Exception as exc:
+            final_status = "failed"
+            result = {"error": str(exc)}
+            _log_line(logs, f"Execution failed: {exc}")
+
+        _log_line(logs, f"Run finished with status={final_status}")
+        run.status = final_status
+        run.result_json = json.dumps(result)
+        run.execution_logs = "\n".join(logs)
+        run.updated_at = datetime.now(timezone.utc)
+        session.add(run)
+        session.commit()
+        session.refresh(run)
+        return _serialize_run(run, action_name=action.name)
+
+
+@runs_router.get("")
+def list_action_runs(
+    entity_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    with Session(engine) as session:
+        q = select(EntityActionRun).order_by(EntityActionRun.created_at.desc())
+        if entity_id:
+            q = q.where(EntityActionRun.entity_id == entity_id)
+        rows = session.exec(q).all()
+        out = []
+        for r in rows:
+            action = session.get(EntityAction, r.action_id)
+            out.append(_serialize_run(r, action_name=action.name if action else None))
+        return out
+
+
+@runs_router.get("/{run_id}")
+def get_action_run(run_id: str, current_user: User = Depends(get_current_user)):
+    with Session(engine) as session:
+        row = session.get(EntityActionRun, run_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Run not found")
+        action = session.get(EntityAction, row.action_id)
+        return _serialize_run(row, action_name=action.name if action else None)

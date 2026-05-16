@@ -13,7 +13,10 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
+  Zap,
+  History,
 } from 'lucide-react'
+import * as LucideIcons from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -90,6 +93,15 @@ export default function CatalogPage() {
   const [scorecard, setScorecard] = useState(null)
   const [scorecardLoading, setScorecardLoading] = useState(false)
   const [scorecardEvaluating, setScorecardEvaluating] = useState(false)
+  const [drawerTab, setDrawerTab] = useState('overview')
+  const [entityActions, setEntityActions] = useState([])
+  const [actionsLoading, setActionsLoading] = useState(false)
+  const [actionRuns, setActionRuns] = useState([])
+  const [runsLoading, setRunsLoading] = useState(false)
+  const [confirmAction, setConfirmAction] = useState(null)
+  const [runMessage, setRunMessage] = useState(null)
+  const [runningActionId, setRunningActionId] = useState(null)
+  const [logsModal, setLogsModal] = useState(null)
 
   const loadScorecard = useCallback(
     async (entityId) => {
@@ -159,6 +171,92 @@ export default function CatalogPage() {
     const q = location.state?.catalogSearch
     if (typeof q === 'string' && q.trim()) setSearchQuery(q.trim())
   }, [location.state])
+
+  useEffect(() => {
+    const tab = new URLSearchParams(location.search).get('tab')
+    if (tab === 'runs') setDrawerTab('runs')
+  }, [location.search])
+
+  const loadEntityActions = useCallback(
+    async (entityId) => {
+      if (!entityId) return
+      setActionsLoading(true)
+      try {
+        const res = await authFetch(`/api/catalog/${encodeURIComponent(entityId)}/actions`)
+        if (!res.ok) throw new Error(await res.text())
+        setEntityActions(await res.json())
+      } catch (e) {
+        setError(e.message || 'Failed to load actions')
+        setEntityActions([])
+      } finally {
+        setActionsLoading(false)
+      }
+    },
+    [authFetch]
+  )
+
+  const loadActionRuns = useCallback(
+    async (entityId) => {
+      if (!entityId) return
+      setRunsLoading(true)
+      try {
+        const res = await authFetch(
+          `/api/entity-action-runs?entity_id=${encodeURIComponent(entityId)}`
+        )
+        if (!res.ok) throw new Error(await res.text())
+        setActionRuns(await res.json())
+      } catch (e) {
+        setError(e.message || 'Failed to load action runs')
+        setActionRuns([])
+      } finally {
+        setRunsLoading(false)
+      }
+    },
+    [authFetch]
+  )
+
+  useEffect(() => {
+    if (!selectedEntity?.id) {
+      setDrawerTab('overview')
+      setEntityActions([])
+      setActionRuns([])
+      return
+    }
+    const tab = new URLSearchParams(location.search).get('tab')
+    if (tab === 'runs') setDrawerTab('runs')
+  }, [selectedEntity?.id, location.search])
+
+  useEffect(() => {
+    if (!selectedEntity?.id) return
+    if (drawerTab === 'actions') void loadEntityActions(selectedEntity.id)
+    if (drawerTab === 'runs') void loadActionRuns(selectedEntity.id)
+  }, [selectedEntity?.id, drawerTab, loadEntityActions, loadActionRuns])
+
+  const runEntityAction = useCallback(
+    async (action) => {
+      if (!selectedEntity?.id || !action?.id) return
+      setRunningActionId(action.id)
+      setRunMessage(null)
+      setError(null)
+      try {
+        const res = await authFetch(
+          `/api/catalog/${encodeURIComponent(selectedEntity.id)}/actions/${encodeURIComponent(action.id)}/run`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+        )
+        if (!res.ok) throw new Error(await res.text())
+        const data = await res.json()
+        setRunMessage(data.result?.message || `Action ${data.status}`)
+        setConfirmAction(null)
+        if (drawerTab === 'runs') void loadActionRuns(selectedEntity.id)
+        if (action.slug === 're-eval-scorecard') void loadScorecard(selectedEntity.id)
+      } catch (e) {
+        setError(e.message || 'Action run failed')
+      } finally {
+        setRunningActionId(null)
+      }
+    },
+    [authFetch, selectedEntity, drawerTab, loadActionRuns, loadScorecard]
+  )
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -382,25 +480,68 @@ export default function CatalogPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-sm">
-              <DetailRow label="Kind" value={selectedEntity.kind} />
-              <DetailRow label="Lifecycle" value={selectedEntity.lifecycle} />
-              <DetailRow label="Owner team" value={selectedEntity.owner_team} />
-              <DetailRow label="Language" value={selectedEntity.language || '—'} />
-              <DetailRow label="Health" value={selectedEntity.health_status} />
-              <DetailRow label="Repository" value={selectedEntity.repo_url || '—'} link={selectedEntity.repo_url} />
-              <DetailRow label="Tags" value={tagsToDisplay(selectedEntity.tags) || '—'} />
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Description</p>
-                <p className="text-slate-300 whitespace-pre-wrap">{selectedEntity.description || '—'}</p>
-              </div>
-              <DetailRow label="Created" value={selectedEntity.created_at ? new Date(selectedEntity.created_at).toLocaleString() : '—'} />
-              <ScoreSection
-                scorecard={scorecard}
-                loading={scorecardLoading}
-                evaluating={scorecardEvaluating}
-                onReevaluate={() => void evaluateScorecard(selectedEntity.id)}
-              />
+            <div className="flex gap-1 px-3 border-b border-border shrink-0 overflow-x-auto">
+              {[
+                { id: 'overview', label: 'Overview' },
+                { id: 'scorecard', label: 'Scorecard' },
+                { id: 'actions', label: 'Actions' },
+                { id: 'runs', label: 'Runs' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setDrawerTab(tab.id)}
+                  className={`px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+                    drawerTab === tab.id
+                      ? 'border-blue-500 text-white'
+                      : 'border-transparent text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4 text-sm">
+              {drawerTab === 'overview' && (
+                <div className="space-y-4">
+                  <DetailRow label="Kind" value={selectedEntity.kind} />
+                  <DetailRow label="Lifecycle" value={selectedEntity.lifecycle} />
+                  <DetailRow label="Owner team" value={selectedEntity.owner_team} />
+                  <DetailRow label="Language" value={selectedEntity.language || '—'} />
+                  <DetailRow label="Health" value={selectedEntity.health_status} />
+                  <DetailRow label="Repository" value={selectedEntity.repo_url || '—'} link={selectedEntity.repo_url} />
+                  <DetailRow label="Tags" value={tagsToDisplay(selectedEntity.tags) || '—'} />
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Description</p>
+                    <p className="text-slate-300 whitespace-pre-wrap">{selectedEntity.description || '—'}</p>
+                  </div>
+                  <DetailRow label="Created" value={selectedEntity.created_at ? new Date(selectedEntity.created_at).toLocaleString() : '—'} />
+                </div>
+              )}
+
+              {drawerTab === 'scorecard' && (
+                <ScoreSection
+                  embedded
+                  scorecard={scorecard}
+                  loading={scorecardLoading}
+                  evaluating={scorecardEvaluating}
+                  onReevaluate={() => void evaluateScorecard(selectedEntity.id)}
+                />
+              )}
+
+              {drawerTab === 'actions' && (
+                <ActionsTab
+                  actions={entityActions}
+                  loading={actionsLoading}
+                  runningActionId={runningActionId}
+                  runMessage={runMessage}
+                  onRun={(action) => setConfirmAction(action)}
+                />
+              )}
+
+              {drawerTab === 'runs' && (
+                <RunsTab runs={actionRuns} loading={runsLoading} onViewLogs={setLogsModal} />
+              )}
             </div>
             <div className="px-5 py-4 border-t border-border flex gap-2">
               <button
@@ -421,6 +562,58 @@ export default function CatalogPage() {
               </button>
             </div>
           </aside>
+
+          {confirmAction && (
+            <div className="fixed inset-0 z-[95] flex items-center justify-center p-4 bg-black/70">
+              <div className="w-full max-w-sm rounded-xl border border-border bg-slate-950 p-5 shadow-2xl">
+                <h3 className="text-lg font-bold text-white mb-2">Confirm action</h3>
+                <p className="text-sm text-slate-400 mb-1">
+                  Run <span className="text-white font-medium">{confirmAction.name}</span> on{' '}
+                  <span className="text-white font-medium">{selectedEntity.name}</span>?
+                </p>
+                {confirmAction.requires_approval ? (
+                  <p className="text-xs text-amber-400 mb-4 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" /> This action requires approval
+                  </p>
+                ) : (
+                  <p className="mb-4" />
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmAction(null)}
+                    className="flex-1 py-2 rounded-lg border border-border text-slate-300 text-sm font-semibold hover:bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={runningActionId === confirmAction.id}
+                    onClick={() => void runEntityAction(confirmAction)}
+                    className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold disabled:opacity-50"
+                  >
+                    {runningActionId === confirmAction.id ? 'Running…' : 'Confirm'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {logsModal && (
+            <div className="fixed inset-0 z-[95] flex items-center justify-center p-4 bg-black/70">
+              <div className="w-full max-w-md rounded-xl border border-border bg-slate-950 p-5 shadow-2xl max-h-[70vh] flex flex-col">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-bold text-white">Execution logs</h3>
+                  <button type="button" onClick={() => setLogsModal(null)} className="text-slate-400 hover:text-white">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <pre className="flex-1 overflow-auto text-xs text-slate-300 bg-slate-900 rounded-lg p-3 border border-border whitespace-pre-wrap">
+                  {logsModal.execution_logs || 'No logs recorded.'}
+                </pre>
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -618,7 +811,148 @@ function CheckRow({ check }) {
   )
 }
 
-function ScoreSection({ scorecard, loading, evaluating, onReevaluate }) {
+function ActionIcon({ name, className }) {
+  const Icon = LucideIcons[name] || Zap
+  return <Icon className={className} />
+}
+
+function runStatusPill(status) {
+  if (status === 'completed') {
+    return (
+      <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+        completed
+      </span>
+    )
+  }
+  if (status === 'running') {
+    return (
+      <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30">
+        running
+      </span>
+    )
+  }
+  if (status === 'pending') {
+    return (
+      <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+        pending
+      </span>
+    )
+  }
+  if (status === 'failed') {
+    return (
+      <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-red-500/15 text-red-400 border border-red-500/30">
+        failed
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-700 text-slate-400">
+      {status || 'unknown'}
+    </span>
+  )
+}
+
+function ActionsTab({ actions, loading, runningActionId, runMessage, onRun }) {
+  if (loading) {
+    return (
+      <div className="flex justify-center py-12 text-slate-400 gap-2">
+        <Loader2 className="w-5 h-5 animate-spin" /> Loading actions…
+      </div>
+    )
+  }
+  if (!actions.length) {
+    return <p className="text-center text-slate-500 py-8">No actions available for this entity.</p>
+  }
+  return (
+    <div className="space-y-3">
+      {runMessage && (
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-200">
+          {runMessage}
+        </div>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {actions.map((action) => (
+          <div
+            key={action.id}
+            className="rounded-xl border border-border bg-slate-900/50 p-3 flex flex-col gap-2"
+          >
+            <div className="flex items-start gap-2">
+              <ActionIcon name={action.icon} className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="font-semibold text-white text-sm">{action.name}</p>
+                <p className="text-xs text-slate-500 line-clamp-2">{action.description || '—'}</p>
+              </div>
+            </div>
+            {action.requires_approval && (
+              <span className="text-[10px] font-semibold uppercase text-amber-400 bg-amber-500/10 border border-amber-500/25 px-1.5 py-0.5 rounded w-fit">
+                Requires approval
+              </span>
+            )}
+            <button
+              type="button"
+              disabled={runningActionId === action.id}
+              onClick={() => onRun(action)}
+              className="mt-auto w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold disabled:opacity-50"
+            >
+              {runningActionId === action.id ? 'Running…' : 'Run'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RunsTab({ runs, loading, onViewLogs }) {
+  if (loading) {
+    return (
+      <div className="flex justify-center py-12 text-slate-400 gap-2">
+        <Loader2 className="w-5 h-5 animate-spin" /> Loading runs…
+      </div>
+    )
+  }
+  if (!runs.length) {
+    return <p className="text-center text-slate-500 py-8">No action runs yet for this entity.</p>
+  }
+  return (
+    <div className="rounded-xl border border-border overflow-hidden">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border bg-slate-900/80 text-slate-500 uppercase tracking-wider">
+            <th className="px-3 py-2 text-left font-semibold">Action</th>
+            <th className="px-3 py-2 text-left font-semibold">Status</th>
+            <th className="px-3 py-2 text-left font-semibold">By</th>
+            <th className="px-3 py-2 text-left font-semibold">Started</th>
+            <th className="px-3 py-2 text-right font-semibold">Logs</th>
+          </tr>
+        </thead>
+        <tbody>
+          {runs.map((run) => (
+            <tr key={run.id} className="border-b border-border/60 hover:bg-slate-900/40">
+              <td className="px-3 py-2 text-white">{run.action_name || run.action_id}</td>
+              <td className="px-3 py-2">{runStatusPill(run.status)}</td>
+              <td className="px-3 py-2 text-slate-400">{run.requested_by}</td>
+              <td className="px-3 py-2 text-slate-400">
+                {run.created_at ? new Date(run.created_at).toLocaleString() : '—'}
+              </td>
+              <td className="px-3 py-2 text-right">
+                <button
+                  type="button"
+                  onClick={() => onViewLogs(run)}
+                  className="text-blue-400 hover:text-blue-300 font-semibold"
+                >
+                  Logs
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function ScoreSection({ scorecard, loading, evaluating, onReevaluate, embedded = false }) {
   const overall = scorecard?.overall_score ?? 0
   let grouped = scorecard?.by_category ?? []
   if (!grouped.length && scorecard?.checks?.length) {
@@ -632,7 +966,7 @@ function ScoreSection({ scorecard, loading, evaluating, onReevaluate }) {
   const hasChecks = (scorecard?.checks?.length ?? 0) > 0
 
   return (
-    <div className="pt-4 mt-4 border-t border-border">
+    <div className={embedded ? '' : 'pt-4 mt-4 border-t border-border'}>
       <div className="flex items-center justify-between mb-4">
         <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Scorecard</h4>
         <button

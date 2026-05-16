@@ -444,6 +444,9 @@ def create_db_and_tables():
         from .routers.standards import seed_production_readiness_standard
 
         seed_production_readiness_standard(session)
+        from .routers.entity_actions import seed_default_actions
+
+        seed_default_actions(session)
 
 
 def _seed_tools() -> None:

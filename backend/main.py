@@ -63,6 +63,7 @@ from .routers.ai_assistant import router as ai_router
 from .routers.catalog import router as catalog_router
 from .routers.scorecards import router as scorecards_router
 from .routers import standards as standards_module
+from .routers import entity_actions as entity_actions_module
 
 load_dotenv()
 
@@ -117,6 +118,10 @@ async def lifespan(app: FastAPI):
         Standard,
         StandardCheck,
     )
+    from .routers.entity_actions import (  # noqa: F401 — register table metadata
+        EntityAction,
+        EntityActionRun,
+    )
 
     SQLModel.metadata.create_all(db_engine_ref)
     seed_default_admin()
@@ -140,6 +145,9 @@ app.include_router(workspaces_router)
 app.include_router(templates_router)
 app.include_router(rbac_router)
 app.include_router(ai_router)
+app.include_router(entity_actions_module.catalog_router)
+app.include_router(entity_actions_module.runs_router)
+app.include_router(entity_actions_module.router)
 app.include_router(standards_module.catalog_router)
 app.include_router(standards_module.router)
 app.include_router(catalog_router)

@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   Home,
   Package,
+  History,
   GitBranch,
   AlertTriangle,
   Webhook,
@@ -105,11 +106,15 @@ export default function Sidebar({ user, onLogout }) {
             <nav className="flex flex-col gap-0.5">
               {group.items.map((item) => {
                 const Icon = item.icon
-                const active = location.pathname === item.path
+                const urlTab = new URLSearchParams(location.search).get('tab')
+                const active = item.search
+                  ? location.pathname === item.path && urlTab === 'runs'
+                  : location.pathname === item.path && urlTab !== 'runs'
+                const to = item.search ? { pathname: item.path, search: item.search } : item.path
                 return (
                   <NavLink
-                    key={item.path}
-                    to={item.path}
+                    key={`${item.path}${item.search || ''}-${item.label}`}
+                    to={to}
                     end={item.path === '/'}
                     title={collapsed ? item.label : undefined}
                     className={`flex items-center gap-3 py-2 rounded-lg mx-2 text-sm transition-colors ${
