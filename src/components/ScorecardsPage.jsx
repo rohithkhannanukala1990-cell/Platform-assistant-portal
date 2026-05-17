@@ -9,7 +9,9 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { API_BASE } from '../config/apiBase'
 
+const CATALOG_API = `${API_BASE}/api/catalog`
 const CATEGORIES = ['Documentation', 'Reliability', 'Security', 'Ownership']
 
 const KIND_BADGE = {
@@ -25,11 +27,12 @@ const FILTER_OPTIONS = [
   { value: 'passing', label: 'Passing (≥70)' },
   { value: 'warning', label: 'Warning (50–69)' },
   { value: 'failing', label: 'Failing (<50)' },
-  { value: 'none', label: 'Not Evaluated' },
+  { value: 'unevaluated', label: 'Not Evaluated' },
 ]
 
 function hasEvaluation(scorecard) {
-  return (scorecard?.checks?.length ?? 0) > 0
+  if (scorecard == null) return false
+  return (scorecard?.overall_score ?? 0) > 0 || (scorecard?.checks?.length ?? 0) > 0
 }
 
 function categoryScores(scorecard) {
@@ -50,25 +53,35 @@ function barColor(score) {
 }
 
 function ScoreRing({ score, size = 72 }) {
-  const radius = 28
-  const circ = 2 * Math.PI * radius
-  const pct = Math.min(100, Math.max(0, score)) / 100
+  const r = size * 0.39
+  const circ = 2 * Math.PI * r
+  const pct = Math.min(score / 100, 1)
   const color = score >= 80 ? '#22c55e' : score >= 50 ? '#f59e0b' : '#ef4444'
+  const cx = size / 2
+  const cy = size / 2
+  const strokeW = size * 0.083
   return (
-    <svg width={size} height={size} viewBox="0 0 72 72" className="shrink-0">
-      <circle cx="36" cy="36" r={radius} fill="none" stroke="#374151" strokeWidth="6" />
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0">
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#374151" strokeWidth={strokeW} />
       <circle
-        cx="36"
-        cy="36"
-        r={radius}
+        cx={cx}
+        cy={cy}
+        r={r}
         fill="none"
         stroke={color}
-        strokeWidth="6"
+        strokeWidth={strokeW}
         strokeDasharray={`${pct * circ} ${circ}`}
         strokeLinecap="round"
-        transform="rotate(-90 36 36)"
+        transform={`rotate(-90 ${cx} ${cy})`}
       />
-      <text x="36" y="41" textAnchor="middle" fontSize="14" fontWeight="bold" fill={color}>
+      <text
+        x={cx}
+        y={cy + size * 0.08}
+        textAnchor="middle"
+        fontSize={size * 0.2}
+        fontWeight="700"
+        fill={color}
+      >
         {score}
       </text>
     </svg>
@@ -113,12 +126,18 @@ function statusLabel(status) {
   return 'WARN'
 }
 
-function KpiCard({ label, value, border }) {
+function KpiCard({ label, value, border, active, onClick }) {
   return (
-    <div className={`rounded-2xl border ${border} bg-card px-5 py-4`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl border text-left w-full px-5 py-4 transition-colors bg-card hover:border-indigo-500/40 ${
+        active ? 'border-indigo-500/50 ring-1 ring-indigo-500/30' : border
+      }`}
+    >
       <p className="text-2xl font-bold text-white">{value}</p>
       <p className="text-xs text-slate-400 mt-1">{label}</p>
-    </div>
+    </button>
   )
 }
 
@@ -158,6 +177,7 @@ export default function ScorecardsPage() {
   const [error, setError] = useState(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
+  const [activeKpi, setActiveKpi] = useState(null)
   const [evaluatingId, setEvaluatingId] = useState(null)
   const [evaluateAllProgress, setEvaluateAllProgress] = useState(null)
   const [drawerEntity, setDrawerEntity] = useState(null)
@@ -181,23 +201,25 @@ export default function ScorecardsPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await authFetch('/api/catalog')
+      const res = await authFetch(CATALOG_API)
       if (!res.ok) throw new Error(await res.text())
       const list = await res.json()
       const entityList = Array.isArray(list) ? list : []
       setEntities(entityList)
 
-      const results = await Promise.all(
-        entityList.map(async (entity) => {
-          try {
-            const data = await fetchScorecard(entity.id)
-            return [entity.id, data]
-          } catch {
-            return [entity.id, { overall_score: 0, checks: [], by_category: [] }]
-          }
-        })
+      const settled = await Promise.allSettled(
+        entityList.map((entity) => fetchScorecard(entity.id))
       )
-      setCards(Object.fromEntries(results))
+      const cardMap = {}
+      entityList.forEach((entity, i) => {
+        const result = settled[i]
+        if (result.status === 'fulfilled') {
+          cardMap[entity.id] = result.value
+        } else {
+          cardMap[entity.id] = null
+        }
+      })
+      setCards(cardMap)
     } catch (e) {
       setError(e.message || 'Failed to load scorecards')
       setEntities([])
@@ -279,14 +301,18 @@ export default function ScorecardsPage() {
       const sc = cards[entity.id]
       const score = sc?.overall_score ?? 0
       const evaluated = hasEvaluation(sc)
-      if (filter === 'none') return !evaluated
-      if (!evaluated) return false
-      if (filter === 'passing') return score >= 70
-      if (filter === 'warning') return score >= 50 && score < 70
-      if (filter === 'failing') return score < 50
+      if (activeKpi === 'scored' && !evaluated) return false
+      if (activeKpi === 'passing' && !(evaluated && score >= 70)) return false
+      if (activeKpi === 'failing' && !(evaluated && score > 0 && score < 50)) return false
+
+      if (filter === 'unevaluated') return !evaluated
+      if (filter === 'passing') return evaluated && score >= 70
+      if (filter === 'warning') return evaluated && score >= 50 && score < 70
+      if (filter === 'failing') return evaluated && score > 0 && score < 50
+      if (filter !== 'all' && !evaluated) return false
       return true
     })
-  }, [entities, cards, search, filter])
+  }, [entities, cards, search, filter, activeKpi])
 
   const drawerScorecard = drawerEntity ? cards[drawerEntity.id] : null
   const drawerGrouped = useMemo(() => {
@@ -322,7 +348,7 @@ export default function ScorecardsPage() {
           {evaluateAllProgress ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Evaluating {evaluateAllProgress.done} of {evaluateAllProgress.total}…
+              Evaluating {evaluateAllProgress.done} of {evaluateAllProgress.total}...
             </>
           ) : (
             <>
@@ -347,10 +373,46 @@ export default function ScorecardsPage() {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard label="Total Entities Scored" value={kpis.totalScored} border="border-indigo-500/20" />
-        <KpiCard label="Avg Score" value={kpis.avg} border="border-sky-500/20" />
-        <KpiCard label="Passing" value={kpis.passing} border="border-emerald-500/20" />
-        <KpiCard label="Failing" value={kpis.failing} border="border-red-500/20" />
+        <KpiCard
+          label="Total Scored"
+          value={kpis.totalScored}
+          border="border-indigo-500/20"
+          active={activeKpi === 'scored'}
+          onClick={() => {
+            setActiveKpi('scored')
+            setFilter('all')
+          }}
+        />
+        <KpiCard
+          label="Avg Score"
+          value={kpis.avg}
+          border="border-sky-500/20"
+          active={activeKpi === null && filter === 'all'}
+          onClick={() => {
+            setActiveKpi(null)
+            setFilter('all')
+          }}
+        />
+        <KpiCard
+          label="Passing"
+          value={kpis.passing}
+          border="border-emerald-500/20"
+          active={activeKpi === 'passing'}
+          onClick={() => {
+            setActiveKpi('passing')
+            setFilter('passing')
+          }}
+        />
+        <KpiCard
+          label="Failing"
+          value={kpis.failing}
+          border="border-red-500/20"
+          active={activeKpi === 'failing'}
+          onClick={() => {
+            setActiveKpi('failing')
+            setFilter('failing')
+          }}
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -365,7 +427,10 @@ export default function ScorecardsPage() {
         </div>
         <select
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={(e) => {
+            setFilter(e.target.value)
+            setActiveKpi(null)
+          }}
           className="px-3 py-2 rounded-lg bg-slate-900 border border-border text-sm text-white"
         >
           {FILTER_OPTIONS.map((o) => (
@@ -478,7 +543,7 @@ export default function ScorecardsPage() {
             className="fixed inset-0 z-[70] bg-black/60"
             onClick={() => setDrawerEntity(null)}
           />
-          <aside className="fixed top-0 right-0 z-[80] h-full w-full max-w-md bg-slate-950 border-l border-border shadow-2xl flex flex-col overflow-hidden">
+          <aside className="fixed top-0 right-0 z-[80] h-full w-96 max-w-full bg-slate-950 border-l border-border shadow-2xl flex flex-col overflow-hidden">
             <div className="flex items-start justify-between px-5 py-4 border-b border-border gap-3">
               <div>
                 <h2 className="text-lg font-bold text-white">{drawerEntity.name}</h2>
@@ -506,6 +571,7 @@ export default function ScorecardsPage() {
                   {drawerGrouped.map(({ category, checks }) => (
                     <details
                       key={category}
+                      open={category === 'Documentation'}
                       className="rounded-xl border border-border bg-slate-900/50 overflow-hidden group"
                     >
                       <summary className="flex items-center justify-between cursor-pointer px-4 py-3 text-sm font-semibold text-slate-300 list-none">
