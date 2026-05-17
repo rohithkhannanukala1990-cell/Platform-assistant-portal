@@ -65,6 +65,7 @@ from .routers.scorecards import router as scorecards_router
 from .routers import standards as standards_module
 from .routers import entity_actions as entity_actions_module
 from .routers import golden_paths as golden_paths_module
+from .routers.reports import router as reports_router
 
 load_dotenv()
 
@@ -155,6 +156,7 @@ app.include_router(entity_actions_module.runs_router)
 app.include_router(entity_actions_module.router)
 app.include_router(golden_paths_module.runs_router)
 app.include_router(golden_paths_module.router)
+app.include_router(reports_router)
 app.include_router(standards_module.catalog_router)
 app.include_router(standards_module.router)
 app.include_router(catalog_router)

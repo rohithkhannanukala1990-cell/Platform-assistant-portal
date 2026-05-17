@@ -12,6 +12,7 @@ import DependencyGraph from './components/DependencyGraph'
 import StandardsPage from './components/StandardsPage'
 import EntityActionsPage from './components/EntityActionsPage'
 import GoldenPathsPage from './components/GoldenPathsPage'
+import ReportsPage from './components/ReportsPage'
 import DashboardView from './components/DashboardView'
 import TriageView from './components/TriageView'
 import InfraBuilderView from './components/InfraBuilderView'
@@ -148,6 +149,7 @@ function AuthenticatedRoutes() {
         <Route path="/standards" element={<PrivateRoute><StandardsPage /></PrivateRoute>} />
         <Route path="/entity-actions" element={<PrivateRoute><EntityActionsPage /></PrivateRoute>} />
         <Route path="/golden-paths" element={<PrivateRoute><GoldenPathsPage /></PrivateRoute>} />
+        <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
         <Route path="/dependency-graph" element={<PrivateRoute><DependencyGraph /></PrivateRoute>} />
 
         {/* Legacy / role portals — preserved */}

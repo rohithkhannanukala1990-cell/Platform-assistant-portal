@@ -11,6 +11,7 @@ import {
   Bot,
   Boxes,
   Workflow,
+  BarChart2,
   Database,
   Shield,
   Wrench,
@@ -32,6 +33,7 @@ const NAV_GROUPS = [
       { label: 'Entity Actions', path: '/entity-actions', icon: Play },
       { label: 'Golden Paths', path: '/golden-paths', icon: Workflow },
       { label: 'Dependency Map', path: '/dependency-graph', icon: GitBranch },
+      { label: 'Reports', path: '/reports', icon: BarChart2 },
     ],
   },
   {

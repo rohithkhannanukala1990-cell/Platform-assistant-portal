@@ -168,6 +168,13 @@ export default function CatalogPage() {
   }, [loadEntities])
 
   useEffect(() => {
+    const entityId = new URLSearchParams(location.search).get('entity')
+    if (!entityId || !entities.length) return
+    const match = entities.find((e) => e.id === entityId)
+    if (match) setSelectedEntity(match)
+  }, [location.search, entities])
+
+  useEffect(() => {
     const q = location.state?.catalogSearch
     if (typeof q === 'string' && q.trim()) setSearchQuery(q.trim())
   }, [location.state])
