@@ -1,8 +1,27 @@
 // src/hooks/usePortalWebSocket.js
 import { useEffect, useRef, useCallback, useState } from 'react'
+import { API_BASE } from '../config/apiBase'
 
 const MAX_RETRIES = 5
-const BASE_DELAY_MS = 1000
+const BASE_MS = 1000
+
+function buildPortalWsUrl(userId) {
+  const qs = `user_id=${encodeURIComponent(userId)}`
+  if (API_BASE) {
+    try {
+      const u = new URL(API_BASE.startsWith('http') ? API_BASE : `http://${API_BASE}`)
+      u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
+      u.pathname = '/ws/portal'
+      u.search = qs
+      u.hash = ''
+      return u.toString()
+    } catch {
+      /* fall through */
+    }
+  }
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  return `${proto}://${window.location.host}/ws/portal?${qs}`
+}
 
 export function usePortalWebSocket({ userId = 'anonymous', onMessage, onConnectedChange }) {
   const wsRef = useRef(null)
@@ -20,10 +39,7 @@ export function usePortalWebSocket({ userId = 'anonymous', onMessage, onConnecte
 
   const connect = useCallback(() => {
     if (unmountedRef.current) return
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const host = window.location.host
-    const url = `${proto}://${host}/ws/portal?user_id=${encodeURIComponent(userId)}`
-    const ws = new WebSocket(url)
+    const ws = new WebSocket(buildPortalWsUrl(userId))
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -31,12 +47,11 @@ export function usePortalWebSocket({ userId = 'anonymous', onMessage, onConnecte
       setConnectionState(true)
     }
 
-    ws.onmessage = (event) => {
+    ws.onmessage = (e) => {
       try {
-        const data = JSON.parse(event.data)
-        onMessage?.(data)
+        onMessage?.(JSON.parse(e.data))
       } catch {
-        // ignore malformed
+        /* ignore */
       }
     }
 
@@ -44,7 +59,7 @@ export function usePortalWebSocket({ userId = 'anonymous', onMessage, onConnecte
       setConnectionState(false)
       if (unmountedRef.current) return
       if (retriesRef.current < MAX_RETRIES) {
-        const delay = BASE_DELAY_MS * 2 ** retriesRef.current
+        const delay = BASE_MS * 2 ** retriesRef.current
         retriesRef.current += 1
         setTimeout(connect, delay)
       }
