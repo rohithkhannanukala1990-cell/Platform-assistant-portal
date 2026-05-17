@@ -30,6 +30,7 @@ const NAV_GROUPS = [
       { label: 'Catalog', path: '/catalog', icon: Package },
       { label: 'Standards', path: '/standards', icon: ShieldCheck },
       { label: 'Entity Actions', path: '/entity-actions', icon: Play },
+      { label: 'Golden Paths', path: '/golden-paths', icon: Workflow },
       { label: 'Dependency Map', path: '/dependency-graph', icon: GitBranch },
     ],
   },
