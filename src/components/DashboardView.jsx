@@ -152,6 +152,7 @@ function ChartCard({ title, icon: Icon, iconColor, children, className = '' }) {
 
 export default function DashboardView() {
   const { authFetch } = useAuth()
+  const navigate = useNavigate()
   const [data, setData]         = useState(null)
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState(null)
@@ -417,7 +418,14 @@ export default function DashboardView() {
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
             <Gauge size={15} className="text-violet-400" />
-            <h2 className="text-sm font-bold text-white">DORA Metrics</h2>
+            <button
+              type="button"
+              onClick={() => navigate('/dora')}
+              className="text-sm font-bold text-white hover:text-indigo-400 transition-colors flex items-center gap-1"
+            >
+              DORA Metrics
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
             <span className="text-[10px] text-slate-500 ml-1">— Engineering delivery performance</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

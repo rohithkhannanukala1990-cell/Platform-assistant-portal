@@ -37,6 +37,7 @@ import WorkspaceBuilder from './components/WorkspaceBuilder'
 import TemplateGallery from './components/TemplateGallery'
 import AccountImportView from './components/AccountImportView'
 import DeploymentsView from './components/DeploymentsView'
+import DORAPage from './components/DORAPage'
 
 const OPS_URL_VIEWS = new Set([
   'dashboard',
@@ -158,7 +159,7 @@ function AuthenticatedRoutes() {
 
         <Route path="/incidents" element={<PrivateRoute><TriageView /></PrivateRoute>} />
         <Route path="/alerts" element={<PrivateRoute><TriageView /></PrivateRoute>} />
-        <Route path="/dora" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dora" element={<PrivateRoute><DORAPage /></PrivateRoute>} />
         <Route path="/infra" element={<PrivateRoute><InfraBuilderView /></PrivateRoute>} />
         <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
         <Route path="/health" element={<PrivateRoute><HealthDashboard /></PrivateRoute>} />
