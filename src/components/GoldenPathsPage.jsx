@@ -9,6 +9,7 @@ import {
   Eye,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { usePortalWebSocket } from '../hooks/usePortalWebSocket'
 import { useRole } from '../contexts/RoleContext'
 import { parseConfigSchema, STATUS_COLORS } from './entityActionsShared'
 
@@ -124,7 +125,7 @@ function GoldenPathFormFields({ schema, formValues, onChange }) {
   )
 }
 
-function LaunchWizardModal({ template, onClose, onSuccess, authFetch }) {
+function LaunchWizardModal({ template, onClose, onSuccess, authFetch, onRunComplete, wizardRunStatus }) {
   const steps = useMemo(() => parseSteps(template), [template])
   const schema = useMemo(() => parseConfigSchema(template), [template])
   const [step, setStep] = useState(0)
@@ -144,6 +145,17 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch }) {
     setResult(null)
     setError(null)
   }, [template?.id, schema])
+
+  useEffect(() => {
+    if (!wizardRunStatus || step < 2) return
+    if (wizardRunStatus === 'done') {
+      setStep(3)
+      setLaunching(false)
+    } else if (wizardRunStatus === 'failed') {
+      setError('Golden path run failed')
+      setLaunching(false)
+    }
+  }, [wizardRunStatus, step])
 
   const handleFieldChange = (name, type, value) => {
     setFormValues((prev) => ({
@@ -178,6 +190,7 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch }) {
       const data = await res.json()
       setResult(data)
       setStep(3)
+      onRunComplete?.(data)
     } catch (e) {
       setError(e.message || 'Launch failed')
     } finally {
@@ -566,7 +579,7 @@ function TemplateCard({ template, onLaunch }) {
 }
 
 export default function GoldenPathsPage() {
-  const { authFetch } = useAuth()
+  const { authFetch, user } = useAuth()
   const { role } = useRole()
   const isAdmin = role === 'Admin'
 
@@ -583,6 +596,8 @@ export default function GoldenPathsPage() {
   const [selectedRun, setSelectedRun] = useState(null)
   const [showNewModal, setShowNewModal] = useState(false)
   const [toast, setToast] = useState(null)
+  const [activeRunId, setActiveRunId] = useState(null)
+  const [wizardRunStatus, setWizardRunStatus] = useState(null)
 
   const showToastMsg = useCallback((msg) => {
     setToast(msg)
@@ -620,6 +635,25 @@ export default function GoldenPathsPage() {
     void fetchTemplates()
     void fetchRuns()
   }, [fetchTemplates, fetchRuns])
+
+  usePortalWebSocket({
+    userId: user?.username || 'anonymous',
+    onMessage: useCallback(
+      (msg) => {
+        if (msg.type === 'golden_path_run_update') {
+          if (activeRunId != null && String(activeRunId) === String(msg.run_id)) {
+            setWizardRunStatus(msg.status === 'completed' ? 'done' : 'failed')
+          }
+          setRuns((prev) =>
+            prev.map((r) =>
+              String(r.id) === String(msg.run_id) ? { ...r, status: msg.status } : r
+            )
+          )
+        }
+      },
+      [activeRunId]
+    ),
+  })
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -825,9 +859,19 @@ export default function GoldenPathsPage() {
         <LaunchWizardModal
           template={launchingTemplate}
           authFetch={authFetch}
-          onClose={() => setLaunchingTemplate(null)}
+          wizardRunStatus={wizardRunStatus}
+          onRunComplete={(run) => {
+            if (run?.id != null) setActiveRunId(run.id)
+          }}
+          onClose={() => {
+            setLaunchingTemplate(null)
+            setActiveRunId(null)
+            setWizardRunStatus(null)
+          }}
           onSuccess={() => {
             setLaunchingTemplate(null)
+            setActiveRunId(null)
+            setWizardRunStatus(null)
             void fetchRuns()
             showToastMsg('Golden path completed')
           }}

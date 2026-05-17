@@ -557,6 +557,23 @@ async def run_golden_path(
         "golden_path_run_completed",
         f"run_id={run.id} template_id={template_id}",
     )
+
+    from ..ws_portal import broadcast_json
+
+    asyncio.create_task(
+        broadcast_json(
+            {
+                "type": "golden_path_run_update",
+                "run_id": str(run.id),
+                "template_id": str(run.template_id),
+                "status": run.status,
+                "timestamp": run.updated_at.isoformat()
+                if hasattr(run.updated_at, "isoformat")
+                else datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    )
+
     return _serialize_run(run)
 
 

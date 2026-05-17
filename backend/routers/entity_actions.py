@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -319,6 +320,22 @@ async def run_entity_action(
         session.add(run)
         session.commit()
         session.refresh(run)
+
+        from ..ws_portal import broadcast_json
+
+        asyncio.create_task(
+            broadcast_json(
+                {
+                    "type": "entity_action_run_update",
+                    "run_id": str(run.id),
+                    "action_id": str(run.action_id),
+                    "status": run.status,
+                    "entity_id": str(run.entity_id) if run.entity_id else None,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        )
+
         return _serialize_run(run, action_name=action.name)
 
 

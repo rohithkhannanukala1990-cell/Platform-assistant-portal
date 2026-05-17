@@ -7,6 +7,7 @@ import {
 import { useRole } from '../contexts/RoleContext'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
+import { usePortalWebSocket } from '../hooks/usePortalWebSocket'
 import { useToast } from './ToastNotification'
 import { API_BASE } from '../config/apiBase'
 
@@ -454,7 +455,7 @@ function ApprovalCard({ incident, onApprove, onReject }) {
 
 export default function AgentApprovalsWidget({ roleFilter = null }) {
   const { role } = useRole()
-  const { authFetch } = useAuth()
+  const { authFetch, user } = useAuth()
   const { refreshApprovals } = usePortalContext()
   const { showToast } = useToast()
   // roleFilter prop pins the widget to a specific role regardless of the active persona.
@@ -497,6 +498,19 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
     const t = setInterval(() => void fetchAll(), 10000)
     return () => clearInterval(t)
   }, [fetchAll])
+
+  usePortalWebSocket({
+    userId: user?.username || 'anonymous',
+    onMessage: useCallback(
+      (msg) => {
+        if (msg.type === 'approval_update') {
+          void fetchAll()
+          void refreshApprovals()
+        }
+      },
+      [fetchAll, refreshApprovals]
+    ),
+  })
 
   function removeIncident(id) {
     setIncidents((prev) => prev.filter((i) => i.id !== id))

@@ -7,6 +7,7 @@ import {
   Eye,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { usePortalWebSocket } from '../hooks/usePortalWebSocket'
 import {
   RunActionModal,
   LogsDrawer,
@@ -58,7 +59,7 @@ function ActionCard({ action, onRun }) {
 }
 
 export default function EntityActionsPage() {
-  const { authFetch } = useAuth()
+  const { authFetch, user } = useAuth()
   const [actions, setActions] = useState([])
   const [runs, setRuns] = useState([])
   const [loading, setLoading] = useState(true)
@@ -109,6 +110,17 @@ export default function EntityActionsPage() {
     void fetchActions()
     void fetchRuns()
   }, [fetchActions, fetchRuns])
+
+  usePortalWebSocket({
+    userId: user?.username || 'anonymous',
+    onMessage: useCallback((msg) => {
+      if (msg.type === 'entity_action_run_update') {
+        setRuns((prev) =>
+          prev.map((r) => (r.id === msg.run_id ? { ...r, status: msg.status } : r))
+        )
+      }
+    }, []),
+  })
 
   const handleRefresh = async () => {
     setRefreshing(true)

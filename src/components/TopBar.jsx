@@ -1,10 +1,26 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, ChevronRight, Zap, Shield } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import PersonaSwitcher from './PersonaSwitcher'
 import NotificationDropdown from './NotificationDropdown'
+import { usePortalWebSocket } from '../hooks/usePortalWebSocket'
+
+function WsIndicator({ connected }) {
+  return (
+    <div className="relative group cursor-default">
+      <span
+        className={`inline-block w-2 h-2 rounded-full ${
+          connected ? 'bg-green-400' : 'bg-yellow-400 animate-pulse'
+        }`}
+      />
+      <span className="absolute right-0 top-5 hidden group-hover:block bg-gray-800 text-xs text-white px-2 py-1 rounded whitespace-nowrap z-50 border border-gray-700">
+        {connected ? 'Real-time updates active' : 'Reconnecting...'}
+      </span>
+    </div>
+  )
+}
 
 const SEGMENT_LABELS = {
   dashboard: 'Dashboard',
@@ -59,6 +75,11 @@ export default function TopBar({ user }) {
   const { pendingApprovalCount } = usePortalContext()
   const [aiProvider, setAiProvider] = useState('ollama')
   const [unreadCount, setUnreadCount] = useState(0)
+
+  const { connected: wsConnected } = usePortalWebSocket({
+    userId: user?.username || 'anonymous',
+    onMessage: useCallback(() => {}, []),
+  })
   const breadcrumbs = useMemo(() => {
     const parts = location.pathname.split('/').filter(Boolean)
     if (parts.length === 0) return [{ label: 'Dashboard', path: '/dashboard' }]
@@ -191,6 +212,7 @@ export default function TopBar({ user }) {
         </div>
 
         <div className="flex items-center gap-2 pl-1 border-l border-neutral-800">
+          <WsIndicator connected={wsConnected} />
           <div className="w-8 h-8 rounded-full bg-indigo-700 flex items-center justify-center text-sm font-bold text-white">
             {userInitial(user)}
           </div>

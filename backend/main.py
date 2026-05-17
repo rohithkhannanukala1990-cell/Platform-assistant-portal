@@ -19,7 +19,7 @@ import ollama
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends, WebSocket, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, UploadFile, File, Query
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -899,6 +899,20 @@ async def approve_incident(request: Request, incident_id: int, body: ApprovalReq
     # Fire mock ServiceNow ticket-close webhook (fire-and-forget)
     asyncio.create_task(_close_servicenow_ticket(incident_id))
 
+    from .ws_portal import broadcast_json
+
+    asyncio.create_task(
+        broadcast_json(
+            {
+                "type": "approval_update",
+                "incident_id": str(incident_id),
+                "action": "approved",
+                "approved_by": current_user.username,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    )
+
     return updated
 
 
@@ -937,6 +951,21 @@ async def reject_incident(request: Request, incident_id: int, current_user: User
         type="warning",
         incident_id=incident_id,
     )
+
+    from .ws_portal import broadcast_json
+
+    asyncio.create_task(
+        broadcast_json(
+            {
+                "type": "approval_update",
+                "incident_id": str(incident_id),
+                "action": "rejected",
+                "approved_by": current_user.username,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    )
+
     return updated
 
 
@@ -1768,10 +1797,13 @@ async def api_health_summary():
 
 
 @app.websocket("/ws/portal")
-async def portal_websocket_route(websocket: WebSocket):
+async def portal_ws(
+    websocket: WebSocket,
+    user_id: str = Query(default="anonymous"),
+):
     from .ws_portal import accept_portal_connection
 
-    await accept_portal_connection(websocket)
+    await accept_portal_connection(websocket, user_id=user_id)
 
 
 # ── Admin health dashboard API ────────────────────────────────────────────────
