@@ -11,6 +11,33 @@ import {
 } from 'lucide-react'
 import { API_BASE } from '../config/apiBase'
 
+const ALL_COMMANDS = [
+  { label: 'Dashboard', path: '/dashboard', category: 'Navigation' },
+  { label: 'Catalog', path: '/catalog', category: 'IDP Platform' },
+  { label: 'Dependency Graph', path: '/dependency-graph', category: 'IDP Platform' },
+  { label: 'Scorecards', path: '/scorecards', category: 'IDP Platform' },
+  { label: 'Standards', path: '/standards', category: 'IDP Platform' },
+  { label: 'Entity Actions', path: '/entity-actions', category: 'IDP Platform' },
+  { label: 'Golden Paths', path: '/golden-paths', category: 'IDP Platform' },
+  { label: 'Template Gallery', path: '/template-gallery', category: 'IDP Platform' },
+  { label: 'Reports', path: '/reports', category: 'Reports' },
+  { label: 'DORA Metrics', path: '/dora', category: 'Reports' },
+  { label: 'Health Dashboard', path: '/health', category: 'Ops' },
+  { label: 'Alert Triage', path: '/alerts', category: 'Ops' },
+  { label: 'Incidents', path: '/incidents', category: 'Ops' },
+  { label: 'Agent Approvals', path: '/approvals', category: 'Ops' },
+  { label: 'RBAC Manager', path: '/rbac', category: 'Admin' },
+  { label: 'Tool Registry', path: '/tool-registry', category: 'Admin' },
+  { label: 'Account Import', path: '/account-import', category: 'Admin' },
+  { label: 'Workspaces', path: '/workspaces', category: 'Admin' },
+  { label: 'Integrations', path: '/integrations', category: 'Admin' },
+  { label: 'Settings', path: '/settings', category: 'Admin' },
+  { label: 'AI Assistant', path: '/ai-assistant', category: 'AI' },
+  { label: 'CI/CD Pipelines', path: '/cicd', category: 'DevTools' },
+  { label: 'Deployments', path: '/deployments', category: 'DevTools' },
+  { label: 'Runbooks', path: '/runbooks', category: 'DevTools' },
+]
+
 const TYPE_ORDER = ['Catalog', 'Incident', 'Tool', 'Infra', 'CI/CD']
 
 const TYPE_BADGE = {
@@ -28,12 +55,26 @@ const NAV_URL_MAP = {
   '/entity-actions': '/entity-actions',
   '/golden-paths': '/golden-paths',
   '/reports': '/reports',
+  '/scorecards': '/scorecards',
+  '/dependency-graph': '/dependency-graph',
+  '/template-gallery': '/template-gallery',
   '/deployments': '/deployments',
   '/tool-registry': '/tool-registry',
   '/tools': '/tool-registry',
   '/incidents': '/incidents',
-  '/infra': '/infra',
+  '/alerts': '/alerts',
+  '/health': '/health',
+  '/approvals': '/approvals',
+  '/rbac': '/rbac',
+  '/workspaces': '/workspaces',
+  '/account-import': '/account-import',
+  '/ai-assistant': '/ai-assistant',
   '/cicd': '/cicd',
+  '/runbooks': '/runbooks',
+  '/integrations': '/integrations',
+  '/settings': '/settings',
+  '/dora': '/dora',
+  '/infra': '/infra',
 }
 
 function resolveNavUrl(url) {
@@ -59,6 +100,15 @@ function groupResults(results) {
     if (!seen.has(type)) groups.push({ type, items })
   }
   return groups
+}
+
+function groupNavCommands(commands) {
+  const byCategory = {}
+  for (const cmd of commands) {
+    if (!byCategory[cmd.category]) byCategory[cmd.category] = []
+    byCategory[cmd.category].push(cmd)
+  }
+  return Object.entries(byCategory).map(([category, items]) => ({ category, items }))
 }
 
 function TypeIcon({ type }) {
@@ -91,13 +141,29 @@ export default function CommandPalette() {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [loading, setLoading] = useState(false)
 
+  const q = query.trim().toLowerCase()
+  const filteredNav = useMemo(() => {
+    if (!q) return ALL_COMMANDS
+    return ALL_COMMANDS.filter(
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.path.toLowerCase().includes(q) ||
+        c.category.toLowerCase().includes(q)
+    )
+  }, [q])
+
+  const navGroups = useMemo(() => groupNavCommands(filteredNav), [filteredNav])
   const grouped = useMemo(() => groupResults(results), [results])
-  const flatResults = useMemo(() => grouped.flatMap((g) => g.items), [grouped])
+  const flatNav = useMemo(() => navGroups.flatMap((g) => g.items), [navGroups])
+  const flatSearch = useMemo(() => grouped.flatMap((g) => g.items), [grouped])
+  const useSearchMode = q.length >= 2
+  const flatResults = useSearchMode ? [...flatNav, ...flatSearch] : flatNav
 
   const openResult = useCallback(
     (item) => {
-      if (!item?.url) return
-      navigate(resolveNavUrl(item.url))
+      const url = item?.url ?? item?.path
+      if (!url) return
+      navigate(resolveNavUrl(url))
       setOpen(false)
       setQuery('')
       setResults([])
@@ -155,16 +221,10 @@ export default function CommandPalette() {
   }, [open])
 
   useEffect(() => {
-    if (!query.trim()) {
+    setSelectedIndex(0)
+    if (!useSearchMode) {
       setResults([])
-      setSelectedIndex(0)
       setLoading(false)
-      return undefined
-    }
-
-    if (query.trim().length < 2) {
-      setResults([])
-      setSelectedIndex(0)
       return undefined
     }
 
@@ -176,7 +236,7 @@ export default function CommandPalette() {
         const headers = {}
         if (token) headers.Authorization = `Bearer ${token}`
         const res = await fetch(
-          `${API_BASE}/api/search?q=${encodeURIComponent(query.trim())}&limit=20`,
+          `${API_BASE}/api/search?q=${encodeURIComponent(q)}&limit=20`,
           { headers, signal: controller.signal }
         )
         if (!res.ok) throw new Error(await res.text())
@@ -194,7 +254,7 @@ export default function CommandPalette() {
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [query])
+  }, [query, useSearchMode, q])
 
   if (!open) return null
 
@@ -220,7 +280,7 @@ export default function CommandPalette() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search anything..."
+            placeholder="Search pages or anything..."
             className="flex-1 bg-transparent text-white placeholder:text-gray-500 outline-none text-sm"
             autoFocus
           />
@@ -228,42 +288,100 @@ export default function CommandPalette() {
         </div>
 
         <div className="max-h-[min(50vh,360px)] overflow-y-auto py-2">
-          {query.trim().length >= 2 && !loading && results.length === 0 && (
+          {!useSearchMode && filteredNav.length === 0 && (
+            <p className="px-4 py-6 text-sm text-gray-500 text-center">No matching pages</p>
+          )}
+
+          {!useSearchMode &&
+            navGroups.map(({ category, items }) => (
+              <div key={category} className="mb-1">
+                <p className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  {category}
+                </p>
+                {items.map((item) => {
+                  const idx = flatIdx
+                  flatIdx += 1
+                  const selected = idx === selectedIndex
+                  return (
+                    <button
+                      key={`nav-${item.path}`}
+                      type="button"
+                      onClick={() => openResult(item)}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                      className={`w-full flex items-center gap-3 px-4 py-2 text-left text-sm transition-colors ${
+                        selected ? 'bg-gray-800' : 'hover:bg-gray-800/60'
+                      }`}
+                    >
+                      <span className="flex-1 min-w-0 font-medium text-white truncate">{item.label}</span>
+                      <span className="text-gray-500 text-xs shrink-0">{item.path}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+
+          {useSearchMode && !loading && results.length === 0 && filteredNav.length === 0 && (
             <p className="px-4 py-6 text-sm text-gray-500 text-center">
               No results for &ldquo;{query.trim()}&rdquo;
             </p>
           )}
 
-          {query.trim().length < 2 && (
-            <p className="px-4 py-6 text-sm text-gray-500 text-center">Type at least 2 characters to search</p>
-          )}
+          {useSearchMode &&
+            filteredNav.length > 0 &&
+            navGroups.map(({ category, items }) => (
+              <div key={`nav-${category}`} className="mb-1">
+                <p className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  {category}
+                </p>
+                {items.map((item) => {
+                  const idx = flatIdx
+                  flatIdx += 1
+                  const selected = idx === selectedIndex
+                  return (
+                    <button
+                      key={`nav-${item.path}`}
+                      type="button"
+                      onClick={() => openResult(item)}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                      className={`w-full flex items-center gap-3 px-4 py-2 text-left text-sm transition-colors ${
+                        selected ? 'bg-gray-800' : 'hover:bg-gray-800/60'
+                      }`}
+                    >
+                      <span className="flex-1 min-w-0 font-medium text-white truncate">{item.label}</span>
+                      <span className="text-gray-500 text-xs shrink-0">{item.path}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
 
-          {grouped.map(({ type, items }) => (
-            <div key={type} className="mb-1">
-              <p className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">{type}</p>
-              {items.map((item) => {
-                const idx = flatIdx
-                flatIdx += 1
-                const selected = idx === selectedIndex
-                return (
-                  <button
-                    key={`${item.type}-${item.id}-${idx}`}
-                    type="button"
-                    onClick={() => openResult(item)}
-                    onMouseEnter={() => setSelectedIndex(idx)}
-                    className={`w-full flex items-center gap-3 px-4 py-2 text-left text-sm transition-colors ${
-                      selected ? 'bg-gray-800' : 'hover:bg-gray-800/60'
-                    }`}
-                  >
-                    <TypeBadge type={item.type} />
-                    <TypeIcon type={item.type} />
-                    <span className="flex-1 min-w-0 font-medium text-white truncate">{item.title}</span>
-                    <span className="text-gray-500 truncate max-w-[45%] text-xs">{item.subtitle}</span>
-                  </button>
-                )
-              })}
-            </div>
-          ))}
+          {useSearchMode &&
+            grouped.map(({ type, items }) => (
+              <div key={type} className="mb-1">
+                <p className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">{type}</p>
+                {items.map((item) => {
+                  const idx = flatIdx
+                  flatIdx += 1
+                  const selected = idx === selectedIndex
+                  return (
+                    <button
+                      key={`${item.type}-${item.id}-${idx}`}
+                      type="button"
+                      onClick={() => openResult(item)}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                      className={`w-full flex items-center gap-3 px-4 py-2 text-left text-sm transition-colors ${
+                        selected ? 'bg-gray-800' : 'hover:bg-gray-800/60'
+                      }`}
+                    >
+                      <TypeBadge type={item.type} />
+                      <TypeIcon type={item.type} />
+                      <span className="flex-1 min-w-0 font-medium text-white truncate">{item.title}</span>
+                      <span className="text-gray-500 truncate max-w-[45%] text-xs">{item.subtitle}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
         </div>
 
         <div className="px-4 py-2 border-t border-gray-700 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">

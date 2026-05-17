@@ -157,6 +157,8 @@ function AuthenticatedRoutes() {
         <Route path="/deployments" element={<PrivateRoute><DeploymentsView /></PrivateRoute>} />
 
         <Route path="/incidents" element={<PrivateRoute><TriageView /></PrivateRoute>} />
+        <Route path="/alerts" element={<PrivateRoute><TriageView /></PrivateRoute>} />
+        <Route path="/dora" element={<Navigate to="/dashboard" replace />} />
         <Route path="/infra" element={<PrivateRoute><InfraBuilderView /></PrivateRoute>} />
         <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
         <Route path="/health" element={<PrivateRoute><HealthDashboard /></PrivateRoute>} />
@@ -173,7 +175,9 @@ function AuthenticatedRoutes() {
         <Route path="/storage" element={<PrivateRoute><StorageView /></PrivateRoute>} />
         <Route path="/runbooks" element={<PrivateRoute><RunbooksView /></PrivateRoute>} />
         <Route path="/templates" element={<PrivateRoute><TemplateGallery /></PrivateRoute>} />
+        <Route path="/template-gallery" element={<PrivateRoute><TemplateGallery /></PrivateRoute>} />
         <Route path="/import" element={<PrivateRoute><AccountImportView /></PrivateRoute>} />
+        <Route path="/account-import" element={<PrivateRoute><AccountImportView /></PrivateRoute>} />
         <Route path="/notifications" element={<PrivateRoute><HistoryPanel /></PrivateRoute>} />
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

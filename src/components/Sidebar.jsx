@@ -2,62 +2,127 @@ import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
-  Package,
-  ClipboardCheck,
-  GitBranch,
+  Bell,
+  AlertTriangle,
+  HeartPulse,
+  CheckSquare,
   BookOpen,
-  Workflow,
+  GitFork,
+  ClipboardCheck,
   ShieldCheck,
-  Play,
-  Briefcase,
-  Plug,
-  Rocket,
-  Cog,
-  Bot,
+  Zap,
+  Route,
+  Layout,
   BarChart2,
-  Shield,
+  TrendingUp,
+  GitBranch,
+  Rocket,
+  BookMarked,
+  Server,
+  Users,
   Wrench,
+  Download,
+  Grid,
+  Plug,
+  Settings,
+  Sparkles,
   LogOut,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
 } from 'lucide-react'
 import { useRole } from '../contexts/RoleContext'
+import { useAuth } from '../contexts/AuthContext'
+
+const ICON_MAP = {
+  LayoutDashboard,
+  Bell,
+  AlertTriangle,
+  HeartPulse,
+  CheckSquare,
+  BookOpen,
+  GitFork,
+  ClipboardCheck,
+  ShieldCheck,
+  Zap,
+  Route,
+  Layout,
+  BarChart2,
+  TrendingUp,
+  GitBranch,
+  Rocket,
+  BookMarked,
+  Server,
+  Users,
+  Wrench,
+  Download,
+  Grid,
+  Plug,
+  Settings,
+  Sparkles,
+}
 
 const NAV_GROUPS = [
   {
-    label: 'DEVELOPER TOOLS',
+    name: 'Ops & Incidents',
+    defaultOpen: true,
     items: [
-      { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-      { label: 'Catalog', path: '/catalog', icon: Package },
-      { label: 'Scorecards', path: '/scorecards', icon: ClipboardCheck },
-      { label: 'Dependency Graph', path: '/dependency-graph', icon: GitBranch },
-      { label: 'Templates', path: '/templates', icon: BookOpen },
-      { label: 'Golden Paths', path: '/golden-paths', icon: Workflow },
+      { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard' },
+      { label: 'Alert Triage', path: '/alerts', icon: 'Bell' },
+      { label: 'Incidents', path: '/incidents', icon: 'AlertTriangle' },
+      { label: 'Health', path: '/health', icon: 'HeartPulse' },
+      { label: 'Approvals', path: '/approvals', icon: 'CheckSquare' },
     ],
   },
   {
-    label: 'PLATFORM',
+    name: 'IDP Platform',
+    defaultOpen: true,
     items: [
-      { label: 'Standards', path: '/standards', icon: ShieldCheck },
-      { label: 'Entity Actions', path: '/entity-actions', icon: Play },
-      { label: 'Workspaces', path: '/workspaces', icon: Briefcase },
-      { label: 'Integrations', path: '/integrations', icon: Plug },
+      { label: 'Catalog', path: '/catalog', icon: 'BookOpen' },
+      { label: 'Dependency Graph', path: '/dependency-graph', icon: 'GitFork' },
+      { label: 'Scorecards', path: '/scorecards', icon: 'ClipboardCheck' },
+      { label: 'Standards', path: '/standards', icon: 'ShieldCheck' },
+      { label: 'Entity Actions', path: '/entity-actions', icon: 'Zap' },
+      { label: 'Golden Paths', path: '/golden-paths', icon: 'Route' },
+      { label: 'Template Gallery', path: '/template-gallery', icon: 'Layout' },
     ],
   },
   {
-    label: 'OPERATIONS',
+    name: 'Engineering Reports',
+    defaultOpen: false,
     items: [
-      { label: 'CI/CD', path: '/cicd', icon: Cog },
-      { label: 'Deployments', path: '/deployments', icon: Rocket },
-      { label: 'AI Assistant', path: '/ai-assistant', icon: Bot },
+      { label: 'Reports', path: '/reports', icon: 'BarChart2' },
+      { label: 'DORA Metrics', path: '/dora', icon: 'TrendingUp' },
     ],
   },
   {
-    label: 'ADMIN',
+    name: 'Developer Tools',
+    defaultOpen: false,
     items: [
-      { label: 'Reports', path: '/reports', icon: BarChart2 },
-      { label: 'RBAC Manager', path: '/rbac', icon: Shield },
-      { label: 'Tool Registry', path: '/tool-registry', icon: Wrench },
+      { label: 'CI/CD Pipelines', path: '/cicd', icon: 'GitBranch' },
+      { label: 'Deployments', path: '/deployments', icon: 'Rocket' },
+      { label: 'Runbooks', path: '/runbooks', icon: 'BookMarked' },
+      { label: 'Infra Builder', path: '/infra', icon: 'Server' },
+    ],
+  },
+  {
+    name: 'Administration',
+    defaultOpen: false,
+    adminOnly: true,
+    items: [
+      { label: 'RBAC Manager', path: '/rbac', icon: 'Users' },
+      { label: 'Tool Registry', path: '/tool-registry', icon: 'Wrench' },
+      { label: 'Account Import', path: '/account-import', icon: 'Download' },
+      { label: 'Workspaces', path: '/workspaces', icon: 'Grid' },
+      { label: 'Integrations', path: '/integrations', icon: 'Plug' },
+      { label: 'Settings', path: '/settings', icon: 'Settings' },
+    ],
+  },
+  {
+    name: 'AI',
+    defaultOpen: true,
+    items: [
+      { label: 'AI Assistant', path: '/ai-assistant', icon: 'Sparkles' },
     ],
   },
 ]
@@ -77,12 +142,21 @@ function isActivePath(pathname, itemPath) {
 export default function Sidebar({ user, onLogout }) {
   const location = useLocation()
   const { role } = useRole()
+  const { role: jwtRole } = useAuth()
+  const isAdmin = (jwtRole ?? user?.role) === 'Admin'
+
   const [collapsed, setCollapsed] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   )
   const [narrow, setNarrow] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   )
+  const [openGroups, setOpenGroups] = useState(() =>
+    Object.fromEntries(NAV_GROUPS.map((g) => [g.name, g.defaultOpen]))
+  )
+
+  const toggleGroup = (name) =>
+    setOpenGroups((prev) => ({ ...prev, [name]: !prev[name] }))
 
   useEffect(() => {
     const onResize = () => {
@@ -96,6 +170,27 @@ export default function Sidebar({ user, onLogout }) {
 
   const widthClass = collapsed ? (narrow ? 'w-0 border-r-0' : 'w-14') : 'w-60'
   const hiddenOnNarrow = collapsed && narrow
+
+  function NavItem({ label, path, icon }) {
+    const Icon = ICON_MAP[icon] || LayoutDashboard
+    const active = isActivePath(location.pathname, path)
+    return (
+      <NavLink
+        to={path}
+        title={collapsed ? label : undefined}
+        className={`flex items-center gap-3 py-2 rounded-lg mx-2 text-sm transition-colors ${
+          collapsed && !narrow ? 'justify-center px-2' : 'px-3'
+        } ${
+          active
+            ? 'bg-indigo-600 text-white font-medium'
+            : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
+        }`}
+      >
+        <Icon className="w-4 h-4 shrink-0" strokeWidth={2} />
+        {!collapsed && <span className="truncate">{label}</span>}
+      </NavLink>
+    )
+  }
 
   return (
     <aside
@@ -117,38 +212,43 @@ export default function Sidebar({ user, onLogout }) {
           collapsed && !narrow ? 'px-1' : ''
         } ${hiddenOnNarrow ? 'invisible' : ''}`}
       >
-        {NAV_GROUPS.map((group) => (
-          <div key={group.label} className="mb-1">
-            {!collapsed && (
-              <p className="text-[10px] uppercase tracking-widest text-neutral-500 px-3 mb-1 mt-4 first:mt-2">
-                {group.label}
-              </p>
-            )}
-            <nav className="flex flex-col gap-0.5">
-              {group.items.map((item) => {
-                const Icon = item.icon
-                const active = isActivePath(location.pathname, item.path)
-                return (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    title={collapsed ? item.label : undefined}
-                    className={`flex items-center gap-3 py-2 rounded-lg mx-2 text-sm transition-colors ${
-                      collapsed && !narrow ? 'justify-center px-2' : 'px-3'
-                    } ${
-                      active
-                        ? 'bg-indigo-600 text-white font-medium'
-                        : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 shrink-0" strokeWidth={2} />
-                    {!collapsed && <span className="truncate">{item.label}</span>}
-                  </NavLink>
-                )
-              })}
-            </nav>
-          </div>
-        ))}
+        {NAV_GROUPS.map((group) => {
+          if (group.adminOnly && !isAdmin) return null
+
+          if (collapsed && !narrow) {
+            return (
+              <nav key={group.name} className="flex flex-col gap-0.5 mb-1">
+                {group.items.map((item) => (
+                  <NavItem key={item.path} {...item} />
+                ))}
+              </nav>
+            )
+          }
+
+          return (
+            <div key={group.name} className="mb-1">
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.name)}
+                className="flex items-center justify-between w-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-neutral-500 hover:text-neutral-300 transition-colors mt-2"
+              >
+                <span>{group.name}</span>
+                <ChevronDown
+                  className={`w-3 h-3 transition-transform duration-200 ${
+                    openGroups[group.name] ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+              {openGroups[group.name] && (
+                <div className="flex flex-col gap-0.5">
+                  {group.items.map((item) => (
+                    <NavItem key={item.path} {...item} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       <div

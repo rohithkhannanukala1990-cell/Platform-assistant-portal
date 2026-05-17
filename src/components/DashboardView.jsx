@@ -12,6 +12,7 @@ import {
   Clock, Wifi, ScanEye, Loader2, CheckCircle2, X,
   Gauge, ArrowUpRight, ArrowDownRight, Minus,
   Package, ShieldCheck, Workflow, Play, BarChart2,
+  BookOpen, Zap,
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
 import { useAuth } from '../contexts/AuthContext'
@@ -156,6 +157,9 @@ export default function DashboardView() {
   const [error, setError]       = useState(null)
   const [lastFetch, setLastFetch] = useState(null)
   const [platform, setPlatform] = useState(null)
+  const [catalogStats, setCatalogStats] = useState(null)
+  const [standardsStats, setStandardsStats] = useState(null)
+  const [openActionsCount, setOpenActionsCount] = useState(0)
 
   // DORA metrics state
   const [dora, setDora] = useState(null)
@@ -229,6 +233,34 @@ export default function DashboardView() {
 
   useEffect(() => { fetchAnalytics() }, [])
 
+  useEffect(() => {
+    async function loadPortalKpis() {
+      try {
+        const catRes = await authFetch(`${REPORTS_API}/catalog-overview`)
+        if (catRes.ok) setCatalogStats(await catRes.json())
+      } catch {
+        /* optional */
+      }
+      try {
+        const stdRes = await authFetch(`${REPORTS_API}/standards-overview`)
+        if (stdRes.ok) setStandardsStats(await stdRes.json())
+      } catch {
+        /* optional */
+      }
+      try {
+        const runsRes = await authFetch(`${API_BASE}/api/entity-action-runs`)
+        if (runsRes.ok) {
+          const d = await runsRes.json()
+          const runs = d.runs || d || []
+          setOpenActionsCount(runs.filter((r) => r.status === 'pending').length)
+        }
+      } catch {
+        /* optional */
+      }
+    }
+    loadPortalKpis()
+  }, [authFetch])
+
   if (loading && !data) {
     return (
       <div className="flex items-center justify-center h-64 gap-3 text-slate-500">
@@ -281,6 +313,41 @@ export default function DashboardView() {
             Refresh
           </button>
         </div>
+      </div>
+
+      {/* ── IDP portal KPIs (Sprint 10) ───────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <NavStatCard
+          to="/catalog"
+          icon={BookOpen}
+          iconBg="bg-indigo-500/15 text-indigo-400"
+          label="Catalog Entities"
+          value={catalogStats?.total_entities ?? '—'}
+          sub={`${catalogStats?.missing_owner ?? 0} missing owner`}
+          border="border-indigo-500/20"
+        />
+        <NavStatCard
+          to="/standards"
+          icon={ShieldCheck}
+          iconBg="bg-emerald-500/15 text-emerald-400"
+          label="Standards Compliance"
+          value={
+            standardsStats?.total_evaluated
+              ? `${Math.round((standardsStats.passed / standardsStats.total_evaluated) * 100)}%`
+              : '—'
+          }
+          sub={`${standardsStats?.passed ?? 0} passed / ${standardsStats?.failed ?? 0} failed`}
+          border="border-emerald-500/20"
+        />
+        <NavStatCard
+          to="/entity-actions"
+          icon={Zap}
+          iconBg="bg-amber-500/15 text-amber-400"
+          label="Open Actions"
+          value={openActionsCount}
+          sub="pending runs"
+          border="border-amber-500/20"
+        />
       </div>
 
       {/* ── Platform engineering (Sprint 9) ───────────────────────────────── */}
