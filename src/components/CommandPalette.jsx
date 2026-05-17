@@ -22,9 +22,16 @@ const TYPE_BADGE = {
 }
 
 const NAV_URL_MAP = {
+  '/dashboard': '/dashboard',
   '/catalog': '/catalog',
+  '/standards': '/standards',
+  '/entity-actions': '/entity-actions',
+  '/golden-paths': '/golden-paths',
+  '/reports': '/reports',
+  '/deployments': '/deployments',
+  '/tool-registry': '/tool-registry',
+  '/tools': '/tool-registry',
   '/incidents': '/incidents',
-  '/tools': '/tools',
   '/infra': '/infra',
   '/cicd': '/cicd',
 }

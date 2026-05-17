@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, Tooltip, Cell,
@@ -10,6 +11,7 @@ import {
   Construction, Rocket, RefreshCw, TrendingUp,
   Clock, Wifi, ScanEye, Loader2, CheckCircle2, X,
   Gauge, ArrowUpRight, ArrowDownRight, Minus,
+  Package, ShieldCheck, Workflow, Play, BarChart2,
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
 import { useAuth } from '../contexts/AuthContext'
@@ -18,6 +20,7 @@ import { API_BASE } from '../config/apiBase'
 const API        = `${API_BASE}/api/analytics`
 const SCAN_API   = `${API_BASE}/api/logs/scan-anomalies`
 const DORA_API   = `${API_BASE}/api/cicd/dora-metrics`
+const REPORTS_API = `${API_BASE}/api/reports`
 
 const SEVERITY_COLORS = {
   Critical: '#ef4444',
@@ -60,6 +63,26 @@ function DonutLabel({ cx, cy, total }) {
 }
 
 // ── Summary card ───────────────────────────────────────────────────────────────
+function NavStatCard({ to, icon: Icon, iconBg, label, value, sub, border }) {
+  const navigate = useNavigate()
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(to)}
+      className={`flex items-center gap-4 px-5 py-4 rounded-2xl border text-left w-full transition-colors hover:border-indigo-500/40 hover:bg-card/80 ${border ?? 'border-border'} bg-card`}
+    >
+      <div className={`flex items-center justify-center w-11 h-11 rounded-xl ${iconBg} shrink-0`}>
+        <Icon className="w-5 h-5" />
+      </div>
+      <div>
+        <p className="text-2xl font-bold text-white leading-none">{value ?? '—'}</p>
+        <p className="text-xs text-slate-400 mt-1">{label}</p>
+        {sub && <p className="text-[10px] text-slate-600 mt-0.5">{sub}</p>}
+      </div>
+    </button>
+  )
+}
+
 function StatCard({ icon: Icon, iconBg, label, value, sub, border }) {
   return (
     <div className={`flex items-center gap-4 px-5 py-4 rounded-2xl border ${border ?? 'border-border'} bg-card`}>
@@ -132,6 +155,7 @@ export default function DashboardView() {
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState(null)
   const [lastFetch, setLastFetch] = useState(null)
+  const [platform, setPlatform] = useState(null)
 
   // DORA metrics state
   const [dora, setDora] = useState(null)
@@ -140,6 +164,33 @@ export default function DashboardView() {
   const [scanning, setScanning]         = useState(false)
   const [scanResult, setScanResult]     = useState(null)
   const [scanDismissed, setScanDismissed] = useState(false)
+
+  async function fetchPlatformSummary() {
+    try {
+      const [catRes, stdRes, scoreRes, pathsRes, actionsRes] = await Promise.all([
+        authFetch(`${REPORTS_API}/catalog-overview`),
+        authFetch(`${REPORTS_API}/standards-overview`),
+        authFetch(`${REPORTS_API}/scorecards-overview`),
+        authFetch(`${API_BASE}/api/golden-paths`),
+        authFetch(`${API_BASE}/api/entity-actions`),
+      ])
+      const next = {}
+      if (catRes.ok) next.catalog = await catRes.json()
+      if (stdRes.ok) next.standards = await stdRes.json()
+      if (scoreRes.ok) next.scorecards = await scoreRes.json()
+      if (pathsRes.ok) {
+        const paths = await pathsRes.json()
+        next.goldenPathCount = Array.isArray(paths) ? paths.length : 0
+      }
+      if (actionsRes.ok) {
+        const actions = await actionsRes.json()
+        next.actionCount = Array.isArray(actions) ? actions.length : 0
+      }
+      setPlatform(next)
+    } catch {
+      /* optional summary — dashboard still works without it */
+    }
+  }
 
   async function fetchAnalytics() {
     setLoading(true)
@@ -151,6 +202,7 @@ export default function DashboardView() {
       setData(json)
       setLastFetch(new Date())
       if (doraRes.ok) setDora(await doraRes.json())
+      void fetchPlatformSummary()
     } catch (e) {
       setError(e.message)
     } finally {
@@ -230,6 +282,68 @@ export default function DashboardView() {
           </button>
         </div>
       </div>
+
+      {/* ── Platform engineering (Sprint 9) ───────────────────────────────── */}
+      {platform && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <Layers size={15} className="text-indigo-400" />
+            <h2 className="text-sm font-bold text-white">Platform Engineering</h2>
+            <span className="text-[10px] text-slate-500 ml-1">— Catalog, standards, paths & actions</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <NavStatCard
+              to="/catalog"
+              icon={Package}
+              iconBg="bg-indigo-500/15 text-indigo-400"
+              label="Catalog entities"
+              value={platform.catalog?.total_entities ?? 0}
+              sub={platform.catalog?.missing_owner ? `${platform.catalog.missing_owner} missing owner` : undefined}
+              border="border-indigo-500/20"
+            />
+            <NavStatCard
+              to="/standards"
+              icon={ShieldCheck}
+              iconBg="bg-emerald-500/15 text-emerald-400"
+              label="Standards pass rate"
+              value={platform.standards?.pass_rate_pct != null ? `${platform.standards.pass_rate_pct}%` : '—'}
+              sub={
+                platform.standards?.failed != null
+                  ? `${platform.standards.failed} failed · ${platform.standards.warnings ?? 0} warnings`
+                  : undefined
+              }
+              border="border-emerald-500/20"
+            />
+            <NavStatCard
+              to="/golden-paths"
+              icon={Workflow}
+              iconBg="bg-violet-500/15 text-violet-400"
+              label="Golden paths"
+              value={platform.goldenPathCount ?? 0}
+              sub="Scaffolding templates"
+              border="border-violet-500/20"
+            />
+            <NavStatCard
+              to="/entity-actions"
+              icon={Play}
+              iconBg="bg-amber-500/15 text-amber-400"
+              label="Entity actions"
+              value={platform.actionCount ?? 0}
+              sub="Registered automations"
+              border="border-amber-500/20"
+            />
+            <NavStatCard
+              to="/reports"
+              icon={BarChart2}
+              iconBg="bg-sky-500/15 text-sky-400"
+              label="Avg scorecard"
+              value={platform.scorecards?.avg_score != null ? platform.scorecards.avg_score : '—'}
+              sub="Engineering reports"
+              border="border-sky-500/20"
+            />
+          </div>
+        </div>
+      )}
 
       {/* ── DORA Metrics ─────────────────────────────────────────────────── */}
       {dora && (

@@ -7,8 +7,14 @@ import PersonaSwitcher from './PersonaSwitcher'
 import NotificationDropdown from './NotificationDropdown'
 
 const SEGMENT_LABELS = {
-  '': 'Home',
+  dashboard: 'Dashboard',
   catalog: 'Catalog',
+  standards: 'Standards',
+  'entity-actions': 'Entity Actions',
+  'golden-paths': 'Golden Paths',
+  reports: 'Reports',
+  deployments: 'Deployments',
+  'tool-registry': 'Tool Registry',
   'dependency-graph': 'Dependency Map',
   incidents: 'Incidents',
   webhooks: 'Webhooks',
@@ -55,7 +61,7 @@ export default function TopBar({ user }) {
   const [unreadCount, setUnreadCount] = useState(0)
   const breadcrumbs = useMemo(() => {
     const parts = location.pathname.split('/').filter(Boolean)
-    if (parts.length === 0) return [{ label: 'Home', path: '/' }]
+    if (parts.length === 0) return [{ label: 'Dashboard', path: '/dashboard' }]
     return parts.map((seg, i) => ({
       label: SEGMENT_LABELS[seg] || seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, ' '),
       path: `/${parts.slice(0, i + 1).join('/')}`,
@@ -115,7 +121,7 @@ export default function TopBar({ user }) {
       <nav className="flex items-center gap-1 min-w-0 flex-1 text-sm" aria-label="Breadcrumb">
         <button
           type="button"
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/dashboard')}
           className="text-neutral-400 hover:text-white shrink-0"
         >
           Home
