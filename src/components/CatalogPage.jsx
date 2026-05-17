@@ -20,6 +20,7 @@ import * as LucideIcons from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { RunActionModal, LogsDrawer } from './entityActionsShared'
+import CatalogCopilotPanel from './CatalogCopilotPanel'
 
 const KIND_TABS = ['All', 'Service', 'API', 'Library', 'Website']
 
@@ -79,7 +80,7 @@ function tagsToDisplay(tags) {
 
 export default function CatalogPage() {
   const location = useLocation()
-  const { authFetch } = useAuth()
+  const { authFetch, token } = useAuth()
 
   const [entities, setEntities] = useState([])
   const [loading, setLoading] = useState(true)
@@ -467,6 +468,7 @@ export default function CatalogPage() {
                 { id: 'scorecard', label: 'Scorecard' },
                 { id: 'actions', label: 'Actions' },
                 { id: 'runs', label: 'Runs' },
+                { id: 'copilot', label: 'AI Copilot' },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -521,6 +523,14 @@ export default function CatalogPage() {
 
               {drawerTab === 'runs' && (
                 <RunsTab runs={actionRuns} loading={runsLoading} onViewLogs={setLogsModal} />
+              )}
+
+              {drawerTab === 'copilot' && selectedEntity && (
+                <CatalogCopilotPanel
+                  key={selectedEntity.id}
+                  entity={selectedEntity}
+                  token={token}
+                />
               )}
             </div>
             <div className="px-5 py-4 border-t border-border flex gap-2">
