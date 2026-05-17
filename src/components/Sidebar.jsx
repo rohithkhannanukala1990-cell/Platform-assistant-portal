@@ -26,6 +26,8 @@ import {
   Plug,
   Settings,
   Sparkles,
+  Database,
+  HardDrive,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -60,6 +62,8 @@ const ICON_MAP = {
   Plug,
   Settings,
   Sparkles,
+  Database,
+  HardDrive,
 }
 
 const NAV_GROUPS = [
@@ -103,6 +107,8 @@ const NAV_GROUPS = [
       { label: 'Deployments', path: '/deployments', icon: 'Rocket' },
       { label: 'Runbooks', path: '/runbooks', icon: 'BookMarked' },
       { label: 'Infra Builder', path: '/infra', icon: 'Server' },
+      { label: 'DB Analyzer', path: '/db-analyzer', icon: 'Database' },
+      { label: 'Storage', path: '/storage', icon: 'HardDrive' },
     ],
   },
   {

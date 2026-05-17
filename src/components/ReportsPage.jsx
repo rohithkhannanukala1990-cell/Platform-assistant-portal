@@ -255,26 +255,34 @@ export default function ReportsPage() {
                       scorecardsData.lowest_scoring_services.map((svc, i) => (
                         <div
                           key={svc.id}
-                          className="flex items-center justify-between py-2 border-b border-white/5 last:border-0"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() =>
+                            navigate(
+                              svc.id
+                                ? `/catalog?entity=${encodeURIComponent(svc.id)}`
+                                : '/catalog'
+                            )
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              navigate(
+                                svc.id
+                                  ? `/catalog?entity=${encodeURIComponent(svc.id)}`
+                                  : '/catalog'
+                              )
+                            }
+                          }}
+                          className="flex items-center justify-between py-2 px-1 -mx-1 rounded border-b border-white/5 last:border-0 cursor-pointer hover:bg-neutral-800 transition-colors"
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="text-xs text-gray-600 w-4">{i + 1}</span>
                             <span className="text-sm text-white truncate">{svc.name}</span>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={`text-sm font-medium ${scoreColor(svc.score)}`}>
-                              {svc.score}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                navigate(`/catalog?entity=${encodeURIComponent(svc.id)}`)
-                              }
-                              className="text-blue-400 hover:text-blue-300 text-xs"
-                            >
-                              View →
-                            </button>
-                          </div>
+                          <span className={`text-sm font-medium shrink-0 ${scoreColor(svc.score)}`}>
+                            {svc.score}
+                          </span>
                         </div>
                       ))
                     )}
@@ -379,7 +387,11 @@ export default function ReportsPage() {
                       </tr>
                     ) : (
                       sortedTeams.map((t) => (
-                        <tr key={t.name} className="border-b border-white/5 hover:bg-white/[0.02]">
+                        <tr
+                          key={t.name}
+                          onClick={() => navigate('/catalog')}
+                          className="border-b border-white/5 cursor-pointer hover:bg-neutral-800 transition-colors"
+                        >
                           <td className="px-4 py-3 text-sm font-medium text-white">{t.name}</td>
                           <td className="px-4 py-3 text-sm text-gray-300">{t.services_owned}</td>
                           <td className={`px-4 py-3 text-sm font-medium ${scoreColor(t.avg_score)}`}>
