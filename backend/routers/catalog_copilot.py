@@ -15,9 +15,8 @@ from ..ai.llm_router import llm_router
 from ..auth import User, get_current_user, get_session
 from ..database import Incident
 from .catalog import CatalogEntity, ServiceDependency
-from .entity_actions import EntityActionRun
 from .scorecards import ScorecardCheck
-from .standards import EntityStandardEvaluation, Standard
+from .standards import EntityStandardEvaluation
 
 router = APIRouter(prefix="/api/catalog-copilot", tags=["catalog-copilot"])
 
@@ -77,8 +76,122 @@ def _parse_copilot_json(raw: str) -> dict[str, Any]:
     return json.loads(clean)
 
 
-def _status_label(status: str | None) -> str:
-    return (status or "unknown").upper()
+def _std_bucket(status: str | None) -> str:
+    s = (status or "").lower()
+    if s in ("pass", "passed"):
+        return "passed"
+    if s in ("fail", "failed"):
+        return "failed"
+    return "warnings"
+
+
+def _build_entity_context(
+    session: Session,
+    entity: CatalogEntity,
+    entity_id: str,
+) -> tuple[str, list[str], list[ScorecardCheck]]:
+    """Build grounded context lines and track scorecard rows for fallback."""
+    context_parts: list[str] = []
+    data_sources: list[str] = ["entity"]
+
+    context_parts.append(f"Entity: {entity.name} ({entity.kind})")
+    context_parts.append(f"Lifecycle: {entity.lifecycle or 'unknown'}")
+    context_parts.append(f"Owner: {entity.owner_team or 'unknown'}")
+    context_parts.append(f"Health: {entity.health_status or 'unknown'}")
+    context_parts.append(f"Description: {entity.description or 'none'}")
+    context_parts.append(f"Language: {entity.language or 'unknown'}")
+
+    scorecard_rows = list(
+        session.exec(
+            select(ScorecardCheck).where(ScorecardCheck.entity_id == entity_id)
+        ).all()
+    )
+    if scorecard_rows:
+        overall = round(sum(r.score for r in scorecard_rows) / len(scorecard_rows))
+        context_parts.append(f"Scorecard overall: {overall}/100")
+        fails = [r.check_name for r in scorecard_rows if r.status == "fail"]
+        warns = [r.check_name for r in scorecard_rows if r.status == "warn"]
+        if fails:
+            context_parts.append(f"Failing checks: {', '.join(fails)}")
+        if warns:
+            context_parts.append(f"Warning checks: {', '.join(warns)}")
+        data_sources.append("scorecards")
+    else:
+        context_parts.append("Scorecard: not yet evaluated")
+
+    std_evals = session.exec(
+        select(EntityStandardEvaluation).where(
+            EntityStandardEvaluation.entity_id == entity_id
+        )
+    ).all()
+    if std_evals:
+        passed = sum(1 for e in std_evals if _std_bucket(e.status) == "passed")
+        failed = sum(1 for e in std_evals if _std_bucket(e.status) == "failed")
+        warnings = sum(1 for e in std_evals if _std_bucket(e.status) == "warnings")
+        context_parts.append(
+            f"Standards: {passed} passed, {failed} failed, {warnings} warning"
+        )
+        data_sources.append("standards")
+    else:
+        context_parts.append("Standards: not yet evaluated")
+
+    name_lower = entity.name.lower()
+    incidents = [
+        i
+        for i in session.exec(select(Incident)).all()
+        if name_lower in (i.summary or "").lower()
+    ][:5]
+    if incidents:
+        inc_text = "\n".join(
+            f"  - [{i.severity}] {i.summary} ({i.status})" for i in incidents
+        )
+        context_parts.append(f"Recent incidents:\n{inc_text}")
+        data_sources.append("incidents")
+
+    entities_map = {
+        e.id: e.name
+        for e in session.exec(
+            select(CatalogEntity).where(CatalogEntity.is_active == 1)
+        ).all()
+    }
+    deps = session.exec(
+        select(ServiceDependency).where(
+            (ServiceDependency.from_entity_id == entity_id)
+            | (ServiceDependency.to_entity_id == entity_id)
+        ).limit(10)
+    ).all()
+    if deps:
+        dep_lines = []
+        for d in deps:
+            if d.from_entity_id == entity_id:
+                label, other = "Depends on", d.to_entity_id
+            else:
+                label, other = "Used by", d.from_entity_id
+            dep_lines.append(f"  - {label}: {entities_map.get(other, other)} ({d.dep_type})")
+        context_parts.append("Dependencies:\n" + "\n".join(dep_lines))
+        data_sources.append("dependencies")
+
+    return "\n".join(context_parts), data_sources, scorecard_rows
+
+
+def _fallback_response(
+    context: str,
+    scorecard_rows: list[ScorecardCheck],
+    entity_name: str | None,
+    data_sources: list[str],
+) -> CopilotResponse:
+    fails = [r.check_name for r in scorecard_rows if r.status == "fail"]
+    return CopilotResponse(
+        answer=(
+            "AI is temporarily unavailable. Based on available data: "
+            + (context[:500] + ("…" if len(context) > 500 else ""))
+        ),
+        risks=fails or ["Scorecard or standards data may be incomplete"],
+        recommended_actions=["Run scorecard evaluation", "Assign owner team"],
+        suggested_workflows=[],
+        entity_name=entity_name,
+        data_sources_used=data_sources,
+    )
 
 
 @router.post("/copilot", response_model=CopilotResponse)
@@ -95,110 +208,17 @@ async def catalog_copilot(
     entity: CatalogEntity | None = None
     entity_id = (request.entity_id or "").strip() or None
 
+    scorecard_rows: list[ScorecardCheck] = []
+
     if entity_id:
         entity = session.get(CatalogEntity, entity_id)
         if not entity or not entity.is_active:
             raise HTTPException(status_code=404, detail="Entity not found")
 
-        context_parts.append(
-            f"SERVICE: {entity.name}\n"
-            f"  Kind: {entity.kind}\n"
-            f"  Owner Team: {entity.owner_team or 'Unknown'}\n"
-            f"  Lifecycle: {entity.lifecycle or 'Unknown'}\n"
-            f"  Health: {entity.health_status or 'Unknown'}\n"
-            f"  Language: {entity.language or '—'}\n"
-            f"  Description: {entity.description or 'No description'}"
+        context_string, data_sources, scorecard_rows = _build_entity_context(
+            session, entity, entity_id
         )
-        data_sources.append("entity")
-
-        checks = session.exec(
-            select(ScorecardCheck)
-            .where(ScorecardCheck.entity_id == entity_id)
-            .order_by(ScorecardCheck.evaluated_at.desc())
-            .limit(20)
-        ).all()
-        if checks:
-            checks_text = "\n".join(
-                f"  - [{_status_label(c.status)}] {c.check_name}"
-                f"{f' (score: {c.score})' if c.score is not None else ''}"
-                + (f" — {c.rationale[:120]}" if c.rationale else "")
-                for c in checks
-            )
-            context_parts.append(f"SCORECARD RESULTS:\n{checks_text}")
-            data_sources.append("scorecards")
-
-        std_evals = session.exec(
-            select(EntityStandardEvaluation)
-            .where(EntityStandardEvaluation.entity_id == entity_id)
-            .order_by(EntityStandardEvaluation.evaluated_at.desc())
-            .limit(20)
-        ).all()
-        if std_evals:
-            standards_map = {s.id: s for s in session.exec(select(Standard)).all()}
-            evals_text = "\n".join(
-                f"  - [{_status_label(ev.status)}] "
-                f"{standards_map[ev.standard_id].name if ev.standard_id in standards_map else ev.standard_id}"
-                f" (overall_score: {ev.overall_score})"
-                for ev in std_evals
-            )
-            context_parts.append(f"STANDARDS EVALUATION:\n{evals_text}")
-            data_sources.append("standards")
-
-        name_lower = entity.name.lower()
-        all_incidents = session.exec(select(Incident)).all()
-        incidents = [
-            i
-            for i in all_incidents
-            if name_lower in (i.summary or "").lower()
-        ][:5]
-        if incidents:
-            inc_text = "\n".join(
-                f"  - [{i.severity}] {i.summary} ({i.status})"
-                for i in incidents
-            )
-            context_parts.append(f"RECENT INCIDENTS:\n{inc_text}")
-            data_sources.append("incidents")
-
-        entities_map = {
-            e.id: e.name
-            for e in session.exec(
-                select(CatalogEntity).where(CatalogEntity.is_active == 1)
-            ).all()
-        }
-        deps = session.exec(
-            select(ServiceDependency).where(
-                (ServiceDependency.from_entity_id == entity_id)
-                | (ServiceDependency.to_entity_id == entity_id)
-            ).limit(10)
-        ).all()
-        if deps:
-            dep_lines = []
-            for d in deps:
-                if d.from_entity_id == entity_id:
-                    other = d.to_entity_id
-                    label = "Depends on"
-                else:
-                    other = d.from_entity_id
-                    label = "Used by"
-                dep_lines.append(
-                    f"  - {label}: {entities_map.get(other, other)} ({d.dep_type})"
-                )
-            context_parts.append(f"DEPENDENCIES:\n" + "\n".join(dep_lines))
-            data_sources.append("dependencies")
-
-        action_runs = session.exec(
-            select(EntityActionRun)
-            .where(EntityActionRun.entity_id == entity_id)
-            .order_by(EntityActionRun.created_at.desc())
-            .limit(5)
-        ).all()
-        if action_runs:
-            runs_text = "\n".join(
-                f"  - [{r.status}] action_id={r.action_id} by {r.requested_by}"
-                for r in action_runs
-            )
-            context_parts.append(f"RECENT ENTITY ACTIONS:\n{runs_text}")
-            data_sources.append("actions")
+        context_parts = [context_string]
 
     elif request.team:
         team_entities = session.exec(
@@ -214,33 +234,60 @@ async def catalog_copilot(
             )
             data_sources.append("team")
 
-    context_string = "\n\n".join(context_parts) if context_parts else "No entity data available."
+    context_string = (
+        context_parts[0]
+        if len(context_parts) == 1 and entity_id
+        else ("\n\n".join(context_parts) if context_parts else "No entity data available.")
+    )
+
+    prompt = f"""You are an AI assistant for an Internal Developer Portal.
+Answer ONLY from the data provided. Do not guess or hallucinate.
+
+SERVICE DATA:
+{context_string}
+
+USER QUESTION: {request.question.strip()}
+
+Respond in this exact JSON format, nothing else:
+{{
+  "answer": "2-3 sentence direct answer",
+  "risks": ["risk 1", "risk 2"],
+  "recommended_actions": ["action name 1", "action name 2"],
+  "suggested_workflows": ["workflow name 1"]
+}}
+Return only valid JSON. No markdown fences. No explanation."""
+
     system_prompt = COPILOT_SYSTEM_SUFFIX + context_string
-    user_message = request.question.strip()
     model = (os.getenv("AI_DEFAULT_MODEL", "gemini-1.5-flash") or "gemini-1.5-flash").strip()
 
     try:
         raw_response = await llm_router.chat(
-            [{"role": "user", "content": user_message}],
+            [{"role": "user", "content": prompt}],
             model=model,
             system_prompt=system_prompt,
         )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"AI provider error: {exc}") from exc
+    except Exception:
+        return _fallback_response(
+            context_string,
+            scorecard_rows,
+            entity.name if entity else None,
+            data_sources,
+        )
 
     try:
         parsed = _parse_copilot_json(raw_response)
         return CopilotResponse(
-            answer=parsed.get("answer", raw_response),
-            risks=list(parsed.get("risks") or []),
-            recommended_actions=list(parsed.get("recommended_actions") or []),
-            suggested_workflows=list(parsed.get("suggested_workflows") or []),
+            answer=str(parsed.get("answer") or raw_response),
+            risks=[str(x) for x in (parsed.get("risks") or [])],
+            recommended_actions=[str(x) for x in (parsed.get("recommended_actions") or [])],
+            suggested_workflows=[str(x) for x in (parsed.get("suggested_workflows") or [])],
             entity_name=entity.name if entity else None,
             data_sources_used=data_sources,
         )
     except json.JSONDecodeError:
-        return CopilotResponse(
-            answer=raw_response,
-            entity_name=entity.name if entity else None,
-            data_sources_used=data_sources,
+        return _fallback_response(
+            context_string,
+            scorecard_rows,
+            entity.name if entity else None,
+            data_sources,
         )

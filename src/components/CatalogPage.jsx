@@ -97,6 +97,8 @@ export default function CatalogPage() {
   const [scorecardEvaluating, setScorecardEvaluating] = useState(false)
   const [drawerTab, setDrawerTab] = useState('overview')
   const [entityActions, setEntityActions] = useState([])
+  const [copilotActions, setCopilotActions] = useState([])
+  const [goldenPaths, setGoldenPaths] = useState([])
   const [actionsLoading, setActionsLoading] = useState(false)
   const [actionRuns, setActionRuns] = useState([])
   const [runsLoading, setRunsLoading] = useState(false)
@@ -223,16 +225,43 @@ export default function CatalogPage() {
     [authFetch]
   )
 
+  const loadCopilotSupport = useCallback(async () => {
+    try {
+      const [actionsRes, pathsRes] = await Promise.all([
+        authFetch('/api/entity-actions'),
+        authFetch('/api/golden-paths'),
+      ])
+      if (actionsRes.ok) {
+        const data = await actionsRes.json()
+        setCopilotActions(Array.isArray(data) ? data : data.actions || [])
+      } else {
+        setCopilotActions([])
+      }
+      if (pathsRes.ok) {
+        const data = await pathsRes.json()
+        setGoldenPaths(Array.isArray(data) ? data : data.templates || [])
+      } else {
+        setGoldenPaths([])
+      }
+    } catch {
+      setCopilotActions([])
+      setGoldenPaths([])
+    }
+  }, [authFetch])
+
   useEffect(() => {
     if (!selectedEntity?.id) {
       setDrawerTab('overview')
       setEntityActions([])
+      setCopilotActions([])
+      setGoldenPaths([])
       setActionRuns([])
       return
     }
+    void loadCopilotSupport()
     const tab = new URLSearchParams(location.search).get('tab')
     if (tab === 'runs') setDrawerTab('runs')
-  }, [selectedEntity?.id, location.search])
+  }, [selectedEntity?.id, location.search, loadCopilotSupport])
 
   useEffect(() => {
     if (!selectedEntity?.id) return
@@ -529,7 +558,8 @@ export default function CatalogPage() {
                 <CatalogCopilotPanel
                   key={selectedEntity.id}
                   entity={selectedEntity}
-                  token={token}
+                  entityActions={copilotActions}
+                  goldenPaths={goldenPaths}
                 />
               )}
             </div>
