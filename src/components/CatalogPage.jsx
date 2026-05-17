@@ -265,9 +265,24 @@ export default function CatalogPage() {
 
   useEffect(() => {
     if (!selectedEntity?.id) return
-    if (drawerTab === 'actions') void loadEntityActions(selectedEntity.id)
+    if (drawerTab === 'actions' || drawerTab === 'copilot') {
+      void loadEntityActions(selectedEntity.id)
+    }
     if (drawerTab === 'runs') void loadActionRuns(selectedEntity.id)
   }, [selectedEntity?.id, drawerTab, loadEntityActions, loadActionRuns])
+
+  const copilotEntityActions = useMemo(() => {
+    const byId = new Map()
+    for (const a of copilotActions) {
+      if (a?.id) byId.set(a.id, a)
+      else if (a?.name) byId.set(a.name, a)
+    }
+    for (const a of entityActions) {
+      if (a?.id) byId.set(a.id, a)
+      else if (a?.name) byId.set(a.name, a)
+    }
+    return [...byId.values()]
+  }, [copilotActions, entityActions])
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -558,7 +573,7 @@ export default function CatalogPage() {
                 <CatalogCopilotPanel
                   key={selectedEntity.id}
                   entity={selectedEntity}
-                  entityActions={copilotActions}
+                  entityActions={copilotEntityActions}
                   goldenPaths={goldenPaths}
                 />
               )}
