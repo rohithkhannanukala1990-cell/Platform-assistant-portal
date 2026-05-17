@@ -1,3 +1,13 @@
+# ══════════════════════════════════════════════════════════
+# SPRINT 10 AUDIT NOTE (May 2026)
+# All routers verified and registered.
+# Sprint 11 refactor candidates (extract from main.py):
+#   - Incident management section
+#   - Agent/HITL approval section
+#   - Health check aggregation section
+#   - DORA metrics section
+# ══════════════════════════════════════════════════════════
+
 import os
 import re
 import json
@@ -129,6 +139,14 @@ async def lifespan(app: FastAPI):
         GoldenPathRun,
         GoldenPathTemplate,
     )
+    from .database import (  # noqa: F401 — workspace/template tables (database.py)
+        Template,
+        TemplateApplication,
+        TemplateTool,
+        Workspace,
+        WorkspaceMember,
+        WorkspaceTool,
+    )
 
     SQLModel.metadata.create_all(db_engine_ref)
     seed_default_admin()
@@ -147,6 +165,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 metrics_app = make_asgi_app()
 from starlette.routing import Mount
 app.router.routes.insert(0, Mount("/metrics", app=metrics_app, name="metrics"))
+# Sprint 10: router registration audit — all backend/routers/*.py modules included
 app.include_router(auth_router)
 app.include_router(workspaces_router)
 app.include_router(templates_router)

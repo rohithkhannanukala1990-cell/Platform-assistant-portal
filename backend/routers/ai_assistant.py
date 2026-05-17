@@ -440,7 +440,7 @@ async def reject_execution(
 
 
 @router.get("/models")
-def list_models():
+def list_models(current_user: User = Depends(get_current_user)):
     gemini_ok = bool((os.getenv("GEMINI_API_KEY") or "").strip())
     openai_ok = bool((os.getenv("OPENAI_API_KEY") or "").strip())
     ollama_ok = os.getenv("OLLAMA_BASE_URL") is not None and bool((os.getenv("OLLAMA_BASE_URL") or "").strip())
