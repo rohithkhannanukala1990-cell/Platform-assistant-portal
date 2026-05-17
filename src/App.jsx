@@ -35,6 +35,7 @@ import RunbooksView from './components/RunbooksView'
 import WorkspaceBuilder from './components/WorkspaceBuilder'
 import TemplateGallery from './components/TemplateGallery'
 import AccountImportView from './components/AccountImportView'
+import DeploymentsView from './components/DeploymentsView'
 
 const OPS_URL_VIEWS = new Set([
   'dashboard',
@@ -121,7 +122,7 @@ function AuthenticatedRoutes() {
     <Routes>
       <Route
         path="/login"
-        element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />}
+        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />}
       />
 
       <Route
@@ -133,24 +134,32 @@ function AuthenticatedRoutes() {
           )
         }
       >
-        <Route path="/" element={<PrivateRoute><DashboardView /></PrivateRoute>} />
-        <Route path="/incidents" element={<PrivateRoute><TriageView /></PrivateRoute>} />
-        <Route path="/infra" element={<PrivateRoute><InfraBuilderView /></PrivateRoute>} />
-        <Route path="/cicd" element={<PrivateRoute><CICDView /></PrivateRoute>} />
-        <Route path="/webhooks" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
-        <Route path="/tools" element={<PrivateRoute><ToolRegistryView /></PrivateRoute>} />
-        <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
-        <Route path="/rbac" element={<PrivateRoute><RBACManager /></PrivateRoute>} />
-        <Route path="/ai-assistant" element={<PrivateRoute><AIAssistant /></PrivateRoute>} />
-        <Route path="/health" element={<PrivateRoute><HealthDashboard /></PrivateRoute>} />
-        <Route path="/approvals" element={<PrivateRoute><AgentApprovalsWidget /></PrivateRoute>} />
-        <Route path="/db-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<PrivateRoute><DashboardView /></PrivateRoute>} />
+
         <Route path="/catalog" element={<PrivateRoute><CatalogPage /></PrivateRoute>} />
+        <Route path="/dependency-graph" element={<PrivateRoute><DependencyGraph /></PrivateRoute>} />
         <Route path="/standards" element={<PrivateRoute><StandardsPage /></PrivateRoute>} />
         <Route path="/entity-actions" element={<PrivateRoute><EntityActionsPage /></PrivateRoute>} />
         <Route path="/golden-paths" element={<PrivateRoute><GoldenPathsPage /></PrivateRoute>} />
         <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
-        <Route path="/dependency-graph" element={<PrivateRoute><DependencyGraph /></PrivateRoute>} />
+
+        <Route path="/ai-assistant" element={<PrivateRoute><AIAssistant /></PrivateRoute>} />
+        <Route path="/integrations" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
+        <Route path="/webhooks" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
+        <Route path="/rbac" element={<PrivateRoute><RBACManager /></PrivateRoute>} />
+        <Route path="/tools" element={<PrivateRoute><ToolRegistryView /></PrivateRoute>} />
+        <Route path="/tool-registry" element={<PrivateRoute><ToolRegistryView /></PrivateRoute>} />
+        <Route path="/workspaces" element={<PrivateRoute><WorkspaceBuilder /></PrivateRoute>} />
+        <Route path="/cicd" element={<PrivateRoute><CICDView /></PrivateRoute>} />
+        <Route path="/deployments" element={<PrivateRoute><DeploymentsView /></PrivateRoute>} />
+
+        <Route path="/incidents" element={<PrivateRoute><TriageView /></PrivateRoute>} />
+        <Route path="/infra" element={<PrivateRoute><InfraBuilderView /></PrivateRoute>} />
+        <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
+        <Route path="/health" element={<PrivateRoute><HealthDashboard /></PrivateRoute>} />
+        <Route path="/approvals" element={<PrivateRoute><AgentApprovalsWidget /></PrivateRoute>} />
+        <Route path="/db-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
 
         {/* Legacy / role portals — preserved */}
         <Route path="/ops" element={<PrivateRoute><OpsPortalRoute /></PrivateRoute>} />
@@ -158,16 +167,14 @@ function AuthenticatedRoutes() {
         <Route path="/data" element={<PrivateRoute><DataEngineerPortal currentView="pipelines" /></PrivateRoute>} />
         <Route path="/database" element={<PrivateRoute><DatabasePortal currentView="dbhealth" /></PrivateRoute>} />
         <Route path="/history" element={<PrivateRoute><HistoryPanel /></PrivateRoute>} />
-        <Route path="/integrations" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
         <Route path="/system-health" element={<Navigate to="/health" replace />} />
         <Route path="/storage" element={<PrivateRoute><StorageView /></PrivateRoute>} />
         <Route path="/runbooks" element={<PrivateRoute><RunbooksView /></PrivateRoute>} />
-        <Route path="/workspaces" element={<PrivateRoute><WorkspaceBuilder /></PrivateRoute>} />
         <Route path="/templates" element={<PrivateRoute><TemplateGallery /></PrivateRoute>} />
         <Route path="/import" element={<PrivateRoute><AccountImportView /></PrivateRoute>} />
         <Route path="/notifications" element={<PrivateRoute><HistoryPanel /></PrivateRoute>} />
 
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>
   )
