@@ -19,6 +19,7 @@ import {
 import * as LucideIcons from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { RunActionModal, LogsDrawer } from './entityActionsShared'
 
 const KIND_TABS = ['All', 'Service', 'API', 'Library', 'Website']
 
@@ -98,9 +99,8 @@ export default function CatalogPage() {
   const [actionsLoading, setActionsLoading] = useState(false)
   const [actionRuns, setActionRuns] = useState([])
   const [runsLoading, setRunsLoading] = useState(false)
-  const [confirmAction, setConfirmAction] = useState(null)
+  const [runningAction, setRunningAction] = useState(null)
   const [runMessage, setRunMessage] = useState(null)
-  const [runningActionId, setRunningActionId] = useState(null)
   const [logsModal, setLogsModal] = useState(null)
 
   const loadScorecard = useCallback(
@@ -231,32 +231,6 @@ export default function CatalogPage() {
     if (drawerTab === 'actions') void loadEntityActions(selectedEntity.id)
     if (drawerTab === 'runs') void loadActionRuns(selectedEntity.id)
   }, [selectedEntity?.id, drawerTab, loadEntityActions, loadActionRuns])
-
-  const runEntityAction = useCallback(
-    async (action) => {
-      if (!selectedEntity?.id || !action?.id) return
-      setRunningActionId(action.id)
-      setRunMessage(null)
-      setError(null)
-      try {
-        const res = await authFetch(
-          `/api/catalog/${encodeURIComponent(selectedEntity.id)}/actions/${encodeURIComponent(action.id)}/run`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
-        )
-        if (!res.ok) throw new Error(await res.text())
-        const data = await res.json()
-        setRunMessage(data.result?.message || `Action ${data.status}`)
-        setConfirmAction(null)
-        if (drawerTab === 'runs') void loadActionRuns(selectedEntity.id)
-        if (action.slug === 're-eval-scorecard') void loadScorecard(selectedEntity.id)
-      } catch (e) {
-        setError(e.message || 'Action run failed')
-      } finally {
-        setRunningActionId(null)
-      }
-    },
-    [authFetch, selectedEntity, drawerTab, loadActionRuns, loadScorecard]
-  )
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -533,9 +507,8 @@ export default function CatalogPage() {
                 <ActionsTab
                   actions={entityActions}
                   loading={actionsLoading}
-                  runningActionId={runningActionId}
                   runMessage={runMessage}
-                  onRun={(action) => setConfirmAction(action)}
+                  onRun={(action) => setRunningAction(action)}
                 />
               )}
 
@@ -563,57 +536,24 @@ export default function CatalogPage() {
             </div>
           </aside>
 
-          {confirmAction && (
-            <div className="fixed inset-0 z-[95] flex items-center justify-center p-4 bg-black/70">
-              <div className="w-full max-w-sm rounded-xl border border-border bg-slate-950 p-5 shadow-2xl">
-                <h3 className="text-lg font-bold text-white mb-2">Confirm action</h3>
-                <p className="text-sm text-slate-400 mb-1">
-                  Run <span className="text-white font-medium">{confirmAction.name}</span> on{' '}
-                  <span className="text-white font-medium">{selectedEntity.name}</span>?
-                </p>
-                {confirmAction.requires_approval ? (
-                  <p className="text-xs text-amber-400 mb-4 flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5" /> This action requires approval
-                  </p>
-                ) : (
-                  <p className="mb-4" />
-                )}
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setConfirmAction(null)}
-                    className="flex-1 py-2 rounded-lg border border-border text-slate-300 text-sm font-semibold hover:bg-slate-800"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={runningActionId === confirmAction.id}
-                    onClick={() => void runEntityAction(confirmAction)}
-                    className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold disabled:opacity-50"
-                  >
-                    {runningActionId === confirmAction.id ? 'Running…' : 'Confirm'}
-                  </button>
-                </div>
-              </div>
-            </div>
+          {runningAction && (
+            <RunActionModal
+              action={runningAction}
+              defaultEntityId={selectedEntity.id}
+              lockEntityId
+              onClose={() => setRunningAction(null)}
+              onSuccess={(data) => {
+                const slug = runningAction.slug
+                setRunningAction(null)
+                setRunMessage(data.result?.message || `Action ${data.status}`)
+                if (drawerTab === 'runs') void loadActionRuns(selectedEntity.id)
+                if (slug === 're-eval-scorecard') void loadScorecard(selectedEntity.id)
+              }}
+            />
           )}
 
-          {logsModal && (
-            <div className="fixed inset-0 z-[95] flex items-center justify-center p-4 bg-black/70">
-              <div className="w-full max-w-md rounded-xl border border-border bg-slate-950 p-5 shadow-2xl max-h-[70vh] flex flex-col">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-lg font-bold text-white">Execution logs</h3>
-                  <button type="button" onClick={() => setLogsModal(null)} className="text-slate-400 hover:text-white">
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-                <pre className="flex-1 overflow-auto text-xs text-slate-300 bg-slate-900 rounded-lg p-3 border border-border whitespace-pre-wrap">
-                  {logsModal.execution_logs || 'No logs recorded.'}
-                </pre>
-              </div>
-            </div>
-          )}
+          {logsModal && <LogsDrawer run={logsModal} onClose={() => setLogsModal(null)} />}
+
         </>
       )}
 
@@ -852,7 +792,7 @@ function runStatusPill(status) {
   )
 }
 
-function ActionsTab({ actions, loading, runningActionId, runMessage, onRun }) {
+function ActionsTab({ actions, loading, runMessage, onRun }) {
   if (loading) {
     return (
       <div className="flex justify-center py-12 text-slate-400 gap-2">
@@ -890,11 +830,10 @@ function ActionsTab({ actions, loading, runningActionId, runMessage, onRun }) {
             )}
             <button
               type="button"
-              disabled={runningActionId === action.id}
               onClick={() => onRun(action)}
-              className="mt-auto w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold disabled:opacity-50"
+              className="mt-auto w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
             >
-              {runningActionId === action.id ? 'Running…' : 'Run'}
+              Run
             </button>
           </div>
         ))}

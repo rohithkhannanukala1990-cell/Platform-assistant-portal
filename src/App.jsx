@@ -10,6 +10,7 @@ import LoginPage from './components/LoginPage'
 import CatalogPage from './components/CatalogPage'
 import DependencyGraph from './components/DependencyGraph'
 import StandardsPage from './components/StandardsPage'
+import EntityActionsPage from './components/EntityActionsPage'
 import DashboardView from './components/DashboardView'
 import TriageView from './components/TriageView'
 import InfraBuilderView from './components/InfraBuilderView'
@@ -144,6 +145,7 @@ function AuthenticatedRoutes() {
         <Route path="/db-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
         <Route path="/catalog" element={<PrivateRoute><CatalogPage /></PrivateRoute>} />
         <Route path="/standards" element={<PrivateRoute><StandardsPage /></PrivateRoute>} />
+        <Route path="/entity-actions" element={<PrivateRoute><EntityActionsPage /></PrivateRoute>} />
         <Route path="/dependency-graph" element={<PrivateRoute><DependencyGraph /></PrivateRoute>} />
 
         {/* Legacy / role portals — preserved */}

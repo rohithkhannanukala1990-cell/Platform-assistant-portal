@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   Home,
   Package,
-  History,
+  Play,
   GitBranch,
   AlertTriangle,
   Webhook,
@@ -29,6 +29,7 @@ const NAV_GROUPS = [
       { label: 'Home', path: '/', icon: Home },
       { label: 'Catalog', path: '/catalog', icon: Package },
       { label: 'Standards', path: '/standards', icon: ShieldCheck },
+      { label: 'Entity Actions', path: '/entity-actions', icon: Play },
       { label: 'Dependency Map', path: '/dependency-graph', icon: GitBranch },
     ],
   },
