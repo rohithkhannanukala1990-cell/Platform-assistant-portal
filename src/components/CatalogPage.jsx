@@ -17,7 +17,7 @@ import {
   History,
 } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { RunActionModal, LogsDrawer } from './entityActionsShared'
 import CatalogCopilotPanel from './CatalogCopilotPanel'
@@ -465,7 +465,7 @@ export default function CatalogPage() {
             <div className="flex gap-1 px-3 border-b border-border shrink-0 overflow-x-auto">
               {[
                 { id: 'overview', label: 'Overview' },
-                { id: 'scorecard', label: 'Scorecard' },
+                { id: 'scorecard', label: 'Scorecards' },
                 { id: 'actions', label: 'Actions' },
                 { id: 'runs', label: 'Runs' },
                 { id: 'copilot', label: 'AI Copilot' },
@@ -956,17 +956,27 @@ function ScoreSection({ scorecard, loading, evaluating, onReevaluate, embedded =
           ) : (
             <div className="space-y-4">
               {grouped.map(({ category, checks }) => (
-                <div key={category}>
-                  <p className="text-xs font-semibold text-slate-400 mb-2 border-b border-border/60 pb-1">
+                <details
+                  key={category}
+                  className="rounded-lg border border-border/60 bg-slate-900/40 overflow-hidden group"
+                >
+                  <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-slate-400 list-none flex items-center justify-between">
                     {category}
-                  </p>
-                  <div className="space-y-0.5">
+                    <span className="text-slate-600 group-open:rotate-180 transition-transform">▾</span>
+                  </summary>
+                  <div className="px-3 pb-2 space-y-0.5 border-t border-border/40">
                     {checks.map((c) => (
                       <CheckRow key={`${category}-${c.check_name}`} check={c} />
                     ))}
                   </div>
-                </div>
+                </details>
               ))}
+              <Link
+                to="/scorecards"
+                className="inline-block mt-4 text-xs font-semibold text-indigo-400 hover:text-indigo-300"
+              >
+                Open in Scorecards →
+              </Link>
             </div>
           )}
         </>

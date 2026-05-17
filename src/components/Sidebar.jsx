@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   Package,
+  ClipboardCheck,
   GitBranch,
   BookOpen,
   Workflow,
@@ -28,6 +29,7 @@ const NAV_GROUPS = [
     items: [
       { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
       { label: 'Catalog', path: '/catalog', icon: Package },
+      { label: 'Scorecards', path: '/scorecards', icon: ClipboardCheck },
       { label: 'Dependency Graph', path: '/dependency-graph', icon: GitBranch },
       { label: 'Templates', path: '/templates', icon: BookOpen },
       { label: 'Golden Paths', path: '/golden-paths', icon: Workflow },

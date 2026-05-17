@@ -13,6 +13,7 @@ import StandardsPage from './components/StandardsPage'
 import EntityActionsPage from './components/EntityActionsPage'
 import GoldenPathsPage from './components/GoldenPathsPage'
 import ReportsPage from './components/ReportsPage'
+import ScorecardsPage from './components/ScorecardsPage'
 import DashboardView from './components/DashboardView'
 import TriageView from './components/TriageView'
 import InfraBuilderView from './components/InfraBuilderView'
@@ -138,6 +139,7 @@ function AuthenticatedRoutes() {
         <Route path="/dashboard" element={<PrivateRoute><DashboardView /></PrivateRoute>} />
 
         <Route path="/catalog" element={<PrivateRoute><CatalogPage /></PrivateRoute>} />
+        <Route path="/scorecards" element={<PrivateRoute><ScorecardsPage /></PrivateRoute>} />
         <Route path="/dependency-graph" element={<PrivateRoute><DependencyGraph /></PrivateRoute>} />
         <Route path="/standards" element={<PrivateRoute><StandardsPage /></PrivateRoute>} />
         <Route path="/entity-actions" element={<PrivateRoute><EntityActionsPage /></PrivateRoute>} />
