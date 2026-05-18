@@ -34,6 +34,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  Bot,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -65,6 +66,7 @@ const ICON_MAP = {
   Sparkles,
   Database,
   HardDrive,
+  Bot,
 }
 
 const NAV_GROUPS = [
@@ -76,7 +78,7 @@ const NAV_GROUPS = [
       { label: 'Alert Triage', path: '/alerts', icon: 'Bell' },
       { label: 'Incidents', path: '/incidents', icon: 'AlertTriangle' },
       { label: 'Health', path: '/health', icon: 'HeartPulse' },
-      { label: 'Approvals', path: '/approvals', icon: 'CheckSquare' },
+      { label: 'Approvals', path: '/approvals', icon: 'ShieldCheck' },
     ],
   },
   {
@@ -133,6 +135,7 @@ const NAV_GROUPS = [
     defaultOpen: true,
     items: [
       { label: 'AI Assistant', path: '/ai-assistant', icon: 'Sparkles' },
+      { label: 'Agents', path: '/agents', icon: 'Bot', badgeKey: 'agentApprovals' },
     ],
   },
 ]
@@ -177,12 +180,38 @@ export default function Sidebar({ user, onLogout }) {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadApprovals() {
+      try {
+        const res = await authFetch('/api/agents/approvals')
+        if (!res.ok) {
+          if (!cancelled) setAgentApprovalCount(0)
+          return
+        }
+        const data = await res.json()
+        if (!cancelled) setAgentApprovalCount(Array.isArray(data) ? data.length : 0)
+      } catch {
+        if (!cancelled) setAgentApprovalCount(0)
+      }
+    }
+
+    void loadApprovals()
+    const t = setInterval(() => void loadApprovals(), 15000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
+  }, [authFetch])
+
   const widthClass = collapsed ? (narrow ? 'w-0 border-r-0' : 'w-14') : 'w-60'
   const hiddenOnNarrow = collapsed && narrow
 
-  function NavItem({ label, path, icon }) {
+  function NavItem({ label, path, icon, badgeKey }) {
     const Icon = ICON_MAP[icon] || LayoutDashboard
     const active = isActivePath(location.pathname, path)
+    const badgeCount = badgeKey === 'agentApprovals' ? agentApprovalCount : 0
     return (
       <NavLink
         to={path}
@@ -195,8 +224,22 @@ export default function Sidebar({ user, onLogout }) {
             : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
         }`}
       >
-        <Icon className="w-4 h-4 shrink-0" strokeWidth={2} />
-        {!collapsed && <span className="truncate">{label}</span>}
+        <span className="relative shrink-0">
+          <Icon className="w-4 h-4" strokeWidth={2} />
+          {collapsed && !narrow && badgeCount > 0 && (
+            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500" />
+          )}
+        </span>
+        {!collapsed && (
+          <>
+            <span className="truncate flex-1">{label}</span>
+            {badgeCount > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-amber-500 text-neutral-950 text-[10px] font-bold">
+                {badgeCount > 99 ? '99+' : badgeCount}
+              </span>
+            )}
+          </>
+        )}
       </NavLink>
     )
   }
