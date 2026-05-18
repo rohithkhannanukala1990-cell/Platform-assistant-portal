@@ -119,6 +119,31 @@ export default function DependencyGraph() {
   const [simTick, setSimTick] = useState(0)
   const [addForm, setAddForm] = useState({ from_entity_id: '', to_entity_id: '', dep_type: 'calls' })
   const [saving, setSaving] = useState(false)
+  const [driftResult, setDriftResult] = useState(null)
+  const [driftLoading, setDriftLoading] = useState(false)
+
+  const handleCheckDrift = async () => {
+    setDriftLoading(true)
+    try {
+      const res = await authFetch('/api/agents/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task: 'check dependency drift outdated packages',
+          workspace_id: workspaceId,
+        }),
+      })
+      const data = await res.json()
+      setDriftResult(data)
+    } catch {
+      setDriftResult({
+        status: 'failed',
+        summary: 'Drift check failed',
+      })
+    } finally {
+      setDriftLoading(false)
+    }
+  }
 
   const loadEdges = useCallback(async () => {
     const res = await authFetch('/api/catalog/dependencies')
