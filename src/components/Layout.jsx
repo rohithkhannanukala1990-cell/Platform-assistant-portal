@@ -113,7 +113,11 @@ export default function Layout({ user, onLogout }) {
             ⚠️ {healthWsToast}
           </div>
         )}
-        <TopBar user={user} onOpenCommandPalette={() => setPaletteOpen(true)} />
+        <TopBar
+          user={user}
+          onLogout={onLogout}
+          onOpenCommandPalette={() => setPaletteOpen(true)}
+        />
         <main className="flex-1 overflow-auto p-6">
           <Outlet />
         </main>

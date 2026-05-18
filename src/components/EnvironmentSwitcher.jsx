@@ -79,6 +79,24 @@ const COLOR_DOT = {
   orange: 'bg-orange-500',
 }
 
+const PORTAL_ENV_KEY = 'portal_env'
+
+function readStoredEnv() {
+  try {
+    return localStorage.getItem(PORTAL_ENV_KEY) || 'production'
+  } catch {
+    return 'production'
+  }
+}
+
+function persistEnv(envId) {
+  try {
+    localStorage.setItem(PORTAL_ENV_KEY, envId)
+  } catch {
+    /* ignore */
+  }
+}
+
 function envById(id) {
   return ENVIRONMENTS.find((e) => e.id === id) || ENVIRONMENTS[1]
 }
@@ -98,7 +116,7 @@ export default function EnvironmentSwitcher() {
   const { authFetch } = useAuth()
   const { showToast } = useToast()
   const [isOpen, setIsOpen] = useState(false)
-  const [activeEnv, setActiveEnv] = useState('development')
+  const [activeEnv, setActiveEnv] = useState(() => readStoredEnv())
   const [pendingEnv, setPendingEnv] = useState(null)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
 
@@ -109,8 +127,9 @@ export default function EnvironmentSwitcher() {
       const res = await authFetch('/api/context')
       if (!res.ok) return
       const data = await res.json()
-      const env = (data.active_environment || 'development').toLowerCase()
+      const env = (data.active_environment || readStoredEnv()).toLowerCase()
       setActiveEnv(env)
+      persistEnv(env)
     } catch {
       /* noop */
     }
@@ -124,11 +143,15 @@ export default function EnvironmentSwitcher() {
     const onContextChanged = (ev) => {
       const d = ev.detail || {}
       if (d.context?.active_environment) {
-        setActiveEnv(String(d.context.active_environment).toLowerCase())
+        const env = String(d.context.active_environment).toLowerCase()
+        setActiveEnv(env)
+        persistEnv(env)
         return
       }
       if (d.environment) {
-        setActiveEnv(String(d.environment).toLowerCase())
+        const env = String(d.environment).toLowerCase()
+        setActiveEnv(env)
+        persistEnv(env)
         return
       }
       void fetchContext()
@@ -162,6 +185,7 @@ export default function EnvironmentSwitcher() {
         }
         const data = await res.json()
         setActiveEnv(envId)
+        persistEnv(envId)
         window.dispatchEvent(
           new CustomEvent('context-changed', {
             detail: {

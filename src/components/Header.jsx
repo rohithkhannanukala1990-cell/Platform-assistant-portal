@@ -1,3 +1,6 @@
+// DEPRECATED: Use TopBar.jsx — this file is no longer mounted in Layout.
+// Safe to remove in Sprint 13. Still used by OpsPortal and workspace builder headers.
+
 import { Settings, Shield } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import PersonaSwitcher from './PersonaSwitcher'
