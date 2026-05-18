@@ -14,6 +14,7 @@ import {
   STATUS_COLORS,
   ACTION_TYPE_COLORS,
 } from './entityActionsShared'
+import PermissionGate from './PermissionGate'
 
 function groupByKind(actions) {
   return actions.reduce((acc, action) => {
@@ -47,13 +48,26 @@ function ActionCard({ action, onRun }) {
           <Shield size={12} /> Approval required
         </p>
       )}
-      <button
-        type="button"
-        onClick={onRun}
-        className="mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors"
+      <PermissionGate
+        requiredRole="Developer"
+        fallback={
+          <button
+            type="button"
+            disabled
+            className="mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold opacity-40 cursor-not-allowed"
+          >
+            <Play size={14} /> Run Action
+          </button>
+        }
       >
-        <Play size={14} /> Run Action
-      </button>
+        <button
+          type="button"
+          onClick={onRun}
+          className="mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors"
+        >
+          <Play size={14} /> Run Action
+        </button>
+      </PermissionGate>
     </div>
   )
 }

@@ -42,6 +42,7 @@ import DORAPage from './components/DORAPage'
 import LivePipelinesView from './components/LivePipelinesView'
 import SchemaBrowserView from './components/SchemaBrowserView'
 import DataLineageView from './components/DataLineageView'
+import PermissionGate from './components/PermissionGate'
 
 const OPS_URL_VIEWS = new Set([
   'dashboard',
@@ -154,9 +155,36 @@ function AuthenticatedRoutes() {
         <Route path="/ai-assistant" element={<PrivateRoute><AIAssistant /></PrivateRoute>} />
         <Route path="/integrations" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
         <Route path="/webhooks" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
-        <Route path="/rbac" element={<PrivateRoute><RBACManager /></PrivateRoute>} />
-        <Route path="/tools" element={<PrivateRoute><ToolRegistryView /></PrivateRoute>} />
-        <Route path="/tool-registry" element={<PrivateRoute><ToolRegistryView /></PrivateRoute>} />
+        <Route
+          path="/rbac"
+          element={(
+            <PrivateRoute>
+              <PermissionGate requiredRole="Admin" showFallback>
+                <RBACManager />
+              </PermissionGate>
+            </PrivateRoute>
+          )}
+        />
+        <Route
+          path="/tools"
+          element={(
+            <PrivateRoute>
+              <PermissionGate requiredRole="Admin" showFallback>
+                <ToolRegistryView />
+              </PermissionGate>
+            </PrivateRoute>
+          )}
+        />
+        <Route
+          path="/tool-registry"
+          element={(
+            <PrivateRoute>
+              <PermissionGate requiredRole="Admin" showFallback>
+                <ToolRegistryView />
+              </PermissionGate>
+            </PrivateRoute>
+          )}
+        />
         <Route path="/workspaces" element={<PrivateRoute><WorkspaceBuilder /></PrivateRoute>} />
         <Route path="/cicd" element={<PrivateRoute><CICDView /></PrivateRoute>} />
         <Route path="/live-pipelines" element={<PrivateRoute><LivePipelinesView /></PrivateRoute>} />
@@ -184,8 +212,26 @@ function AuthenticatedRoutes() {
         <Route path="/runbooks" element={<PrivateRoute><RunbooksView /></PrivateRoute>} />
         <Route path="/templates" element={<PrivateRoute><TemplateGallery /></PrivateRoute>} />
         <Route path="/template-gallery" element={<PrivateRoute><TemplateGallery /></PrivateRoute>} />
-        <Route path="/import" element={<PrivateRoute><AccountImportView /></PrivateRoute>} />
-        <Route path="/account-import" element={<PrivateRoute><AccountImportView /></PrivateRoute>} />
+        <Route
+          path="/import"
+          element={(
+            <PrivateRoute>
+              <PermissionGate requiredRole="Admin" showFallback>
+                <AccountImportView />
+              </PermissionGate>
+            </PrivateRoute>
+          )}
+        />
+        <Route
+          path="/account-import"
+          element={(
+            <PrivateRoute>
+              <PermissionGate requiredRole="Admin" showFallback>
+                <AccountImportView />
+              </PermissionGate>
+            </PrivateRoute>
+          )}
+        />
         <Route path="/notifications" element={<PrivateRoute><HistoryPanel /></PrivateRoute>} />
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

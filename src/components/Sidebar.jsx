@@ -154,7 +154,7 @@ export default function Sidebar({ user, onLogout }) {
   const location = useLocation()
   const { role } = useRole()
   const { role: jwtRole } = useAuth()
-  const isAdmin = (jwtRole ?? user?.role) === 'Admin'
+  const isAdmin = ['Admin', 'admin'].includes(String(jwtRole ?? user?.role ?? ''))
 
   const [collapsed, setCollapsed] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
