@@ -15,7 +15,6 @@ import {
   Clock,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { useRole } from '../contexts/RoleContext'
 
 function formatRelative(iso) {
   if (!iso) return '—'
@@ -72,7 +71,7 @@ function SkeletonGrid() {
 
 export default function HealthDashboard() {
   const { authFetch } = useAuth()
-  const { role } = useRole()
+  const { role } = useAuth()
   const navigate = useNavigate()
 
   const [healthData, setHealthData] = useState(null)

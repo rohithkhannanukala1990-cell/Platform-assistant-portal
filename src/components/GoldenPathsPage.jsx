@@ -10,7 +10,6 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalWebSocket } from '../hooks/usePortalWebSocket'
-import { useRole } from '../contexts/RoleContext'
 import { parseConfigSchema, STATUS_COLORS } from './entityActionsShared'
 
 const CATEGORIES = ['All', 'Onboarding', 'Operations', 'Quality', 'DevOps', 'Platform']
@@ -580,7 +579,7 @@ function TemplateCard({ template, onLaunch }) {
 
 export default function GoldenPathsPage() {
   const { authFetch, user } = useAuth()
-  const { role } = useRole()
+  const { role } = useAuth()
   const isAdmin = role === 'Admin'
 
   const [templates, setTemplates] = useState([])

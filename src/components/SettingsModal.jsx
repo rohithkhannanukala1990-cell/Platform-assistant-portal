@@ -24,7 +24,7 @@ const API = `${API_BASE}/api/settings`
 const CLOUD_OPTIONS    = ['GCP', 'AWS', 'Azure', 'DigitalOcean']
 const CICD_OPTIONS     = ['GitHub Actions', 'GitLab CI', 'Jenkins']
 
-export default function SettingsModal({ onClose }) {
+export default function SettingsModal({ onClose, embedded = false }) {
   const [settings, setSettings]   = useState({})
   const [saving, setSaving]       = useState(false)
   const [saved, setSaved]         = useState(false)
@@ -67,11 +67,7 @@ export default function SettingsModal({ onClose }) {
     if (e.target === e.currentTarget) onClose()
   }
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={handleBackdrop}
-    >
+  const panel = (
       <div className="flex flex-col w-full max-w-lg bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden animate-fade-in">
 
         {/* Header */}
@@ -212,6 +208,16 @@ export default function SettingsModal({ onClose }) {
         </div>
 
       </div>
+  )
+
+  if (embedded) return panel
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={handleBackdrop}
+    >
+      {panel}
     </div>
   )
 }

@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from 'react'
@@ -10,6 +11,15 @@ import { X } from 'lucide-react'
 const ToastContext = createContext(null)
 
 let toastId = 0
+let globalToast = null
+
+export function registerGlobalToast(api) {
+  globalToast = api
+}
+
+export function getGlobalToast() {
+  return globalToast
+}
 
 const TYPE_STYLES = {
   success: 'bg-emerald-950/95 border-emerald-500/40 text-emerald-100',
@@ -17,6 +27,9 @@ const TYPE_STYLES = {
   error: 'bg-red-950/95 border-red-500/40 text-red-100',
   info: 'bg-blue-950/95 border-blue-500/40 text-blue-100',
 }
+
+const DURATIONS = { success: 4000, warning: 4000, info: 4000, error: 6000 }
+const MAX_TOASTS = 5
 
 function ToastItem({ message, type, onDismiss }) {
   const cls = TYPE_STYLES[type] || TYPE_STYLES.info
@@ -45,25 +58,44 @@ export function ToastProvider({ children }) {
     setToasts((list) => list.filter((t) => t.id !== id))
   }, [])
 
-  const addToast = useCallback(
-    (message, type = 'success', duration = 4000) => {
+  const push = useCallback(
+    (message, type = 'info') => {
       const id = ++toastId
-      setToasts((list) => [...list, { id, message, type }])
+      const duration = DURATIONS[type] || 4000
+      setToasts((list) => {
+        const next = [...list, { id, message, type }]
+        return next.length > MAX_TOASTS ? next.slice(-MAX_TOASTS) : next
+      })
       window.setTimeout(() => removeToast(id), duration)
       return id
     },
     [removeToast]
   )
 
-  const showToast = useCallback(
-    (message, type = 'info') => addToast(message, type, 3000),
-    [addToast]
+  const toast = useMemo(
+    () => ({
+      success: (msg) => push(msg, 'success'),
+      error: (msg) => push(msg, 'error'),
+      warning: (msg) => push(msg, 'warning'),
+      info: (msg) => push(msg, 'info'),
+    }),
+    [push]
   )
 
   const value = useMemo(
-    () => ({ addToast, showToast, dismiss: removeToast }),
-    [addToast, showToast, removeToast]
+    () => ({
+      toast,
+      addToast: push,
+      showToast: (message, type = 'info') => push(message, type),
+      dismiss: removeToast,
+    }),
+    [toast, push, removeToast]
   )
+
+  useEffect(() => {
+    registerGlobalToast(toast)
+    return () => registerGlobalToast(null)
+  }, [toast])
 
   return (
     <ToastContext.Provider value={value}>

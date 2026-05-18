@@ -21,7 +21,6 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
-import { useRole } from '../contexts/RoleContext'
 import { useToast } from './ToastNotification'
 
 function formatRelativeTime(iso) {
@@ -71,7 +70,7 @@ function AssistantMarkdown({ text }) {
 export default function AIAssistant() {
   const { authFetch } = useAuth()
   const { showToast } = useToast()
-  const { role } = useRole()
+  const { role } = useAuth()
   const isAdmin = role === 'Admin'
   const { activeWorkspace, currentEnvironment, refreshApprovals } = usePortalContext()
 

@@ -6,7 +6,7 @@ import {
   AlertTriangle, CheckCircle2, Loader2, ShieldAlert,
   Zap, Terminal,
 } from 'lucide-react'
-import { useRole } from '../contexts/RoleContext'
+import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
 
 const GATEWAY_URL = `${API_BASE}/api/webhooks/inbound`
@@ -187,7 +187,7 @@ function ActivityRow({ ev }) {
 }
 
 export default function IntegrationsPage() {
-  const { role } = useRole()
+  const { role } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [activity, setActivity]   = useState([])

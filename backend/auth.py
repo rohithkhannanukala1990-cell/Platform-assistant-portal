@@ -18,7 +18,14 @@ from sqlalchemy import Column, String
 from .database import engine
 
 
-VALID_ROLES = {"Admin", "Developer", "DataEngineer", "NetworkEngineer", "DatabaseDeveloper"}
+VALID_ROLES = {"Admin", "User"}
+
+
+def normalize_role(role: str | None) -> str:
+    """Platform has exactly two roles: Admin and User."""
+    if role and str(role).strip() == "Admin":
+        return "Admin"
+    return "User"
 limiter = Limiter(key_func=get_remote_address)
 
 def get_session():
@@ -35,9 +42,10 @@ class User(SQLModel, table=True):
     )
     email: str = Field(default="")
     hashed_password: str
-    role: str = Field(default="Developer")
+    role: str = Field(default="User")
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_login: datetime | None = Field(default=None)
     mfa_secret: str | None = Field(default=None)
     mfa_enabled: bool = Field(default=False)
 
@@ -140,7 +148,7 @@ class UserCreate(BaseModel):
     username: str
     password: str
     email: str = ""
-    role: str = "Developer"
+    role: str = "User"
 
 
 class UserRead(BaseModel):
@@ -297,16 +305,26 @@ def login(
         if not totp_code or not pyotp.TOTP(user.mfa_secret).verify(totp_code):
             raise HTTPException(status_code=401, detail="MFA code required or invalid")
 
-    token = create_access_token(username=user.username, role=user.role)
+    norm_role = normalize_role(user.role)
+    with Session(engine) as session:
+        db_user = session.get(User, user.id)
+        if db_user:
+            db_user.last_login = datetime.now(timezone.utc)
+            if db_user.role != norm_role and db_user.role not in VALID_ROLES:
+                db_user.role = norm_role
+            session.add(db_user)
+            session.commit()
+
+    token = create_access_token(username=user.username, role=norm_role)
     write_audit(
         actor=user.username,
-        actor_role=user.role,
+        actor_role=norm_role,
         event_type="LOGIN",
         resource="auth",
         detail="User logged in",
         ip_address=(request.client.host if request.client else ""),
     )
-    return Token(access_token=token, role=user.role, username=user.username)
+    return Token(access_token=token, role=norm_role, username=user.username)
 
 
 @auth_router.post("/mfa/setup")
@@ -340,7 +358,13 @@ def verify_mfa(totp_code: str, current_user: User = Depends(get_current_user)):
 
 @auth_router.get("/me", response_model=UserRead)
 def me(user: User = Depends(get_current_user)):
-    return UserRead(id=user.id, username=user.username, email=user.email, role=user.role, is_active=user.is_active)
+    return UserRead(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        role=normalize_role(user.role),
+        is_active=user.is_active,
+    )
 
 
 @auth_router.post("/users", response_model=UserRead)
@@ -349,7 +373,8 @@ def create_user(
     body: UserCreate,
     admin: User = Depends(require_admin),
 ):
-    if body.role not in VALID_ROLES:
+    norm_role = normalize_role(body.role)
+    if norm_role not in VALID_ROLES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
     with Session(engine) as session:
         existing = session.exec(select(User).where(User.username == body.username)).first()
@@ -359,7 +384,7 @@ def create_user(
             username=body.username,
             email=body.email,
             hashed_password=hash_password(body.password),
-            role=body.role,
+            role=norm_role,
             is_active=True,
             created_at=datetime.now(timezone.utc),
         )

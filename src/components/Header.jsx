@@ -3,7 +3,6 @@
 
 import { Settings, Shield } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import PersonaSwitcher from './PersonaSwitcher'
 import NotificationDropdown from './NotificationDropdown'
 import UserMenu from './UserMenu'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
@@ -46,8 +45,6 @@ export default function Header({
       )}
 
       <div className="flex items-center gap-3 shrink-0 justify-end">
-        <PersonaSwitcher />
-
         {pendingApprovalCount > 0 && (
           <button
             type="button"

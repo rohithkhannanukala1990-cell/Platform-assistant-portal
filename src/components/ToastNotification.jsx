@@ -1,2 +1,2 @@
-/** @deprecated Import from ../contexts/ToastContext — kept for existing imports */
+/** Re-export toast API — implementation lives in ToastContext */
 export { ToastProvider, useToast } from '../contexts/ToastContext'

@@ -27,7 +27,6 @@ import TemplateGallery from './TemplateGallery'
 import RBACManager from './RBACManager'
 import AIAssistant from './AIAssistant'
 import { useToast } from './ToastNotification'
-import { useRole } from '../contexts/RoleContext'
 import { useAuth } from '../contexts/AuthContext'
 import { setPortalContextHeaders } from '../utils/portalContextHeaders'
 import { usePermissions } from '../hooks/usePermissions'
@@ -105,7 +104,7 @@ export const OPS_NAV_ITEMS = [
 ]
 
 function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
-  const { role } = useRole()
+  const { role } = useAuth()
   const { authFetch } = useAuth()
   const { showToast } = useToast()
   const { isAdmin } = usePermissions()

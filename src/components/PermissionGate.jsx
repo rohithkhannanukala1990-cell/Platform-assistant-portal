@@ -1,52 +1,29 @@
 import { useAuth } from '../contexts/AuthContext'
-import { useRole } from '../contexts/RoleContext'
 import { usePermissions } from '../hooks/usePermissions'
 
-/**
- * Portal JWT roles (AuthContext / RoleContext): Admin, Developer, DataEngineer,
- * NetworkEngineer, DatabaseDeveloper.
- * RBAC API roles (rbac.py seeds): viewer, operator, admin, superadmin — resource:action grants.
- */
+/** Portal roles: Admin | User only */
 const ROLE_RANK = {
-  Viewer: 0,
-  viewer: 0,
-  DatabaseDeveloper: 0,
-  Developer: 1,
-  developer: 1,
-  DataEngineer: 1,
-  DevOps: 2,
-  Operator: 2,
-  operator: 2,
-  NetworkEngineer: 2,
-  Admin: 3,
-  admin: 3,
-  superadmin: 4,
-  'Super Admin': 4,
+  User: 0,
+  Admin: 1,
+  admin: 1,
 }
 
 const ADMIN_ONLY = ['rbac', 'account-import', 'tool-registry-write']
-
-const DEVOPS_PLUS = ['infra', 'cicd-write', 'deployments-write', 'workspaces-write']
 
 function roleRank(role) {
   if (!role) return 0
   const key = String(role).trim()
   if (ROLE_RANK[key] !== undefined) return ROLE_RANK[key]
-  const lower = key.toLowerCase()
-  if (ROLE_RANK[lower] !== undefined) return ROLE_RANK[lower]
-  return 0
+  return key === 'Admin' ? 1 : 0
 }
 
 export function hasPermission(userRole, requiredRole) {
-  const req = roleRank(requiredRole)
-  if (req === 0 && requiredRole && !ROLE_RANK[String(requiredRole).trim()]) {
-    return false
-  }
-  return roleRank(userRole) >= req
+  if (requiredRole === 'Admin') return roleRank(userRole) >= 1
+  return true
 }
 
 function isElevatedAdmin(role) {
-  return roleRank(role) >= roleRank('Admin')
+  return roleRank(role) >= 1
 }
 
 function PermissionDenied({ requiredRole, resource }) {
@@ -58,7 +35,7 @@ function PermissionDenied({ requiredRole, resource }) {
       <p className="text-sm font-medium">Permission Required</p>
       <p className="text-xs text-slate-600 text-center max-w-sm px-4">
         {requiredRole
-          ? `Requires ${requiredRole} role or above`
+          ? `Requires ${requiredRole} role`
           : resource
             ? `You do not have access to ${resource}`
             : 'You do not have access to this feature'}
@@ -75,11 +52,10 @@ function PermissionGate({
   fallback = null,
   showFallback = false,
 }) {
-  const { role: jwtRole, user } = useAuth()
-  const { role: contextRole } = useRole()
+  const { role, user } = useAuth()
   const { can } = usePermissions()
 
-  const effectiveRole = jwtRole || contextRole || user?.role || 'Viewer'
+  const effectiveRole = role || user?.role || 'User'
 
   let allowed = true
 
@@ -88,8 +64,6 @@ function PermissionGate({
   } else if (resource) {
     if (ADMIN_ONLY.includes(resource)) {
       allowed = isElevatedAdmin(effectiveRole)
-    } else if (DEVOPS_PLUS.includes(resource)) {
-      allowed = roleRank(effectiveRole) >= roleRank('Operator')
     }
   }
 

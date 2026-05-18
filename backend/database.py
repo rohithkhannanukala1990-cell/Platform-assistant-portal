@@ -441,6 +441,19 @@ class ToolConnection(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class UserAgentPermission(SQLModel, table=True):
+    """Per-user agent access levels (observe | execute | automate)."""
+
+    __tablename__ = "user_agent_permissions"
+    __table_args__ = (UniqueConstraint("user_id", "agent_name", name="uq_user_agent"),)
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    user_id: int = Field(index=True)
+    agent_name: str = Field(index=True)
+    permission_level: str = Field(default="observe")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class AgentRun(SQLModel, table=True):
     """Persisted agent pipeline runs (HITL approvals)."""
 
@@ -924,6 +937,7 @@ def _migrate():
         ("incident",     "proposed_remediation_plan",   "TEXT",    "NULL"),
         ("incident",     "agent_execution_logs",        "TEXT",    "NULL"),
         ("notification", "incident_id",                 "INTEGER", "NULL"),
+        ("user",         "last_login",                  "TIMESTAMP", "NULL"),
     ]
     with Session(engine) as session:
         for table, col, col_type, default in migrations:

@@ -35,7 +35,6 @@ import {
   ChevronRight,
   ChevronDown,
 } from 'lucide-react'
-import { useRole } from '../contexts/RoleContext'
 import { useAuth } from '../contexts/AuthContext'
 
 const ICON_MAP = {
@@ -152,9 +151,8 @@ function isActivePath(pathname, itemPath) {
 
 export default function Sidebar({ user, onLogout }) {
   const location = useLocation()
-  const { role } = useRole()
-  const { role: jwtRole } = useAuth()
-  const isAdmin = ['Admin', 'admin'].includes(String(jwtRole ?? user?.role ?? ''))
+  const { role } = useAuth()
+  const isAdmin = role === 'Admin'
 
   const [collapsed, setCollapsed] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
@@ -223,6 +221,24 @@ export default function Sidebar({ user, onLogout }) {
           collapsed && !narrow ? 'px-1' : ''
         } ${hiddenOnNarrow ? 'invisible' : ''}`}
       >
+        {isAdmin && (
+          <nav className="mb-3 px-2">
+            <NavLink
+              to="/admin"
+              title={collapsed ? 'Admin Console' : undefined}
+              className={`flex items-center gap-3 py-2 rounded-lg text-sm transition-colors ${
+                collapsed && !narrow ? 'justify-center px-2' : 'px-3'
+              } ${
+                location.pathname === '/admin'
+                  ? 'bg-violet-600 text-white font-medium'
+                  : 'text-violet-300 hover:bg-neutral-800 hover:text-white border border-violet-500/30'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4 shrink-0" strokeWidth={2} />
+              {!collapsed && !hiddenOnNarrow && <span className="truncate">Admin Console</span>}
+            </NavLink>
+          </nav>
+        )}
         {NAV_GROUPS.map((group) => {
           if (group.adminOnly && !isAdmin) return null
 

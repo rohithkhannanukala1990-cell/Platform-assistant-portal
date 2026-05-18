@@ -20,7 +20,6 @@ import {
   Filter,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { useRole } from '../contexts/RoleContext'
 import { useToast } from './ToastNotification'
 
 const MOCK_USERS = [
@@ -56,7 +55,7 @@ function emptyCreateForm() {
 
 export default function RBACManager() {
   const { authFetch } = useAuth()
-  const { role } = useRole()
+  const { role } = useAuth()
   const { showToast } = useToast()
   const isAdmin = role === 'Admin'
 

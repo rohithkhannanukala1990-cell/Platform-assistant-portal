@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, ChevronRight, Zap, Shield } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
-import PersonaSwitcher from './PersonaSwitcher'
 import EnvironmentSwitcher from './EnvironmentSwitcher'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
 import AccountSwitcher from './AccountSwitcher'
@@ -208,7 +207,6 @@ export default function TopBar({ user, onLogout, onOpenCommandPalette }) {
       </button>
 
       <div className="flex items-center gap-2 shrink-0">
-        <PersonaSwitcher />
         <AccountSwitcher toolId={headerToolId} onAccountChanged={() => {}} />
 
         {pendingApprovalCount > 0 && (

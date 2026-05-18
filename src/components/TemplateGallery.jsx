@@ -25,7 +25,6 @@ import {
   ChevronUp,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { useRole } from '../contexts/RoleContext'
 import { useToast } from './ToastNotification'
 import { PermissionGate } from './PermissionGate'
 
@@ -121,7 +120,7 @@ function formatHints(hints) {
 
 export default function TemplateGallery() {
   const { authFetch } = useAuth()
-  const { role } = useRole()
+  const { role } = useAuth()
   const { showToast } = useToast()
   const navigate = useNavigate()
   const isAdmin = role === 'Admin'

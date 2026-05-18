@@ -2,9 +2,8 @@ import { useState, useCallback, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 
-import { RoleProvider } from './contexts/RoleContext'
-import { ToastProvider } from './contexts/ToastContext'
 import { useAuth } from './contexts/AuthContext'
+import AdminDashboard from './components/admin/AdminDashboard'
 
 import Layout from './components/Layout'
 import LoginPage from './components/LoginPage'
@@ -59,8 +58,8 @@ const OPS_URL_VIEWS = new Set([
   'import',
 ])
 
-function PrivateRoute({ children }) {
-  const { isAuthenticated, loading } = useAuth()
+function PrivateRoute({ children, adminOnly = false }) {
+  const { isAuthenticated, loading, role } = useAuth()
   const location = useLocation()
 
   if (loading) {
@@ -73,6 +72,10 @@ function PrivateRoute({ children }) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
+  if (adminOnly && role !== 'Admin') {
+    return <Navigate to="/dashboard" replace />
   }
 
   return children
@@ -130,6 +133,15 @@ function AuthenticatedRoutes() {
       <Route
         path="/login"
         element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />}
+      />
+
+      <Route
+        path="/admin"
+        element={(
+          <PrivateRoute adminOnly>
+            <AdminDashboard />
+          </PrivateRoute>
+        )}
       />
 
       <Route
@@ -243,11 +255,7 @@ function AuthenticatedRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <ToastProvider>
-        <RoleProvider>
-          <AuthenticatedRoutes />
-        </RoleProvider>
-      </ToastProvider>
+      <AuthenticatedRoutes />
     </BrowserRouter>
   )
 }

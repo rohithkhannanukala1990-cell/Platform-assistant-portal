@@ -5,7 +5,7 @@ import TopBar from './TopBar'
 import CommandPalette from './CommandPalette'
 import ChatBot from './ChatBot'
 import { API_BASE } from '../config/apiBase'
-import { useRole } from '../contexts/RoleContext'
+import { useAuth } from '../contexts/AuthContext'
 
 function buildPortalWsUrl() {
   if (!API_BASE) {
@@ -26,7 +26,7 @@ function buildPortalWsUrl() {
 }
 
 export default function Layout({ user, onLogout }) {
-  const { role } = useRole()
+  const { role } = useAuth()
   const navigate = useNavigate()
   const [criticalHealthBanner, setCriticalHealthBanner] = useState(null)
   const [healthWsToast, setHealthWsToast] = useState(null)

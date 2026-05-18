@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { getPortalContextHeaders } from '../utils/portalContextHeaders'
 import { API_BASE } from '../config/apiBase'
+import { getGlobalToast } from './ToastContext'
 
 // ── PRIVATE HELPERS (not exported) ────────────────────────────────────────────
 function parseJWT(token) {
@@ -45,7 +46,7 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => loadStoredToken())
   const [user, setUser] = useState(null)
-  const [role, setRole] = useState(null) // ALWAYS from server, NEVER computed client-side
+  const [role, setAuthRole] = useState(null) // ALWAYS from server, NEVER computed client-side
   const [loading, setLoading] = useState(() => !!loadStoredToken())
   const [error, setError] = useState(null)
 
@@ -57,7 +58,7 @@ export function AuthProvider({ children }) {
     }
     setToken(null)
     setUser(null)
-    setRole(null)
+    setAuthRole(null)
   }, [])
 
   useEffect(() => {
@@ -83,7 +84,7 @@ export function AuthProvider({ children }) {
         if (cancelled) return
 
         setUser(data)
-        setRole(data.role ?? null)
+        setAuthRole(data.role ?? null)
       } catch {
         if (cancelled) return
         logout()
@@ -131,7 +132,7 @@ export function AuthProvider({ children }) {
 
       setToken(data.access_token)
       setUser({ username: data.username, role: data.role })
-      setRole(data.role)
+      setAuthRole(data.role)
 
       return { success: true, role: data.role }
     } catch (e) {
@@ -153,6 +154,7 @@ export function AuthProvider({ children }) {
 
       const res = await fetch(fullUrl, { ...options, headers })
       if (res.status === 401) {
+        getGlobalToast()?.error?.('Session expired')
         logout()
         throw new Error('Session expired')
       }

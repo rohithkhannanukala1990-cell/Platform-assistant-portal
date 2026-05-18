@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useRole } from '../contexts/RoleContext'
+import { useAuth } from '../contexts/AuthContext'
 import {
   History,
   AlertTriangle, AlertCircle, Info,
@@ -137,7 +137,7 @@ function CICDRow({ item, selected, onClick }) {
 }
 
 export default function HistoryPanel({ versions, onSelect, selectedIds, activeView }) {
-  const { role }                    = useRole()
+  const { role } = useAuth()
   const [activeTab, setActiveTab]   = useState('alerts')
   const [data, setData]             = useState({ alerts: [], infra: [], cicd: [] })
   const [loading, setLoading]       = useState(false)

@@ -15,7 +15,6 @@ import {
   Filter,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { useRole } from '../contexts/RoleContext'
 
 const CATEGORIES = [
   { id: 'cloud', label: 'Cloud Providers', icon: '☁️' },
@@ -148,7 +147,7 @@ function statusDotClass(agg) {
 
 export default function ToolRegistryView() {
   const { authFetch } = useAuth()
-  const { role } = useRole()
+  const { role } = useAuth()
 
   const [tools, setTools] = useState({})
   const [accounts, setAccounts] = useState({})

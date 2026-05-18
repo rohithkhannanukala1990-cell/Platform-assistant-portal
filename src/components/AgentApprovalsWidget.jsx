@@ -4,7 +4,6 @@ import {
   ChevronDown, ChevronUp, Clock, AlertTriangle, Terminal,
   Sparkles, ShieldX,
 } from 'lucide-react'
-import { useRole } from '../contexts/RoleContext'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import { usePortalWebSocket } from '../hooks/usePortalWebSocket'
@@ -225,7 +224,7 @@ function AIHitlExecutionCard({ ex, onRemoved, authFetch, refreshApprovals, showT
 }
 
 function ApprovalCard({ incident, onApprove, onReject }) {
-  const { role } = useRole()
+  const { role } = useAuth()
   const { authFetch } = useAuth()
   const [expanded,  setExpanded]  = useState(false)
   const [approving, setApproving] = useState(false)
@@ -517,10 +516,16 @@ function AgentPipelineApprovalCard({ run, authFetch, onDone, showToast }) {
 }
 
 export default function AgentApprovalsWidget({ roleFilter = null }) {
-  const { role } = useRole()
+  const { role } = useAuth()
   const { authFetch, user } = useAuth()
   const { refreshApprovals } = usePortalContext()
-  const { showToast } = useToast()
+  const { toast } = useToast()
+  const showToast = (msg, type) => {
+    if (type === 'error') toast.error(msg)
+    else if (type === 'warning') toast.warning(msg)
+    else if (type === 'info') toast.info(msg)
+    else toast.success(msg)
+  }
   // roleFilter prop pins the widget to a specific role regardless of the active persona.
   // e.g. DatabasePortal passes roleFilter="DatabaseDeveloper" so it always shows DB incidents.
   const effectiveRole = roleFilter ?? role
