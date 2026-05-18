@@ -1,11 +1,10 @@
-"""Security scanning agent — read-only analysis."""
+"""Security scanning agent — AWS Security Hub findings."""
 
 from __future__ import annotations
 
-import json
-
 from sqlmodel import Session
 
+from ..connectors.aws_connector import AWSConnector
 from ..context import PlatformContext
 from .base import AgentResult, BaseAgent
 
@@ -18,6 +17,8 @@ SECURITY_SOURCES = {
     "falco", "snyk", "dependabot", "trivy", "grype",
     "prisma", "aqua", "sysdig", "checkov", "semgrep",
 }
+
+_ACCOUNT: dict = {}
 
 
 def is_security_source(source: str) -> bool:
@@ -36,21 +37,53 @@ class SecurityAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
-        scan_target = params.get("scan_target") or params.get("task") or "service"
-        scan_type = params.get("scan_type") or "full"
-        prompt = (
-            f"{SECURITY_SYSTEM_PROMPT}\n"
-            f"Scan target: {scan_target}\nScan type: {scan_type}\n"
-            f"Environment: {context.environment}"
+        findings: list = []
+        try:
+            findings = await AWSConnector(_ACCOUNT).list_security_findings()
+        except Exception:
+            findings = []
+
+        critical = [f for f in findings if (f.get("severity") or "").upper() == "CRITICAL"]
+        high = [f for f in findings if (f.get("severity") or "").upper() == "HIGH"]
+        critical_count = len(critical)
+        high_count = len(high)
+
+        requires = critical_count > 0
+        summary = (
+            f"{critical_count} critical and {high_count} high security findings"
+            if findings
+            else "No critical/high security findings"
         )
-        raw = await self._call_llm(prompt, context)
-        parsed = self._parse_llm_json(raw)
+
+        if requires:
+            return self._build_result(
+                context,
+                status="pending_approval",
+                summary=summary,
+                details={
+                    "findings": findings[:50],
+                    "critical_count": critical_count,
+                    "high_count": high_count,
+                },
+                requires_approval=True,
+                approval_payload={
+                    "action": "remediate_security_findings",
+                    "critical_count": critical_count,
+                    "finding_ids": [f.get("title") for f in critical[:10]],
+                },
+                execution_log="Critical findings require approval before remediation",
+            )
+
         return self._build_result(
             context,
             status="success",
-            summary=str(parsed.get("summary") or "Security scan completed"),
-            details={"findings": parsed, "scan_target": scan_target, "scan_type": scan_type},
-            execution_log="Read-only security analysis — no commands executed",
+            summary=summary,
+            details={
+                "findings": findings[:50],
+                "critical_count": critical_count,
+                "high_count": high_count,
+            },
+            execution_log="Read-only security analysis — no remediation executed",
         )
 
 
