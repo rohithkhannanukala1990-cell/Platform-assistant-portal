@@ -26,6 +26,8 @@ import AIAssistant from './components/AIAssistant'
 import HealthDashboard from './components/HealthDashboard'
 import AgentApprovalsWidget from './components/AgentApprovalsWidget'
 import AgentRunnerPanel from './components/AgentRunnerPanel'
+import CodeEditor from './components/CodeEditor'
+import Terminal from './components/Terminal'
 import QueryAnalyzerView from './components/QueryAnalyzerView'
 import OpsPortal from './components/OpsPortal'
 import DeveloperPortal from './components/DeveloperPortal'
@@ -212,6 +214,8 @@ function AuthenticatedRoutes() {
         <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
         <Route path="/health" element={<PrivateRoute><HealthDashboard /></PrivateRoute>} />
         <Route path="/agents" element={<PrivateRoute><AgentRunnerPanel /></PrivateRoute>} />
+        <Route path="/editor" element={<PrivateRoute><CodeEditor /></PrivateRoute>} />
+        <Route path="/terminal" element={<PrivateRoute><Terminal /></PrivateRoute>} />
         <Route path="/approvals" element={<PrivateRoute><AgentApprovalsWidget /></PrivateRoute>} />
         <Route path="/db-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
 

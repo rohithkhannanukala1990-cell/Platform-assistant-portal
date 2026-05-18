@@ -35,6 +35,8 @@ import {
   ChevronRight,
   ChevronDown,
   Bot,
+  Code2,
+  TerminalSquare,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -67,6 +69,8 @@ const ICON_MAP = {
   Database,
   HardDrive,
   Bot,
+  Code2,
+  TerminalSquare,
 }
 
 const NAV_GROUPS = [
@@ -136,6 +140,8 @@ const NAV_GROUPS = [
     items: [
       { label: 'AI Assistant', path: '/ai-assistant', icon: 'Sparkles' },
       { label: 'Agents', path: '/agents', icon: 'Bot', badgeKey: 'agentApprovals' },
+      { label: 'Code Editor', path: '/editor', icon: 'Code2' },
+      { label: 'Terminal', path: '/terminal', icon: 'TerminalSquare' },
     ],
   },
 ]

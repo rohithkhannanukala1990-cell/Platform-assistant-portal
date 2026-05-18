@@ -181,3 +181,130 @@ async def send_to_user(user_id: str, payload: dict) -> None:
             await ws.send_json(payload)
         except Exception:
             pass
+
+
+BLOCKED_PATTERNS = [
+    r"rm\s+-rf\s+/",
+    r"DROP\s+TABLE",
+    r"DROP\s+DATABASE",
+    r"kubectl\s+delete\s+namespace",
+    r"mkfs\.",
+    r"dd\s+if=",
+    r">\s+/dev/sd",
+    r"chmod\s+777\s+/",
+    r"shutdown",
+    r"reboot",
+    r"halt",
+]
+
+
+def _is_blocked(command: str) -> bool:
+    import re
+
+    for pattern in BLOCKED_PATTERNS:
+        if re.search(pattern, command, re.IGNORECASE):
+            return True
+    return False
+
+
+@router.websocket("/ws/terminal")
+async def terminal_ws(
+    websocket: WebSocket,
+    token: str = Query(default=""),
+):
+    user = _authenticate_ws_token(token)
+    if not user:
+        await websocket.accept()
+        await websocket.send_json({
+            "type": "error",
+            "message": "Unauthorized",
+        })
+        await websocket.close()
+        return
+
+    await websocket.accept()
+    await websocket.send_json({
+        "type": "output",
+        "data": (
+            f"Platform Assistant Terminal\r\n"
+            f"User: {user.username}\r\n"
+            f"Type 'help' for available commands.\r\n$ "
+        ),
+    })
+
+    while True:
+        try:
+            msg = await asyncio.wait_for(
+                websocket.receive_text(), timeout=300.0
+            )
+        except asyncio.TimeoutError:
+            await websocket.send_json({
+                "type": "output",
+                "data": "\r\nSession timed out (5 min idle).\r\n",
+            })
+            break
+        except WebSocketDisconnect:
+            break
+
+        command = msg.strip()
+        if not command:
+            await websocket.send_json({"type": "output", "data": "$ "})
+            continue
+
+        if command.lower() == "help":
+            await websocket.send_json({
+                "type": "output",
+                "data": (
+                    "\r\nAvailable: kubectl, helm, terraform,"
+                    " git, aws, npm, pip\r\n"
+                    "Commands are validated before execution.\r\n$ "
+                ),
+            })
+            continue
+
+        if _is_blocked(command):
+            await websocket.send_json({
+                "type": "output",
+                "data": (
+                    f"\r\n🚫 Blocked: '{command}' is not permitted."
+                    f"\r\n$ "
+                ),
+            })
+            continue
+
+        from .command_validator import CommandValidator
+
+        check = CommandValidator.validate([command])
+        if not check.safe:
+            violations = "; ".join(check.violations or [])
+            await websocket.send_json({
+                "type": "output",
+                "data": f"\r\n⛔ Validation failed: {violations}\r\n$ ",
+            })
+            continue
+
+        from .executor.safe_executor import safe_executor
+
+        try:
+            result = await safe_executor.execute(
+                [command],
+                incident_id=0,
+                approved_by=user.username,
+            )
+            logs = result.get("logs") or ""
+            success = result.get("success", False)
+            status = "" if success else "\r\n[non-zero exit]"
+            await websocket.send_json({
+                "type": "output",
+                "data": f"\r\n{logs}{status}\r\n$ ",
+            })
+        except Exception as exc:
+            await websocket.send_json({
+                "type": "output",
+                "data": f"\r\nError: {exc}\r\n$ ",
+            })
+
+    try:
+        await websocket.close()
+    except Exception:
+        pass
