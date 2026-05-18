@@ -1,4 +1,4 @@
-"""Agent registry — 16 specialist agents."""
+"""Agent registry — 17 specialist agents."""
 
 from .alert_noise_agent import alert_noise_agent
 from .auto_heal_agent import auto_heal_agent
