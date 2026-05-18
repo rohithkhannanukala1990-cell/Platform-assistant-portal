@@ -234,6 +234,7 @@ class Workspace(SQLModel, table=True):
     is_active: int = Field(default=1)
     is_pinned: int = Field(default=0)
     created_by: Optional[str] = Field(default="admin")
+    canvas_json: str = Field(default="{}", sa_column=Column(Text))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -938,6 +939,7 @@ def _migrate():
         ("incident",     "agent_execution_logs",        "TEXT",    "NULL"),
         ("notification", "incident_id",                 "INTEGER", "NULL"),
         ("user",         "last_login",                  "TIMESTAMP", "NULL"),
+        ("workspaces",   "canvas_json",                 "TEXT",    "'{}'"),
     ]
     with Session(engine) as session:
         for table, col, col_type, default in migrations:

@@ -12,10 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from ..auth import User, get_current_user
+from ..auth import User, get_current_user, get_session
 from ..database import (
     Tool,
     ToolAccount,
+    ToolConnection,
     ToolConnectionLog,
     Workspace,
     WorkspaceMember,
@@ -58,6 +59,19 @@ class WorkspaceToolsReorderBody(BaseModel):
     """Ordered list of `workspace_tools.id` row IDs (display_order set by index)."""
 
     tool_ids: List[str] = Field(..., description="Ordered workspace_tools row IDs")
+
+
+class CanvasTool(BaseModel):
+    tool_id: str
+    account_alias: str
+    account_name: str
+    x: float = 0.0
+    y: float = 0.0
+    status: str = "connected"
+
+
+class CanvasState(BaseModel):
+    tools: list[CanvasTool] = []
 
 
 def _now() -> datetime:
@@ -508,3 +522,63 @@ def duplicate_workspace(workspace_id: str, current_user: User = Depends(get_curr
         session.commit()
         session.refresh(clone)
         return _workspace_base_dict(clone)
+
+
+@router.get("/{workspace_id}/canvas", response_model=CanvasState)
+async def get_canvas(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    row = session.get(Workspace, workspace_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    try:
+        data = json.loads(row.canvas_json or "{}")
+        return CanvasState(**data)
+    except Exception:
+        return CanvasState(tools=[])
+
+
+@router.patch("/{workspace_id}/canvas", response_model=CanvasState)
+async def update_canvas(
+    workspace_id: str,
+    body: CanvasState,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    row = session.get(Workspace, workspace_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    row.canvas_json = body.model_dump_json()
+    row.updated_at = datetime.now(timezone.utc)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    try:
+        return CanvasState(**json.loads(row.canvas_json))
+    except Exception:
+        return body
+
+
+@router.get("/{workspace_id}/tools/{tool_id}/accounts")
+async def list_tool_accounts(
+    workspace_id: str,
+    tool_id: str,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    rows = session.exec(
+        select(ToolConnection).where(
+            ToolConnection.workspace_id == workspace_id,
+            ToolConnection.tool_id == tool_id,
+        )
+    ).all()
+    return [
+        {
+            "account_alias": r.account_alias,
+            "account_name": r.account_name,
+            "status": r.status,
+        }
+        for r in rows
+    ]

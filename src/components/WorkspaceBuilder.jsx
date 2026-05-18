@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Plus,
   Edit2,
@@ -28,6 +28,116 @@ import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import { useToast } from './ToastNotification'
 import { PermissionGate } from './PermissionGate'
+
+function debounce(fn, wait) {
+  let t
+  return (...args) => {
+    clearTimeout(t)
+    t = setTimeout(() => fn(...args), wait)
+  }
+}
+
+function ToolCard({ tool, onSwitchAccount, onRunAgent, onRemove }) {
+  const statusColor = tool.status === 'connected' ? 'text-green-400' : 'text-red-400'
+
+  return (
+    <div className="bg-gray-800 border border-gray-600 rounded-xl p-4 w-56 shadow-lg select-none">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-white font-semibold capitalize">{tool.tool_id}</span>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="text-gray-500 hover:text-red-400 text-xs"
+          aria-label="Remove tool"
+        >
+          ✕
+        </button>
+      </div>
+      <div className="text-xs text-gray-400 mb-1">
+        Account: <span className="text-gray-200">{tool.account_name}</span>
+      </div>
+      <div className={`text-xs mb-3 ${statusColor}`}>
+        {tool.status === 'connected' ? '● Connected' : '● Disconnected'}
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onSwitchAccount}
+          className="flex-1 text-xs bg-gray-700 hover:bg-gray-600 text-white rounded px-2 py-1"
+        >
+          Switch Account ▾
+        </button>
+        <button
+          type="button"
+          onClick={onRunAgent}
+          className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded px-2 py-1"
+        >
+          Run Agent ▶
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AccountSelectorModal({ toolId, workspaceId, onSelect, onClose }) {
+  const { authFetch } = useAuth()
+  const [accounts, setAccounts] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    authFetch(`/api/workspaces/${workspaceId}/tools/${toolId}/accounts`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (cancelled) return
+        setAccounts(Array.isArray(data) ? data : [])
+        setLoading(false)
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [authFetch, toolId, workspaceId])
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-gray-800 rounded-xl p-6 w-80 shadow-2xl">
+        <h3 className="text-white font-semibold mb-4">Select Account — {toolId}</h3>
+        {loading && <p className="text-gray-400 text-sm">Loading accounts…</p>}
+        {!loading && accounts.length === 0 && (
+          <p className="text-gray-400 text-sm">No accounts connected for {toolId}.</p>
+        )}
+        {accounts.map((acc) => (
+          <button
+            key={acc.account_alias}
+            type="button"
+            onClick={() => onSelect(acc)}
+            className="w-full text-left px-4 py-3 rounded-lg bg-gray-700 hover:bg-indigo-700 text-white text-sm mb-2"
+          >
+            <span className="font-medium">{acc.account_name}</span>
+            <span className="text-gray-400 ml-2 text-xs">({acc.account_alias})</span>
+            <span
+              className={`float-right text-xs ${
+                acc.status === 'connected' ? 'text-green-400' : 'text-red-400'
+              }`}
+            >
+              {acc.status}
+            </span>
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-2 w-full text-gray-400 hover:text-white text-sm py-2"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
 
 const ENV_OPTIONS = [
   { id: 'local', label: 'Local' },
@@ -107,9 +217,11 @@ function envBadge(env) {
 
 export default function WorkspaceBuilder() {
   const { authFetch } = useAuth()
-  const { showToast } = useToast()
+  const { showToast, toast } = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const { setActiveWorkspace, refetchPinnedWorkspaces } = usePortalContext()
+  const canvasRef = useRef(null)
 
   const [view, setView] = useState('list')
   const [workspaces, setWorkspaces] = useState([])
@@ -130,6 +242,117 @@ export default function WorkspaceBuilder() {
   const [editTagDraft, setEditTagDraft] = useState('')
   const [filterPinnedOnly, setFilterPinnedOnly] = useState(false)
   const [accountPick, setAccountPick] = useState({})
+  const [canvasTools, setCanvasTools] = useState([])
+  const [accountModal, setAccountModal] = useState(null)
+
+  const workspaceId = selectedWorkspace?.id || null
+
+  useEffect(() => {
+    if (!workspaceId) {
+      setCanvasTools([])
+      return
+    }
+    let cancelled = false
+    authFetch(`/api/workspaces/${workspaceId}/canvas`)
+      .then((r) => (r.ok ? r.json() : { tools: [] }))
+      .then((data) => {
+        if (!cancelled) setCanvasTools(Array.isArray(data.tools) ? data.tools : [])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [authFetch, workspaceId])
+
+  const saveCanvas = useMemo(
+    () =>
+      debounce((wsId, tools) => {
+        if (!wsId) return
+        authFetch(`/api/workspaces/${wsId}/canvas`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tools }),
+        }).catch(() => {})
+      }, 800),
+    [authFetch]
+  )
+
+  useEffect(() => {
+    if (!workspaceId) return
+    saveCanvas(workspaceId, canvasTools)
+  }, [canvasTools, workspaceId, saveCanvas])
+
+  const addToolToCanvas = useCallback((toolId, account, x, y) => {
+    setCanvasTools((prev) => [
+      ...prev,
+      {
+        tool_id: toolId,
+        account_alias: account.account_alias,
+        account_name: account.account_name,
+        status: account.status,
+        x,
+        y,
+      },
+    ])
+  }, [])
+
+  const handleToolDrop = useCallback(
+    (toolId, x, y) => {
+      if (!workspaceId) return
+      authFetch(`/api/workspaces/${workspaceId}/tools/${toolId}/accounts`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((accounts) => {
+          const list = Array.isArray(accounts) ? accounts : []
+          if (list.length === 1) {
+            addToolToCanvas(toolId, list[0], x, y)
+          } else if (list.length > 1) {
+            setAccountModal({ toolId, x, y })
+          } else {
+            addToolToCanvas(
+              toolId,
+              {
+                account_alias: 'default',
+                account_name: 'Not configured',
+                status: 'disconnected',
+              },
+              x,
+              y
+            )
+          }
+        })
+        .catch(() => {
+          addToolToCanvas(
+            toolId,
+            {
+              account_alias: 'default',
+              account_name: 'Not configured',
+              status: 'disconnected',
+            },
+            x,
+            y
+          )
+        })
+    },
+    [authFetch, workspaceId, addToolToCanvas]
+  )
+
+  const onCanvasDragOver = useCallback((e) => {
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+  }, [])
+
+  const onCanvasDrop = useCallback(
+    (e) => {
+      e.preventDefault()
+      const toolId = e.dataTransfer?.getData('application/x-tool-id') || e.dataTransfer?.getData('text/plain')
+      if (!toolId) return
+      const rect = canvasRef.current?.getBoundingClientRect()
+      const x = rect ? Math.max(0, e.clientX - rect.left - 112) : 0
+      const y = rect ? Math.max(0, e.clientY - rect.top - 40) : 0
+      handleToolDrop(toolId, x, y)
+    },
+    [handleToolDrop]
+  )
 
   const loadWorkspaces = useCallback(async () => {
     setIsLoading(true)
@@ -981,6 +1204,94 @@ export default function WorkspaceBuilder() {
           )}
         </section>
 
+        <section>
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Workspace Canvas</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Drop tools from the picker to place them on the canvas. State auto-saves.
+              </p>
+            </div>
+            {canvasTools.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setCanvasTools([])}
+                className="text-xs text-slate-400 hover:text-red-400"
+              >
+                Clear canvas
+              </button>
+            )}
+          </div>
+          <div
+            ref={canvasRef}
+            onDragOver={onCanvasDragOver}
+            onDrop={onCanvasDrop}
+            className="relative w-full min-h-[420px] rounded-xl border border-dashed border-slate-700 bg-slate-950/40 overflow-hidden"
+          >
+            {canvasTools.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-sm pointer-events-none">
+                Drop a tool from the picker here
+              </div>
+            )}
+            {canvasTools.map((tool, idx) => (
+              <div
+                key={`${tool.tool_id}-${tool.account_alias}-${idx}`}
+                style={{ position: 'absolute', left: tool.x, top: tool.y }}
+              >
+                <ToolCard
+                  tool={tool}
+                  onSwitchAccount={() =>
+                    setAccountModal({ toolId: tool.tool_id, replaceIdx: idx })
+                  }
+                  onRunAgent={() => {
+                    toast?.info?.(`Opening agent runner for ${tool.tool_id} (${tool.account_alias})`)
+                    navigate(
+                      `/agents?tool=${encodeURIComponent(tool.tool_id)}&account=${encodeURIComponent(
+                        tool.account_alias
+                      )}`
+                    )
+                  }}
+                  onRemove={() =>
+                    setCanvasTools((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {accountModal && (
+          <AccountSelectorModal
+            toolId={accountModal.toolId}
+            workspaceId={ws.id}
+            onSelect={(acc) => {
+              if (accountModal.replaceIdx !== undefined) {
+                setCanvasTools((prev) =>
+                  prev.map((t, i) =>
+                    i === accountModal.replaceIdx
+                      ? {
+                          ...t,
+                          account_alias: acc.account_alias,
+                          account_name: acc.account_name,
+                          status: acc.status,
+                        }
+                      : t
+                  )
+                )
+              } else {
+                addToolToCanvas(
+                  accountModal.toolId,
+                  acc,
+                  accountModal.x ?? 100,
+                  accountModal.y ?? 100
+                )
+              }
+              setAccountModal(null)
+            }}
+            onClose={() => setAccountModal(null)}
+          />
+        )}
+
         {toolPickerOpen && (
           <div
             className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70"
@@ -1033,7 +1344,13 @@ export default function WorkspaceBuilder() {
                     return (
                       <div
                         key={t.id}
-                        className="flex flex-col gap-2 rounded-lg border border-border/60 p-3 mb-2 bg-slate-900/40"
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('application/x-tool-id', t.id)
+                          e.dataTransfer.setData('text/plain', t.id)
+                          e.dataTransfer.effectAllowed = 'copy'
+                        }}
+                        className="flex flex-col gap-2 rounded-lg border border-border/60 p-3 mb-2 bg-slate-900/40 cursor-grab active:cursor-grabbing"
                       >
                         <div className="flex items-center gap-2">
                           <span className="text-lg">{t.icon || '🔧'}</span>
