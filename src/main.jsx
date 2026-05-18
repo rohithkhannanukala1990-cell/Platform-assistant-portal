@@ -10,8 +10,8 @@ import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <AuthProvider>
-      <ToastProvider>
+    <ToastProvider>
+      <AuthProvider>
         <PortalProvider>
           <PlatformContextProvider>
             <ErrorBoundary>
@@ -19,7 +19,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             </ErrorBoundary>
           </PlatformContextProvider>
         </PortalProvider>
-      </ToastProvider>
-    </AuthProvider>
+      </AuthProvider>
+    </ToastProvider>
   </React.StrictMode>,
 )

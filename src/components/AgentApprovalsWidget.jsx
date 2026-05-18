@@ -452,7 +452,7 @@ function ApprovalCard({ incident, onApprove, onReject }) {
   )
 }
 
-function AgentPipelineApprovalCard({ run, authFetch, onDone, showToast }) {
+function AgentPipelineApprovalCard({ run, authFetch, onDone, toast }) {
   const [busy, setBusy] = useState(false)
 
   async function approve() {
@@ -460,10 +460,10 @@ function AgentPipelineApprovalCard({ run, authFetch, onDone, showToast }) {
     try {
       const res = await authFetch(`/api/agents/${run.run_id}/approve`, { method: 'POST' })
       if (!res.ok) throw new Error(await res.text())
-      showToast('Agent run approved', 'success')
+      toast.success('Agent run approved')
       onDone(run.run_id)
     } catch (e) {
-      showToast(e.message || 'Approve failed', 'error')
+      toast.error(e.message || 'Approve failed')
     } finally {
       setBusy(false)
     }
@@ -474,10 +474,10 @@ function AgentPipelineApprovalCard({ run, authFetch, onDone, showToast }) {
     try {
       const res = await authFetch(`/api/agents/${run.run_id}/reject`, { method: 'POST' })
       if (!res.ok) throw new Error(await res.text())
-      showToast('Agent run rejected', 'info')
+      toast.success('Agent run rejected')
       onDone(run.run_id)
     } catch (e) {
-      showToast(e.message || 'Reject failed', 'error')
+      toast.error(e.message || 'Reject failed')
     } finally {
       setBusy(false)
     }
@@ -665,7 +665,7 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
               run={run}
               authFetch={authFetch}
               onDone={removeAgentRun}
-              showToast={showToast}
+              toast={toast}
             />
           ))}
           {aiPending.map((ex) => (

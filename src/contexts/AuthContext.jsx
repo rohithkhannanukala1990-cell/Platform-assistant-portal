@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { getPortalContextHeaders } from '../utils/portalContextHeaders'
 import { API_BASE } from '../config/apiBase'
-import { getGlobalToast } from './ToastContext'
+import { getGlobalToast } from '../components/ToastNotification'
 
 // ── PRIVATE HELPERS (not exported) ────────────────────────────────────────────
 function parseJWT(token) {
@@ -152,12 +152,47 @@ export function AuthProvider({ children }) {
         if (v != null && v !== '') headers.set(k, String(v))
       })
 
+      const method = (options.method || 'GET').toUpperCase()
+      const isAgentsRun =
+        method === 'POST' &&
+        /\/api\/agents\/run\/?$/.test(new URL(fullUrl, window.location.origin).pathname)
+
       const res = await fetch(fullUrl, { ...options, headers })
+
       if (res.status === 401) {
-        getGlobalToast()?.error?.('Session expired')
+        getGlobalToast()?.error?.('Session expired. Please log in again.')
         logout()
         throw new Error('Session expired')
       }
+
+      if (isAgentsRun) {
+        const api = getGlobalToast()
+        if (api) {
+          try {
+            const data = await res.clone().json()
+            if (res.ok) {
+              const pending =
+                data?.status === 'pending_approval' || data?.requires_approval === true
+              api.success(
+                pending
+                  ? 'Agent run submitted — awaiting approval'
+                  : 'Agent run completed successfully'
+              )
+            } else {
+              const detail =
+                typeof data?.detail === 'string'
+                  ? data.detail
+                  : Array.isArray(data?.detail)
+                    ? data.detail.map((d) => d.msg || d).join(', ')
+                    : 'Agent run failed'
+              api.error(detail)
+            }
+          } catch {
+            if (!res.ok) api.error('Agent run failed')
+          }
+        }
+      }
+
       return res
     },
     [token, logout]
