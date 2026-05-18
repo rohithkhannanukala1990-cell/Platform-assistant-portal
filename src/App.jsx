@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { Loader2 } from 'lucide-react'
 
 import { RoleProvider } from './contexts/RoleContext'
+import { ToastProvider } from './contexts/ToastContext'
 import { useAuth } from './contexts/AuthContext'
 
 import Layout from './components/Layout'
@@ -190,9 +191,11 @@ function AuthenticatedRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <RoleProvider>
-        <AuthenticatedRoutes />
-      </RoleProvider>
+      <ToastProvider>
+        <RoleProvider>
+          <AuthenticatedRoutes />
+        </RoleProvider>
+      </ToastProvider>
     </BrowserRouter>
   )
 }

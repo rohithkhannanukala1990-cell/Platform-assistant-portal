@@ -30,10 +30,28 @@ export default function Layout({ user, onLogout }) {
   const navigate = useNavigate()
   const [criticalHealthBanner, setCriticalHealthBanner] = useState(null)
   const [healthWsToast, setHealthWsToast] = useState(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   const openHealthDashboard = useCallback(() => {
     navigate('/health')
   }, [navigate])
+
+  useEffect(() => {
+    const onOpenPalette = () => setPaletteOpen(true)
+    window.addEventListener('open-command-palette', onOpenPalette)
+    return () => window.removeEventListener('open-command-palette', onOpenPalette)
+  }, [])
+
+  useEffect(() => {
+    function onKey(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [paletteOpen])
 
   useEffect(() => {
     if (role !== 'Admin') return undefined
@@ -95,12 +113,12 @@ export default function Layout({ user, onLogout }) {
             ⚠️ {healthWsToast}
           </div>
         )}
-        <TopBar user={user} />
+        <TopBar user={user} onOpenCommandPalette={() => setPaletteOpen(true)} />
         <main className="flex-1 overflow-auto p-6">
           <Outlet />
         </main>
       </div>
-      <CommandPalette />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <ChatBot />
     </div>
   )

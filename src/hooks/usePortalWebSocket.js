@@ -23,7 +23,13 @@ function buildPortalWsUrl(userId) {
   return `${proto}://${window.location.host}/ws/portal?${qs}`
 }
 
-export function usePortalWebSocket({ userId = 'anonymous', onMessage, onConnectedChange }) {
+export function usePortalWebSocket({
+  userId = 'anonymous',
+  onMessage,
+  onConnectedChange,
+  onOpen,
+  onClose,
+}) {
   const wsRef = useRef(null)
   const retriesRef = useRef(0)
   const unmountedRef = useRef(false)
@@ -45,6 +51,7 @@ export function usePortalWebSocket({ userId = 'anonymous', onMessage, onConnecte
     ws.onopen = () => {
       retriesRef.current = 0
       setConnectionState(true)
+      onOpen?.()
     }
 
     ws.onmessage = (e) => {
@@ -57,6 +64,7 @@ export function usePortalWebSocket({ userId = 'anonymous', onMessage, onConnecte
 
     ws.onclose = () => {
       setConnectionState(false)
+      onClose?.()
       if (unmountedRef.current) return
       if (retriesRef.current < MAX_RETRIES) {
         const delay = BASE_MS * 2 ** retriesRef.current
@@ -66,7 +74,7 @@ export function usePortalWebSocket({ userId = 'anonymous', onMessage, onConnecte
     }
 
     ws.onerror = () => ws.close()
-  }, [userId, onMessage, setConnectionState])
+  }, [userId, onMessage, setConnectionState, onOpen, onClose])
 
   useEffect(() => {
     unmountedRef.current = false

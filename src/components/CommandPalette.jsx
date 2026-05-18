@@ -131,11 +131,30 @@ function TypeBadge({ type }) {
   )
 }
 
-export default function CommandPalette() {
+export default function CommandPalette({ open: controlledOpen, onClose }) {
   const navigate = useNavigate()
   const inputRef = useRef(null)
 
-  const [open, setOpen] = useState(false)
+  const isControlled = controlledOpen !== undefined && typeof onClose === 'function'
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = isControlled ? controlledOpen : internalOpen
+
+  const closePalette = useCallback(() => {
+    if (isControlled) onClose()
+    else setInternalOpen(false)
+  }, [isControlled, onClose])
+
+  const setOpen = useCallback(
+    (value) => {
+      if (isControlled) {
+        const next = typeof value === 'function' ? value(controlledOpen) : value
+        if (!next) onClose()
+      } else {
+        setInternalOpen(value)
+      }
+    },
+    [isControlled, onClose, controlledOpen]
+  )
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -164,31 +183,32 @@ export default function CommandPalette() {
       const url = item?.url ?? item?.path
       if (!url) return
       navigate(resolveNavUrl(url))
-      setOpen(false)
+      closePalette()
       setQuery('')
       setResults([])
       setSelectedIndex(0)
     },
-    [navigate]
+    [navigate, closePalette]
   )
 
   useEffect(() => {
-    const onOpenEvent = () => setOpen(true)
+    if (isControlled) return undefined
+    const onOpenEvent = () => setInternalOpen(true)
     window.addEventListener('open-command-palette', onOpenEvent)
     return () => window.removeEventListener('open-command-palette', onOpenEvent)
-  }, [])
+  }, [isControlled])
 
   useEffect(() => {
     const onKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if (!isControlled && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        setOpen((v) => !v)
+        setInternalOpen((v) => !v)
         return
       }
       if (!open) return
       if (e.key === 'Escape') {
         e.preventDefault()
-        setOpen(false)
+        closePalette()
         return
       }
       if (e.key === 'ArrowDown') {
@@ -210,7 +230,7 @@ export default function CommandPalette() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open, flatResults, selectedIndex, openResult])
+  }, [isControlled, open, flatResults, selectedIndex, openResult, closePalette])
 
   useEffect(() => {
     if (open) {
@@ -263,7 +283,7 @@ export default function CommandPalette() {
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 bg-black/60 backdrop-blur-sm"
-      onClick={() => setOpen(false)}
+      onClick={closePalette}
       role="presentation"
     >
       <div

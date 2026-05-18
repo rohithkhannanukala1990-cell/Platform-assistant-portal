@@ -9,14 +9,14 @@ import { usePortalWebSocket } from '../hooks/usePortalWebSocket'
 
 function WsIndicator({ connected }) {
   return (
-    <div className="relative group cursor-default">
+    <div className="relative group cursor-default flex items-center">
       <span
-        className={`inline-block w-2 h-2 rounded-full ${
+        className={`w-2 h-2 rounded-full transition-colors ${
           connected ? 'bg-green-400' : 'bg-yellow-400 animate-pulse'
         }`}
       />
-      <span className="absolute right-0 top-5 hidden group-hover:block bg-gray-800 text-xs text-white px-2 py-1 rounded whitespace-nowrap z-50 border border-gray-700">
-        {connected ? 'Real-time updates active' : 'Reconnecting...'}
+      <span className="absolute right-0 top-5 hidden group-hover:block bg-neutral-800 text-xs text-white px-2 py-1 rounded whitespace-nowrap z-50 border border-neutral-700 shadow-xl">
+        {connected ? 'Live updates active' : 'Reconnecting…'}
       </span>
     </div>
   )
@@ -68,7 +68,7 @@ function isMacPlatform() {
   return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent)
 }
 
-export default function TopBar({ user }) {
+export default function TopBar({ user, onOpenCommandPalette }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { authFetch } = useAuth()
@@ -132,7 +132,8 @@ export default function TopBar({ user }) {
   }, [authFetch])
 
   const openPalette = () => {
-    window.dispatchEvent(new CustomEvent('open-command-palette'))
+    if (onOpenCommandPalette) onOpenCommandPalette()
+    else window.dispatchEvent(new CustomEvent('open-command-palette'))
   }
 
   const shortcutLabel = isMacPlatform() ? '⌘K' : 'Ctrl+K'
