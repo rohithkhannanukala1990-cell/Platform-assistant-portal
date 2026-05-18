@@ -28,6 +28,8 @@ import {
   Sparkles,
   Database,
   HardDrive,
+  Activity,
+  Share2,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -105,6 +107,9 @@ const NAV_GROUPS = [
     items: [
       { label: 'CI/CD Pipelines', path: '/cicd', icon: 'GitBranch' },
       { label: 'Deployments', path: '/deployments', icon: 'Rocket' },
+      { label: 'Live Pipelines', path: '/live-pipelines', icon: 'Activity' },
+      { label: 'Schema Browser', path: '/schema-browser', icon: 'Database' },
+      { label: 'Data Lineage', path: '/data-lineage', icon: 'Share2' },
       { label: 'Runbooks', path: '/runbooks', icon: 'BookMarked' },
       { label: 'Infra Builder', path: '/infra', icon: 'Server' },
       { label: 'DB Analyzer', path: '/db-analyzer', icon: 'Database' },

@@ -39,6 +39,9 @@ import TemplateGallery from './components/TemplateGallery'
 import AccountImportView from './components/AccountImportView'
 import DeploymentsView from './components/DeploymentsView'
 import DORAPage from './components/DORAPage'
+import LivePipelinesView from './components/LivePipelinesView'
+import SchemaBrowserView from './components/SchemaBrowserView'
+import DataLineageView from './components/DataLineageView'
 
 const OPS_URL_VIEWS = new Set([
   'dashboard',
@@ -156,7 +159,10 @@ function AuthenticatedRoutes() {
         <Route path="/tool-registry" element={<PrivateRoute><ToolRegistryView /></PrivateRoute>} />
         <Route path="/workspaces" element={<PrivateRoute><WorkspaceBuilder /></PrivateRoute>} />
         <Route path="/cicd" element={<PrivateRoute><CICDView /></PrivateRoute>} />
+        <Route path="/live-pipelines" element={<PrivateRoute><LivePipelinesView /></PrivateRoute>} />
         <Route path="/deployments" element={<PrivateRoute><DeploymentsView /></PrivateRoute>} />
+        <Route path="/schema-browser" element={<PrivateRoute><SchemaBrowserView /></PrivateRoute>} />
+        <Route path="/data-lineage" element={<PrivateRoute><DataLineageView /></PrivateRoute>} />
 
         <Route path="/incidents" element={<PrivateRoute><TriageView /></PrivateRoute>} />
         <Route path="/alerts" element={<PrivateRoute><TriageView /></PrivateRoute>} />

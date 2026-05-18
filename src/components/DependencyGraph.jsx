@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, RotateCcw, X, Loader2 } from 'lucide-react'
+import { Plus, RotateCcw, X, Loader2, Share2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 const WIDTH = 800
@@ -294,11 +294,21 @@ export default function DependencyGraph() {
 
   return (
     <div className="flex flex-col gap-4 max-w-5xl mx-auto pb-16 animate-fade-in w-full">
-      <div>
-        <h1 className="text-xl font-bold text-white tracking-tight">Service Dependency Graph</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Catalog entities and relationships — drag nodes, filter by kind, add dependencies
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-white tracking-tight">Service Dependency Graph</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Catalog entities and relationships — drag nodes, filter by kind, add dependencies
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate('/data-lineage')}
+          className="shrink-0 text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors"
+        >
+          <Share2 className="w-3 h-3" />
+          Data Lineage
+        </button>
       </div>
 
       {error && (

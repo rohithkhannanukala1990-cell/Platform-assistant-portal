@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Rocket,
   Sparkles,
@@ -111,6 +112,7 @@ function InfoCard({ icon: Icon, iconColor, borderColor, title, children }) {
 }
 
 export default function CICDView({ selectedRecord, onClearRecord, onGenerateComplete }) {
+  const navigate = useNavigate()
   const { authFetch } = useAuth()
   const [tool, setTool]       = useState('GitHub Actions')
   const [prompt, setPrompt]   = useState('')
@@ -162,6 +164,13 @@ export default function CICDView({ selectedRecord, onClearRecord, onGenerateComp
           <p className="text-sm text-slate-400">
             Describe your app and deployment target — get a production-ready pipeline file instantly.
           </p>
+          <button
+            type="button"
+            onClick={() => navigate('/live-pipelines')}
+            className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 underline transition-colors"
+          >
+            View Live Pipelines →
+          </button>
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-500 border border-border rounded-lg px-3 py-2 bg-card">
           <Cpu className="w-3.5 h-3.5 text-accent" />
