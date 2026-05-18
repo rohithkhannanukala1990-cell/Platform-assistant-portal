@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, RotateCcw, X, Loader2, Share2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { usePortalContext } from '../contexts/PortalContext'
 
 const WIDTH = 800
 const HEIGHT = 600
@@ -99,6 +100,8 @@ function clientToSvg(svg, clientX, clientY) {
 
 export default function DependencyGraph() {
   const { authFetch } = useAuth()
+  const { activeWorkspace } = usePortalContext()
+  const workspaceId = activeWorkspace?.id ?? ''
   const navigate = useNavigate()
   const svgRef = useRef(null)
   const dragMovedRef = useRef(false)
@@ -350,8 +353,44 @@ export default function DependencyGraph() {
             >
               <RotateCcw className="w-3.5 h-3.5" /> Reset Layout
             </button>
+            <button
+              type="button"
+              onClick={() => void handleCheckDrift()}
+              disabled={driftLoading}
+              className="flex items-center gap-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white text-sm px-3 py-1.5 rounded-lg"
+            >
+              {driftLoading ? <span className="animate-spin">⟳</span> : '⚡'}
+              {driftLoading ? 'Checking…' : 'Check Drift'}
+            </button>
           </div>
         </div>
+
+        {driftResult && (
+          <div
+            className={`mx-4 mb-3 rounded-lg p-3 text-sm border flex items-start gap-3 ${
+              driftResult.status === 'success'
+                ? 'bg-green-900/20 border-green-700 text-green-300'
+                : 'bg-orange-900/20 border-orange-700 text-orange-300'
+            }`}
+          >
+            <span className="mt-0.5">{driftResult.status === 'success' ? '✅' : '⚡'}</span>
+            <div>
+              <p className="font-medium">{driftResult.summary}</p>
+              {driftResult.details?.outdated_count !== undefined && (
+                <p className="text-xs mt-0.5 opacity-80">
+                  {driftResult.details.outdated_count} outdated packages found
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setDriftResult(null)}
+              className="ml-auto text-xs opacity-50 hover:opacity-100"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         <div className="relative">
           {loading && (

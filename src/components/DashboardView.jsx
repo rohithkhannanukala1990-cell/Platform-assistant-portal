@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ResponsiveContainer,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
 import { useAuth } from '../contexts/AuthContext'
+import { usePortalContext } from '../contexts/PortalContext'
 import { API_BASE } from '../config/apiBase'
 
 const API        = `${API_BASE}/api/analytics`
@@ -152,6 +153,8 @@ function ChartCard({ title, icon: Icon, iconColor, children, className = '' }) {
 
 export default function DashboardView() {
   const { authFetch } = useAuth()
+  const { activeWorkspace } = usePortalContext()
+  const workspaceId = activeWorkspace?.id ?? ''
   const navigate = useNavigate()
   const [data, setData]         = useState(null)
   const [loading, setLoading]   = useState(true)
@@ -169,6 +172,38 @@ export default function DashboardView() {
   const [scanning, setScanning]         = useState(false)
   const [scanResult, setScanResult]     = useState(null)
   const [scanDismissed, setScanDismissed] = useState(false)
+
+  const [costData, setCostData] = useState(null)
+  const [costLoading, setCostLoading] = useState(true)
+  const [costRefreshKey, setCostRefreshKey] = useState(0)
+
+  const fetchCostData = useCallback(async () => {
+    setCostLoading(true)
+    try {
+      const res = await authFetch('/api/agents/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task: 'aws cost this month breakdown by service',
+          context: { workspace_id: workspaceId },
+        }),
+      })
+      if (!res.ok) {
+        setCostData(null)
+        return
+      }
+      const data = await res.json()
+      setCostData(data)
+    } catch {
+      setCostData(null)
+    } finally {
+      setCostLoading(false)
+    }
+  }, [authFetch, workspaceId])
+
+  useEffect(() => {
+    void fetchCostData()
+  }, [fetchCostData, costRefreshKey])
 
   async function fetchPlatformSummary() {
     try {
@@ -516,7 +551,70 @@ export default function DashboardView() {
       </div>
 
       {/* ── Summary cards ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-semibold text-sm">☁️ AWS Spend — This Month</h3>
+            <button
+              type="button"
+              onClick={() => {
+                setCostData(null)
+                setCostRefreshKey((k) => k + 1)
+              }}
+              className="text-gray-400 hover:text-white text-xs"
+            >
+              ↺
+            </button>
+          </div>
+
+          {costLoading && (
+            <div className="space-y-2">
+              <div className="h-8 bg-gray-700 rounded animate-pulse" />
+              <div className="h-4 bg-gray-700 rounded w-2/3 animate-pulse" />
+              <div className="h-4 bg-gray-700 rounded w-1/2 animate-pulse" />
+            </div>
+          )}
+
+          {!costLoading && costData && (
+            <>
+              <div className="text-3xl font-bold text-white mb-4">
+                $
+                {(costData.details?.total_usd || 0).toLocaleString(undefined, {
+                  maximumFractionDigits: 2,
+                })}
+              </div>
+              {Array.isArray(costData.details?.top_services) && (
+                <div className="space-y-2">
+                  {costData.details.top_services.slice(0, 5).map((svc, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-gray-400 text-xs w-28 truncate">{svc.service}</span>
+                      <div className="flex-1 bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="h-full bg-indigo-500 rounded-full"
+                          style={{
+                            width: `${Math.min(
+                              ((svc.usd || 0) / (costData.details.total_usd || 1)) * 100,
+                              100
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                      <span className="text-gray-300 text-xs w-16 text-right">
+                        ${(svc.usd || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {!costLoading && !costData && (
+            <p className="text-gray-400 text-sm">Cost data unavailable</p>
+          )}
+        </div>
+
+        <div className="lg:col-span-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           icon={Layers}
           iconBg="bg-accent/15 text-accent"
@@ -549,6 +647,7 @@ export default function DashboardView() {
           sub="Pending review"
           border="border-cyan-500/20"
         />
+        </div>
       </div>
 
       {/* ── Module totals ──────────────────────────────────────────────────── */}

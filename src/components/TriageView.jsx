@@ -11,6 +11,159 @@ import {
 import IncidentReportCard from './IncidentReportCard'
 import IncidentHistory from './IncidentHistory'
 import { useAuth } from '../contexts/AuthContext'
+import { usePortalContext } from '../contexts/PortalContext'
+
+const TRIAGE_TABS = [
+  { id: 'logs', label: 'Log Triage' },
+  { id: 'noise', label: 'Noise Analysis' },
+]
+
+const ACTIVE_STATUSES = new Set(['OPEN', 'AWAITING_APPROVAL', 'open', 'awaiting_approval'])
+
+function EmptyState({ icon, title }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+      <span className="text-5xl mb-4">{icon}</span>
+      <p className="text-base font-medium text-gray-300">{title}</p>
+    </div>
+  )
+}
+
+function agentRunPayload(task, workspaceId) {
+  return {
+    task,
+    context: { workspace_id: workspaceId || '' },
+  }
+}
+
+function NoiseAnalysisTab({ workspaceId, authFetch }) {
+  const [result, setResult] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const runAnalysis = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await authFetch('/api/agents/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(agentRunPayload('analyze alert noise last 7 days', workspaceId)),
+      })
+      if (!res.ok) throw new Error('Request failed')
+      const data = await res.json()
+      setResult(data)
+    } catch {
+      setError('Failed to run noise analysis.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h3 className="text-white font-semibold text-lg">Alert Noise Analysis</h3>
+          <p className="text-gray-400 text-sm mt-0.5">
+            Identify and suppress noisy, low-signal alerts
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void runAnalysis()}
+          disabled={loading}
+          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm px-4 py-2 rounded-lg flex items-center gap-2"
+        >
+          {loading ? (
+            <>
+              <span className="animate-spin">⟳</span>
+              Analyzing…
+            </>
+          ) : (
+            'Analyze Noise (7d)'
+          )}
+        </button>
+      </div>
+
+      {error && (
+        <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-red-300 text-sm">
+          {error}
+        </div>
+      )}
+
+      {result && (
+        <>
+          <div className="bg-gray-800 rounded-xl p-4 mb-4">
+            <p className="text-white text-sm">{result.summary}</p>
+            <p className="text-gray-400 text-xs mt-1">
+              Status:{' '}
+              <span
+                className={
+                  result.status === 'success' ? 'text-green-400' : 'text-yellow-400'
+                }
+              >
+                {result.status}
+              </span>
+            </p>
+          </div>
+
+          {Array.isArray(result.details?.noisy_alerts) &&
+            result.details.noisy_alerts.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead>
+                    <tr className="text-gray-400 border-b border-gray-700">
+                      <th className="py-2 pr-4">Alert Name</th>
+                      <th className="py-2 pr-4">Fires (7d)</th>
+                      <th className="py-2 pr-4">Signal Score</th>
+                      <th className="py-2">Recommendation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.details.noisy_alerts.map((alert, i) => (
+                      <tr key={i} className="border-b border-gray-800 hover:bg-gray-800/50">
+                        <td className="py-2 pr-4 text-white">{alert.name}</td>
+                        <td className="py-2 pr-4 text-gray-300">{alert.fire_count}</td>
+                        <td className="py-2 pr-4">
+                          <span
+                            className={
+                              (alert.signal_score || 0) < 0.3
+                                ? 'text-red-400'
+                                : 'text-yellow-400'
+                            }
+                          >
+                            {((alert.signal_score || 0) * 100).toFixed(0)}%
+                          </span>
+                        </td>
+                        <td className="py-2 text-gray-400 text-xs">
+                          {alert.recommendation || 'Review'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+          {result.details?.noisy_alerts?.length === 0 && (
+            <div className="text-center py-8 text-gray-400">
+              <span className="text-3xl block mb-2">✅</span>
+              No noisy alerts detected in the last 7 days.
+            </div>
+          )}
+        </>
+      )}
+
+      {!loading && !result && !error && (
+        <div className="text-center py-12 text-gray-400">
+          <span className="text-4xl block mb-3">🔔</span>
+          <p>Click &quot;Analyze Noise&quot; to scan your alerts.</p>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const PLACEHOLDER = `Paste raw Kubernetes, DB, or system logs here...
 
@@ -25,6 +178,9 @@ export default function TriageView({
   onAnalysisComplete,
 }) {
   const { authFetch } = useAuth()
+  const { activeWorkspace } = usePortalContext()
+  const workspaceId = activeWorkspace?.id ?? ''
+  const [activeTab, setActiveTab] = useState('logs')
   const controlled = typeof onSelectIncidentProp === 'function'
   const [internalSelected, setInternalSelected] = useState(null)
   const [historyVersion, setHistoryVersion] = useState(0)
@@ -133,6 +289,29 @@ export default function TriageView({
             </div>
           </div>
 
+          <div className="flex gap-1 mt-2">
+            {TRIAGE_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === 'noise' ? (
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <NoiseAnalysisTab workspaceId={workspaceId} authFetch={authFetch} />
+            </div>
+          ) : (
+            <>
           {selectedIncident && (
             <div className="flex items-center justify-between px-4 py-2.5 rounded-xl border border-accent/30 bg-accent/5">
               <div className="flex items-center gap-2 text-xs text-slate-300">
@@ -276,6 +455,8 @@ export default function TriageView({
                 />
               </div>
             </div>
+          )}
+            </>
           )}
         </div>
       </div>

@@ -1,6 +1,6 @@
 # Platform Assistant Portal — MASTER DESIGN DOCUMENT
 > **Single source of truth. Read this file at the start of EVERY sprint prompt.**
-> Last updated: Sprint 12 complete / Sprint 13 starting
+> Last updated: Sprint 15 complete / Sprint 16 starting
 
 ---
 
@@ -171,7 +171,7 @@ get_default_account(tool_id, workspace_id) → dict
 
 ---
 
-## 6. THE 16 AGENTS
+## 6. THE 17 AGENTS
 
 ### Standard AgentResult Schema (ALL agents must return this)
 ```python
@@ -195,7 +195,7 @@ get_default_account(tool_id, workspace_id) → dict
 |---|-------|------|-------------------|---------------|
 | 1 | Deploy Agent | `deploy_agent.py` | ✅ Production only | GitHub Actions, ArgoCD, Kubernetes, Helm |
 | 2 | Security Agent | `security_agent.py` | ❌ Read-only | Snyk, SonarQube, Wiz, Checkov, GuardDuty |
-| 3 | Tester Agent | `tester_agent.py` | ✅ Execution | GitHub Actions, CircleCI, Jenkins |
+| 3 | Tester Agent | `tester_agent.py` | ✅ Execution — ✅ run() implemented | GitHub Actions, CircleCI, Jenkins |
 | 4 | Infra Agent | `infra_agent.py` | ✅ Always | Terraform, Pulumi, AWS, GCP, Azure |
 | 5 | Incident Agent | `incident_agent.py` | ✅ Always | PagerDuty, OpsGenie, Kubernetes |
 | 6 | Cost Agent | `cost_agent.py` | ❌ Read-only | AWS, GCP, Azure billing |
@@ -306,7 +306,7 @@ Build full connector classes (not BaseConnector stubs) for:
 | StandardsPage.jsx | 13,654 B | ✅ Keep |
 | StorageView.jsx | 9,414 B | ✅ Keep — add to Sidebar Sprint 16 |
 | TemplateGallery.jsx | 53,332 B | ✅ Keep |
-| ToastNotification.jsx | 153 B | ❌ Regression — full rebuild Sprint 16 |
+| ToastNotification.jsx | 4,428 B | ✅ Rebuilt Sprint 14 |
 | ToolRegistryView.jsx | 41,324 B | ⚠️ Wire multi-account + catalog search Sprint 15 |
 | TopBar.jsx | 9,144 B | ⚠️ Add context breadcrumb Sprint 16 |
 | TriageView.jsx | 9,418 B | ✅ Keep — Alert Noise Agent connects here |
@@ -330,6 +330,12 @@ Build full connector classes (not BaseConnector stubs) for:
 ## 9. SPRINT MAP WITH PROGRESS CHECKS
 
 ### Sprint 13 — The Agent Sprint ← CURRENT
+
+**STATUS: ✅ COMPLETE**
+- 17 agents live (tester_agent fixed Sprint 15)
+- 5 connectors: GitHub, AWS, Kubernetes, PagerDuty, Jira
+- Agent registry, AGENT_REGISTRY with all 17 agents
+
 **Goal:** 16 real agents live, multi-account aware, PlatformContext defined
 **Definition of Done:** `POST /api/agents/run` works for all 16 agents
 
@@ -360,6 +366,13 @@ Build full connector classes (not BaseConnector stubs) for:
 ---
 
 ### Sprint 14 — The Admin & Users Sprint
+
+**STATUS: ✅ COMPLETE**
+- AdminDashboard, UserManagement, AuditLogView built
+- 2-role model enforced (Admin/User only)
+- PersonaSwitcher.jsx deleted
+- Audit log WS streaming live
+
 **Goal:** Admin dashboard, user management, audit log, role cleanup
 **Definition of Done:** Admin login → dashboard → manage users → audit log live
 
@@ -392,6 +405,15 @@ Build full connector classes (not BaseConnector stubs) for:
 ---
 
 ### Sprint 15 — The Workspace Sprint
+
+**STATUS: ✅ COMPLETE**
+- AgentRunnerPanel.jsx (16,300 B) built
+- AgentRunHistory.jsx (12,250 B) built
+- Orchestrator: 30s timeout, concurrent gather, WS streaming
+- Intent classifier: 16 keyword routes + LLM fallback
+- WebSocket /ws/agent-run/{run_id} with JWT auth
+- tester_agent run() implemented (fix commit 4eda799)
+
 **Goal:** Drag-drop canvas with multi-account tool cards, Code Editor, Terminal
 **Definition of Done:** User drags 3 tools onto canvas, invokes agent, sees result
 

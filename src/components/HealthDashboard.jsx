@@ -15,6 +15,58 @@ import {
   Clock,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { usePortalContext } from '../contexts/PortalContext'
+
+function healthRowStatus(apiStatus) {
+  if (apiStatus === 'critical') return 'down'
+  if (apiStatus === 'warning') return 'degraded'
+  return 'healthy'
+}
+
+function AutoHealButton({ service, workspaceId, authFetch }) {
+  const [state, setState] = useState('idle')
+
+  const handleHeal = async () => {
+    setState('loading')
+    try {
+      const res = await authFetch('/api/agents/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task: `restart failing pods for ${service.name}`,
+          context: { workspace_id: workspaceId },
+        }),
+      })
+      if (!res.ok) throw new Error('Heal failed')
+      const data = await res.json()
+      setState(
+        data.status === 'success' || data.status === 'pending_approval' ? 'success' : 'failed'
+      )
+      setTimeout(() => setState('idle'), 4000)
+    } catch {
+      setState('failed')
+      setTimeout(() => setState('idle'), 4000)
+    }
+  }
+
+  const config = {
+    idle: { label: 'Auto-Heal', cls: 'bg-orange-600 hover:bg-orange-500' },
+    loading: { label: 'Healing…', cls: 'bg-gray-600 cursor-wait' },
+    success: { label: '✓ Queued', cls: 'bg-green-700 cursor-default' },
+    failed: { label: '✗ Failed', cls: 'bg-red-700 cursor-default' },
+  }[state]
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleHeal()}
+      disabled={state !== 'idle'}
+      className={`text-white text-xs px-3 py-1.5 rounded-lg disabled:opacity-60 ${config.cls}`}
+    >
+      {config.label}
+    </button>
+  )
+}
 
 function formatRelative(iso) {
   if (!iso) return '—'
@@ -70,8 +122,9 @@ function SkeletonGrid() {
 }
 
 export default function HealthDashboard() {
-  const { authFetch } = useAuth()
-  const { role } = useAuth()
+  const { authFetch, role } = useAuth()
+  const { activeWorkspace } = usePortalContext()
+  const workspaceId = activeWorkspace?.id ?? ''
   const navigate = useNavigate()
 
   const [healthData, setHealthData] = useState(null)
@@ -234,6 +287,15 @@ export default function HealthDashboard() {
 
   const expiring = Array.isArray(tools.expiring) ? tools.expiring : []
 
+  const healthServices = [
+    { name: 'Database', status: healthRowStatus(db.status) },
+    { name: 'Redis Cache', status: healthRowStatus(redis.status) },
+    { name: 'WebSockets', status: healthRowStatus(ws.status) },
+    { name: 'Tool Connections', status: healthRowStatus(toolsStatus) },
+    { name: 'Security', status: healthRowStatus(secStatus) },
+    { name: 'Performance', status: healthRowStatus(perfStatus) },
+  ]
+
   return (
     <div className="max-w-7xl mx-auto pb-16 px-4 sm:px-6 lg:px-8">
       {toast && (
@@ -331,9 +393,19 @@ export default function HealthDashboard() {
             >
               <div className="flex items-start justify-between gap-3">
                 <Database className="w-8 h-8 text-slate-300 shrink-0" />
-                <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(db.status)}`}>
-                  {statusBadgeLabel(db.status)}
-                </span>
+                <div className="flex flex-col items-end gap-2">
+                  <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(db.status)}`}>
+                    {statusBadgeLabel(db.status)}
+                  </span>
+                  {(healthServices[0].status === 'degraded' ||
+                    healthServices[0].status === 'down') && (
+                    <AutoHealButton
+                      service={healthServices[0]}
+                      workspaceId={workspaceId}
+                      authFetch={authFetch}
+                    />
+                  )}
+                </div>
               </div>
               <h2 className="mt-4 text-lg font-semibold text-white">Database</h2>
               <p className="mt-1 text-2xl font-mono text-slate-200">
@@ -348,9 +420,19 @@ export default function HealthDashboard() {
             >
               <div className="flex items-start justify-between gap-3">
                 <Zap className="w-8 h-8 text-amber-400 shrink-0" />
-                <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(redis.status)}`}>
-                  {statusBadgeLabel(redis.status)}
-                </span>
+                <div className="flex flex-col items-end gap-2">
+                  <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(redis.status)}`}>
+                    {statusBadgeLabel(redis.status)}
+                  </span>
+                  {(healthServices[1].status === 'degraded' ||
+                    healthServices[1].status === 'down') && (
+                    <AutoHealButton
+                      service={healthServices[1]}
+                      workspaceId={workspaceId}
+                      authFetch={authFetch}
+                    />
+                  )}
+                </div>
               </div>
               <h2 className="mt-4 text-lg font-semibold text-white">Redis Cache</h2>
               <p className="mt-1 text-2xl font-mono text-slate-200">
@@ -365,9 +447,19 @@ export default function HealthDashboard() {
             >
               <div className="flex items-start justify-between gap-3">
                 <Wifi className="w-8 h-8 text-cyan-400 shrink-0" />
-                <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(ws.status)}`}>
-                  {statusBadgeLabel(ws.status)}
-                </span>
+                <div className="flex flex-col items-end gap-2">
+                  <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(ws.status)}`}>
+                    {statusBadgeLabel(ws.status)}
+                  </span>
+                  {(healthServices[2].status === 'degraded' ||
+                    healthServices[2].status === 'down') && (
+                    <AutoHealButton
+                      service={healthServices[2]}
+                      workspaceId={workspaceId}
+                      authFetch={authFetch}
+                    />
+                  )}
+                </div>
               </div>
               <h2 className="mt-4 text-lg font-semibold text-white">WebSockets</h2>
               <p className="mt-1 text-2xl font-mono text-slate-200">
@@ -384,9 +476,19 @@ export default function HealthDashboard() {
             >
               <div className="flex items-start justify-between gap-3">
                 <Server className="w-8 h-8 text-violet-400 shrink-0" />
-                <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(toolsStatus)}`}>
-                  {statusBadgeLabel(toolsStatus)}
-                </span>
+                <div className="flex flex-col items-end gap-2">
+                  <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(toolsStatus)}`}>
+                    {statusBadgeLabel(toolsStatus)}
+                  </span>
+                  {(healthServices[3].status === 'degraded' ||
+                    healthServices[3].status === 'down') && (
+                    <AutoHealButton
+                      service={healthServices[3]}
+                      workspaceId={workspaceId}
+                      authFetch={authFetch}
+                    />
+                  )}
+                </div>
               </div>
               <h2 className="mt-4 text-lg font-semibold text-white">Tool Connections</h2>
               <p className="mt-1 text-2xl font-mono text-slate-200">{(tools.total ?? 0)} accounts</p>
@@ -401,9 +503,19 @@ export default function HealthDashboard() {
             >
               <div className="flex items-start justify-between gap-3">
                 <Shield className="w-8 h-8 text-green-400 shrink-0" />
-                <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(secStatus)}`}>
-                  {statusBadgeLabel(secStatus)}
-                </span>
+                <div className="flex flex-col items-end gap-2">
+                  <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(secStatus)}`}>
+                    {statusBadgeLabel(secStatus)}
+                  </span>
+                  {(healthServices[4].status === 'degraded' ||
+                    healthServices[4].status === 'down') && (
+                    <AutoHealButton
+                      service={healthServices[4]}
+                      workspaceId={workspaceId}
+                      authFetch={authFetch}
+                    />
+                  )}
+                </div>
               </div>
               <h2 className="mt-4 text-lg font-semibold text-white">Security</h2>
               <p className="mt-1 text-2xl font-mono text-slate-200">
@@ -418,9 +530,19 @@ export default function HealthDashboard() {
             >
               <div className="flex items-start justify-between gap-3">
                 <Activity className="w-8 h-8 text-rose-400 shrink-0" />
-                <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(perfStatus)}`}>
-                  {statusBadgeLabel(perfStatus)}
-                </span>
+                <div className="flex flex-col items-end gap-2">
+                  <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(perfStatus)}`}>
+                    {statusBadgeLabel(perfStatus)}
+                  </span>
+                  {(healthServices[5].status === 'degraded' ||
+                    healthServices[5].status === 'down') && (
+                    <AutoHealButton
+                      service={healthServices[5]}
+                      workspaceId={workspaceId}
+                      authFetch={authFetch}
+                    />
+                  )}
+                </div>
               </div>
               <h2 className="mt-4 text-lg font-semibold text-white">Performance</h2>
               <p className="mt-1 text-2xl font-mono text-slate-200">
