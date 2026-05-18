@@ -48,10 +48,20 @@ function formatToolName(toolId, toolNameProp) {
     .join(' ')
 }
 
-export default function AccountSwitcher({ toolId, toolName, onAccountChanged }) {
+export default function AccountSwitcher({ toolId, toolName, onAccountChanged, onClose }) {
   const { authFetch } = useAuth()
   const { showToast } = useToast()
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpenState] = useState(false)
+  const setIsOpen = useCallback(
+    (value) => {
+      setIsOpenState((prev) => {
+        const next = typeof value === 'function' ? value(prev) : value
+        if (!next) onClose?.()
+        return next
+      })
+    },
+    [onClose]
+  )
   const [accounts, setAccounts] = useState([])
   const [activeAccountId, setActiveAccountId] = useState(null)
   const [pinnedAccountIds, setPinnedAccountIds] = useState([])

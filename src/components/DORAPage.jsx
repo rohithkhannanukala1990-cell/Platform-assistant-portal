@@ -112,6 +112,51 @@ function hasDoraMetrics(d) {
   )
 }
 
+function normalizeDoraMetrics(data) {
+  if (!data || typeof data !== 'object') return null
+  if (hasDoraMetrics(data)) return data
+  const freq = data.deploy_frequency ?? data.deployment_frequency
+  const lead = data.lead_time_hours ?? data.lead_time
+  const cfr = data.change_failure_rate_pct ?? data.change_failure_rate
+  const mttr = data.mttr_hours ?? data.mttr
+  if (freq == null && lead == null && cfr == null && mttr == null) return data
+  return {
+    deployment_frequency: {
+      value: freq != null ? String(freq) : '—',
+      level: 'High',
+      trend: '',
+      trend_dir: 'up',
+    },
+    lead_time: {
+      value: lead != null ? `${lead}h` : '—',
+      level: 'High',
+      trend: '',
+      trend_dir: 'up',
+    },
+    change_failure_rate: {
+      value: cfr != null ? `${cfr}%` : '—',
+      level: 'High',
+      trend: '',
+      trend_dir: 'up',
+    },
+    mttr: {
+      value: mttr != null ? `${mttr}h` : '—',
+      level: 'High',
+      trend: '',
+      trend_dir: 'up',
+    },
+  }
+}
+
+function MetricSkeleton() {
+  return (
+    <div className="bg-gray-800 rounded-xl p-5 animate-pulse">
+      <div className="h-4 bg-gray-700 rounded w-1/2 mb-3" />
+      <div className="h-8 bg-gray-700 rounded w-1/3" />
+    </div>
+  )
+}
+
 function normalizeHistory(data) {
   if (!data) return null
   if (Array.isArray(data.history) && data.history.length) return data.history
@@ -138,21 +183,34 @@ export default function DORAPage() {
     try {
       const [doraRes, teamsRes, histRes] = await Promise.all([
         authFetch(DORA_API),
-        authFetch(`${REPORTS_API}/team-overview`),
+        authFetch(`${REPORTS_API}/dora/teams`),
         authFetch(`${DORA_API}?history=true`),
       ])
 
       if (!doraRes.ok) {
         throw new Error(`Failed to load DORA metrics (${doraRes.status})`)
       }
-      setDora(await doraRes.json())
+      const doraData = await doraRes.json()
+      setDora(normalizeDoraMetrics(doraData))
 
+      let teamsData = []
       if (teamsRes.ok) {
         const d = await teamsRes.json()
-        setTeams(d.teams || d || [])
+        teamsData = d.teams || d || []
       } else {
-        setTeams([])
+        const fallback = await authFetch(`${REPORTS_API}/dora?range=30d`)
+        if (fallback.ok) {
+          const d = await fallback.json()
+          teamsData = d.teams || d || []
+        } else {
+          const overview = await authFetch(`${REPORTS_API}/team-overview`)
+          if (overview.ok) {
+            const d = await overview.json()
+            teamsData = d.teams || d || []
+          }
+        }
       }
+      setTeams(Array.isArray(teamsData) ? teamsData : [])
 
       if (histRes.ok) {
         const histData = await histRes.json()
@@ -199,15 +257,6 @@ export default function DORAPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[50vh] gap-3 text-slate-500">
-        <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
-        <span className="text-sm">Loading DORA metrics…</span>
-      </div>
-    )
-  }
-
   if (error) {
     return (
       <div className="max-w-3xl mx-auto p-6">
@@ -225,23 +274,7 @@ export default function DORAPage() {
     )
   }
 
-  if (!hasDoraMetrics(dora)) {
-    return (
-      <div className="max-w-3xl mx-auto p-8 text-center">
-        <Gauge className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-        <p className="text-slate-400 text-sm">
-          DORA metrics not yet available — connect your CI/CD pipeline
-        </p>
-        <button
-          type="button"
-          onClick={load}
-          className="mt-4 px-4 py-2 text-xs border border-border rounded-lg hover:bg-card text-slate-400"
-        >
-          Refresh
-        </button>
-      </div>
-    )
-  }
+  const showEmptyMetrics = !loading && !hasDoraMetrics(dora)
 
   return (
     <div className="flex flex-col gap-8 max-w-6xl mx-auto pb-16 animate-fade-in px-1">
@@ -257,30 +290,45 @@ export default function DORAPage() {
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-slate-300">Current performance</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <DoraCard
-            label="Deployment Frequency"
-            icon={Rocket}
-            iconColor="text-emerald-400"
-            metric={dora.deployment_frequency}
-          />
-          <DoraCard
-            label="Lead Time for Changes"
-            icon={Clock}
-            iconColor="text-blue-400"
-            metric={dora.lead_time}
-          />
-          <DoraCard
-            label="Change Failure Rate"
-            icon={AlertTriangle}
-            iconColor="text-amber-400"
-            metric={dora.change_failure_rate}
-          />
-          <DoraCard
-            label="MTTR (Mean Time to Restore)"
-            icon={RefreshCw}
-            iconColor="text-violet-400"
-            metric={dora.mttr}
-          />
+          {loading ? (
+            <>
+              <MetricSkeleton />
+              <MetricSkeleton />
+              <MetricSkeleton />
+              <MetricSkeleton />
+            </>
+          ) : showEmptyMetrics ? (
+            <p className="col-span-full text-sm text-slate-500 py-4 text-center">
+              DORA metrics not yet available — connect your CI/CD pipeline
+            </p>
+          ) : (
+            <>
+              <DoraCard
+                label="Deployment Frequency"
+                icon={Rocket}
+                iconColor="text-emerald-400"
+                metric={dora?.deployment_frequency}
+              />
+              <DoraCard
+                label="Lead Time for Changes"
+                icon={Clock}
+                iconColor="text-blue-400"
+                metric={dora?.lead_time}
+              />
+              <DoraCard
+                label="Change Failure Rate"
+                icon={AlertTriangle}
+                iconColor="text-amber-400"
+                metric={dora?.change_failure_rate}
+              />
+              <DoraCard
+                label="MTTR (Mean Time to Restore)"
+                icon={RefreshCw}
+                iconColor="text-violet-400"
+                metric={dora?.mttr}
+              />
+            </>
+          )}
         </div>
       </section>
 
@@ -362,9 +410,9 @@ export default function DORAPage() {
                 </tr>
               </thead>
               <tbody>
-                {sortedTeams.length === 0 ? (
+                {teams.length === 0 && !loading ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={5} className="text-center py-8 text-gray-500 text-sm">
                       No team data available
                     </td>
                   </tr>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Bot, ChevronDown, ChevronRight, Eye, Loader2, X,
 } from 'lucide-react'
@@ -171,6 +172,7 @@ function RunDetailDrawer({ run, onClose }) {
 }
 
 export default function AgentRunHistory() {
+  const navigate = useNavigate()
   const { authFetch } = useAuth()
   const { toast } = useToast()
   const [runs, setRuns] = useState([])
@@ -245,8 +247,15 @@ export default function AgentRunHistory() {
                 </tr>
               ) : runs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-neutral-500 text-sm">
-                    No agent runs yet.
+                  <td colSpan={6} className="p-0">
+                    <EmptyState
+                      icon="🤖"
+                      title="No agent runs yet."
+                      action={{
+                        label: 'Run your first agent →',
+                        onClick: () => navigate('/agents'),
+                      }}
+                    />
                   </td>
                 </tr>
               ) : (

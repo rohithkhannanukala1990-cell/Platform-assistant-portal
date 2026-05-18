@@ -218,6 +218,7 @@ function AuthenticatedRoutes() {
         <Route path="/terminal" element={<PrivateRoute><Terminal /></PrivateRoute>} />
         <Route path="/approvals" element={<PrivateRoute><AgentApprovalsWidget /></PrivateRoute>} />
         <Route path="/db-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
+        <Route path="/query-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
 
         {/* Legacy / role portals — preserved */}
         <Route path="/ops" element={<PrivateRoute><OpsPortalRoute /></PrivateRoute>} />

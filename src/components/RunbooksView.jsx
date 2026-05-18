@@ -1,11 +1,68 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   BookOpen, Play, CheckCircle2, Clock, Tag, ChevronDown,
   ChevronUp, Terminal, Loader2, Shield, Server, Database,
-  Wifi, Search,
+  Wifi,   Search,
+  AlertTriangle,
 } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+import { API_BASE } from '../config/apiBase'
 
 const CATEGORIES = ['All', 'Application', 'Database', 'Network', 'Security']
+
+function EmptyState({ icon, title, subtitle, action }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+      <span className="text-5xl mb-4">{icon}</span>
+      <p className="text-base font-medium text-gray-300">{title}</p>
+      {subtitle && <p className="text-sm mt-1">{subtitle}</p>}
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="mt-4 text-sm bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-lg"
+        >
+          {action.label}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function mapCategory(cat) {
+  const c = (cat || 'General').trim()
+  if (CATEGORIES.includes(c)) return c
+  if (c === 'General') return 'Application'
+  return 'Application'
+}
+
+function parseSteps(stepsJson) {
+  if (!stepsJson) return []
+  try {
+    const parsed = typeof stepsJson === 'string' ? JSON.parse(stepsJson) : stepsJson
+    if (Array.isArray(parsed)) return parsed.map(String)
+    if (parsed && typeof parsed === 'object') {
+      return Object.values(parsed).flat().map(String)
+    }
+  } catch {
+    return [String(stepsJson)]
+  }
+  return []
+}
+
+function templateToRunbook(t) {
+  const steps = parseSteps(t.steps_json)
+  return {
+    id: String(t.id),
+    title: t.name,
+    category: mapCategory(t.category),
+    severity: 'Medium',
+    estimatedTime: steps.length ? `${Math.max(2, steps.length * 2)} min` : '5 min',
+    description: t.description || '',
+    tags: [t.slug, t.category].filter(Boolean),
+    steps: steps.length ? steps : ['Review runbook steps in the template.'],
+  }
+}
 
 const CATEGORY_CFG = {
   Application: { icon: Server,   color: 'text-blue-400',   bg: 'bg-blue-500/10  border-blue-500/25'  },
@@ -20,105 +77,6 @@ const SEV_CFG = {
   Medium:   'text-yellow-400 bg-yellow-500/10 border-yellow-500/25',
   Low:      'text-blue-400   bg-blue-500/10   border-blue-500/25',
 }
-
-const RUNBOOKS = [
-  {
-    id: 'rb-001',
-    title: 'High Memory Usage — JVM Services',
-    category: 'Application',
-    severity: 'High',
-    estimatedTime: '8 min',
-    description: 'Diagnose and remediate memory leaks in Java-based microservices. Triggers heap dump, analyzes GC pressure, and restarts if OOM is imminent.',
-    tags: ['jvm', 'memory', 'oom'],
-    steps: [
-      'Check pod memory usage: kubectl top pods -n production',
-      'Capture heap dump: kubectl exec <pod> -- jcmd 1 GC.heap_dump /tmp/heap.hprof',
-      'Analyze GC logs: kubectl logs <pod> --tail=200 | grep -i gc',
-      'If OOM > 95%, trigger rolling restart: kubectl rollout restart deployment/<name>',
-      'Verify services recover: kubectl rollout status deployment/<name>',
-    ],
-  },
-  {
-    id: 'rb-002',
-    title: 'PostgreSQL Deadlock Resolution',
-    category: 'Database',
-    severity: 'Critical',
-    estimatedTime: '5 min',
-    description: 'Identify and terminate blocking transactions on the primary PostgreSQL instance to restore normal query execution.',
-    tags: ['postgres', 'deadlock', 'blocking'],
-    steps: [
-      'Connect to primary: psql -h prod-postgres-primary -U postgres -d aiops',
-      "Identify blockers: SELECT pid, query, state, wait_event FROM pg_stat_activity WHERE state != 'idle';",
-      'Terminate the blocking PID: SELECT pg_terminate_backend(<blocking_pid>);',
-      'Verify deadlock resolved: SELECT count(*) FROM pg_locks WHERE NOT granted;',
-      'Alert the team and log the incident in Jira.',
-    ],
-  },
-  {
-    id: 'rb-003',
-    title: 'High Latency — API Gateway',
-    category: 'Network',
-    severity: 'High',
-    estimatedTime: '10 min',
-    description: 'Investigate elevated P99 latency on the API gateway by checking upstream service health, connection pools, and rate limits.',
-    tags: ['api-gateway', 'latency', 'p99'],
-    steps: [
-      'Check current P99: kubectl exec -it <pod> -- curl localhost:9090/metrics | grep latency',
-      'Identify slow upstreams from access logs: kubectl logs -l app=api-gateway --tail=500 | grep "5[0-9][0-9]"',
-      'Check connection pool exhaustion: kubectl exec <pod> -- env | grep POOL',
-      'Temporarily increase pool size and reload config: kubectl rollout restart deployment/api-gateway',
-      'Verify latency returns to baseline in Datadog.',
-    ],
-  },
-  {
-    id: 'rb-004',
-    title: 'SSL Certificate Expiry',
-    category: 'Security',
-    severity: 'Critical',
-    estimatedTime: '15 min',
-    description: 'Renew expiring TLS certificates using cert-manager and validate all ingress endpoints are serving valid certs.',
-    tags: ['ssl', 'tls', 'certificates'],
-    steps: [
-      'List expiring certs: kubectl get certificates -A | grep -v True',
-      'Force renewal: kubectl delete secret <tls-secret-name> -n production',
-      'cert-manager will auto-reissue — watch: kubectl describe certificate <name> -n production',
-      'Verify new cert: openssl s_client -connect api.internal.corp:443 -servername api.internal.corp 2>/dev/null | openssl x509 -noout -dates',
-      'Update cert expiry tracking in Confluence.',
-    ],
-  },
-  {
-    id: 'rb-005',
-    title: 'Kafka Consumer Lag Spike',
-    category: 'Application',
-    severity: 'Medium',
-    estimatedTime: '12 min',
-    description: 'Diagnose consumer group lag in Kafka topics and scale consumers or reset offsets to catch up.',
-    tags: ['kafka', 'consumer-lag', 'streaming'],
-    steps: [
-      'Check lag: kafka-consumer-groups.sh --bootstrap-server kafka:9092 --describe --group <group>',
-      'Identify slow partitions and check consumer logs for errors.',
-      'Scale consumer deployment: kubectl scale deployment/<consumer> --replicas=5',
-      'If lag is unrecoverable, reset offset: kafka-consumer-groups.sh --reset-offsets --to-latest --execute --group <group> --topic <topic>',
-      'Monitor lag reduction over next 15 minutes.',
-    ],
-  },
-  {
-    id: 'rb-006',
-    title: 'DDoS / Rate Limit Breach',
-    category: 'Security',
-    severity: 'Critical',
-    estimatedTime: '6 min',
-    description: 'Detect and block abusive IPs that are breaching rate limits or triggering WAF alerts.',
-    tags: ['ddos', 'rate-limit', 'waf'],
-    steps: [
-      'Identify top offenders: kubectl logs -l app=api-gateway --tail=1000 | awk \'{print $1}\' | sort | uniq -c | sort -rn | head -20',
-      'Block via iptables: iptables -A INPUT -s <offending_ip> -j DROP',
-      'Update WAF blocklist in Cloudflare dashboard.',
-      'Increase rate limit threshold temporarily if legitimate traffic.',
-      'File post-mortem and add IP to permanent blocklist.',
-    ],
-  },
-]
 
 function RunbookCard({ rb }) {
   const [expanded, setExpanded] = useState(false)
@@ -235,10 +193,35 @@ function RunbookCard({ rb }) {
 }
 
 export default function RunbooksView() {
+  const { authFetch } = useAuth()
   const [category, setCategory] = useState('All')
-  const [search,   setSearch]   = useState('')
+  const [search, setSearch] = useState('')
+  const [runbooks, setRunbooks] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-  const filtered = RUNBOOKS.filter(rb => {
+  const fetchRunbooks = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await authFetch(`${API_BASE}/api/golden-paths`)
+      if (!res.ok) throw new Error(`Error ${res.status}`)
+      const data = await res.json()
+      const list = Array.isArray(data) ? data : []
+      setRunbooks(list.map(templateToRunbook))
+    } catch (e) {
+      setError(e.message || 'Failed to load runbooks')
+      setRunbooks([])
+    } finally {
+      setLoading(false)
+    }
+  }, [authFetch])
+
+  useEffect(() => {
+    void fetchRunbooks()
+  }, [fetchRunbooks])
+
+  const filtered = runbooks.filter((rb) => {
     const matchCat    = category === 'All' || rb.category === category
     const matchSearch = !search || rb.title.toLowerCase().includes(search.toLowerCase()) ||
       rb.tags.some(t => t.includes(search.toLowerCase()))
@@ -294,11 +277,40 @@ export default function RunbooksView() {
 
       {/* Runbook cards */}
       <div className="flex flex-col gap-4">
-        {filtered.length === 0 ? (
-          <div className="flex items-center justify-center py-12 text-slate-600 text-sm">
-            No runbooks match your filter.
+        {loading ? (
+          <div className="flex flex-col gap-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-24 bg-slate-800 rounded-2xl animate-pulse" />
+            ))}
           </div>
-        ) : filtered.map(rb => <RunbookCard key={rb.id} rb={rb} />)}
+        ) : error ? (
+          <div className="flex flex-col items-center py-12 text-gray-400">
+            <AlertTriangle className="w-8 h-8 text-amber-400 mb-2" />
+            <p className="text-sm">{error}</p>
+            <button
+              type="button"
+              onClick={() => void fetchRunbooks()}
+              className="mt-3 text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded"
+            >
+              Retry
+            </button>
+          </div>
+        ) : runbooks.length === 0 ? (
+          <EmptyState
+            icon="📖"
+            title="No runbooks found."
+            action={{
+              label: 'Create Runbook',
+              onClick: () => {
+                window.location.href = '/golden-paths'
+              },
+            }}
+          />
+        ) : filtered.length === 0 ? (
+          <p className="text-center py-12 text-slate-600 text-sm">No runbooks match your filter.</p>
+        ) : (
+          filtered.map((rb) => <RunbookCard key={rb.id} rb={rb} />)
+        )}
       </div>
     </div>
   )

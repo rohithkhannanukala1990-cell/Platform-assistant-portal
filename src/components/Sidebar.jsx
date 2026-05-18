@@ -37,6 +37,7 @@ import {
   Bot,
   Code2,
   TerminalSquare,
+  Search,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -71,6 +72,7 @@ const ICON_MAP = {
   Bot,
   Code2,
   TerminalSquare,
+  Search,
 }
 
 const NAV_GROUPS = [
@@ -118,6 +120,7 @@ const NAV_GROUPS = [
       { label: 'Runbooks', path: '/runbooks', icon: 'BookMarked' },
       { label: 'Infra Builder', path: '/infra', icon: 'Server' },
       { label: 'DB Analyzer', path: '/db-analyzer', icon: 'Database' },
+      { label: 'Query Analyzer', path: '/query-analyzer', icon: 'Search' },
       { label: 'Storage', path: '/storage', icon: 'HardDrive' },
     ],
   },
@@ -160,8 +163,9 @@ function isActivePath(pathname, itemPath) {
 
 export default function Sidebar({ user, onLogout }) {
   const location = useLocation()
-  const { role } = useAuth()
+  const { role, authFetch } = useAuth()
   const isAdmin = role === 'Admin'
+  const [agentApprovalCount, setAgentApprovalCount] = useState(0)
 
   const [collapsed, setCollapsed] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false

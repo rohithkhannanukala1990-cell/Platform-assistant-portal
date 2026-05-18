@@ -112,10 +112,20 @@ function RowLucide({ envId }) {
   return null
 }
 
-export default function EnvironmentSwitcher() {
+export default function EnvironmentSwitcher({ onClose }) {
   const { authFetch } = useAuth()
   const { showToast } = useToast()
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpenState] = useState(false)
+  const setIsOpen = useCallback(
+    (value) => {
+      setIsOpenState((prev) => {
+        const next = typeof value === 'function' ? value(prev) : value
+        if (!next) onClose?.()
+        return next
+      })
+    },
+    [onClose]
+  )
   const [activeEnv, setActiveEnv] = useState(() => readStoredEnv())
   const [pendingEnv, setPendingEnv] = useState(null)
   const [showConfirmModal, setShowConfirmModal] = useState(false)

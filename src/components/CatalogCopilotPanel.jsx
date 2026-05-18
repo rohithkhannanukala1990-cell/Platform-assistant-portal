@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Sparkles, AlertTriangle, ChevronRight, Loader2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
 
+const CATALOG_API = `${API_BASE}/api/catalog`
 const COPILOT_API = `${API_BASE}/api/catalog-copilot/copilot`
 
 const QUICK_PROMPTS = [
@@ -29,6 +30,29 @@ export default function CatalogCopilotPanel({
   const [loading, setLoading] = useState(false)
   const [response, setResponse] = useState(null)
   const [error, setError] = useState(null)
+  const [entities, setEntities] = useState([])
+  const [entitiesLoading, setEntitiesLoading] = useState(true)
+  const [entitiesError, setEntitiesError] = useState(null)
+
+  const fetchEntities = useCallback(async () => {
+    setEntitiesLoading(true)
+    setEntitiesError(null)
+    try {
+      const res = await authFetch(CATALOG_API)
+      if (!res.ok) throw new Error(`Error ${res.status}`)
+      const data = await res.json()
+      setEntities(Array.isArray(data) ? data : (data.entities || []))
+    } catch (e) {
+      setEntitiesError(e.message || 'Failed to load catalog')
+      setEntities([])
+    } finally {
+      setEntitiesLoading(false)
+    }
+  }, [authFetch])
+
+  useEffect(() => {
+    void fetchEntities()
+  }, [fetchEntities])
 
   const submit = useCallback(
     async (q) => {
@@ -78,6 +102,45 @@ export default function CatalogCopilotPanel({
         p.name?.toLowerCase().includes(name.toLowerCase()) ||
         name.toLowerCase().includes(p.name?.toLowerCase() || '')
     )
+
+  if (entitiesLoading) {
+    return (
+      <div className="space-y-3 p-4">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-12 bg-gray-700 rounded animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+
+  if (entitiesError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full py-12 text-gray-400">
+        <span className="text-4xl mb-3">⚠️</span>
+        <p className="text-sm">Failed to load catalog</p>
+        <button
+          type="button"
+          onClick={() => {
+            setEntitiesError(null)
+            void fetchEntities()
+          }}
+          className="mt-3 text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  if (!entitiesLoading && entities.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full py-12 text-gray-400">
+        <span className="text-4xl mb-3">🗂</span>
+        <p className="text-sm font-medium">No catalog entities found</p>
+        <p className="text-xs mt-1">Register a service to get started</p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto -mx-1">

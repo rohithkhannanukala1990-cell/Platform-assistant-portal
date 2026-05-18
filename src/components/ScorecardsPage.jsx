@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   ClipboardCheck,
   Search,
@@ -29,6 +29,25 @@ const FILTER_OPTIONS = [
   { value: 'failing', label: 'Failing (<50)' },
   { value: 'unevaluated', label: 'Not Evaluated' },
 ]
+
+function EmptyState({ icon, title, subtitle, action }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+      <span className="text-5xl mb-4">{icon}</span>
+      <p className="text-base font-medium text-gray-300">{title}</p>
+      {subtitle && <p className="text-sm mt-1">{subtitle}</p>}
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="mt-4 text-sm bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-lg"
+        >
+          {action.label}
+        </button>
+      )}
+    </div>
+  )
+}
 
 function hasEvaluation(scorecard) {
   if (scorecard == null) return false
@@ -450,15 +469,14 @@ export default function ScorecardsPage() {
       )}
 
       {!loading && entities.length === 0 && (
-        <div className="text-center py-16 rounded-2xl border border-border bg-card">
-          <p className="text-slate-400">No entities in catalog yet</p>
-          <Link
-            to="/catalog"
-            className="inline-block mt-3 text-sm font-semibold text-indigo-400 hover:text-indigo-300"
-          >
-            Go to Catalog
-          </Link>
-        </div>
+        <EmptyState
+          icon="📋"
+          title="No scorecards configured."
+          action={{
+            label: 'Create Scorecard',
+            onClick: () => navigate('/catalog'),
+          }}
+        />
       )}
 
       {!loading && entities.length > 0 && (

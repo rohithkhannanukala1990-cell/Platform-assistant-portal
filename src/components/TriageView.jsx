@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   ScanSearch,
   Sparkles,
@@ -32,9 +32,35 @@ export default function TriageView({
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [incidentsLoading, setIncidentsLoading] = useState(true)
+  const [hasActiveIncidents, setHasActiveIncidents] = useState(false)
 
   const selectedIncident = controlled ? selectedIncidentProp : internalSelected
   const selectIncident = controlled ? onSelectIncidentProp : setInternalSelected
+
+  const loadIncidents = useCallback(async () => {
+    setIncidentsLoading(true)
+    try {
+      const res = await authFetch('/api/incidents')
+      if (!res.ok) {
+        setHasActiveIncidents(false)
+        return
+      }
+      const list = await res.json()
+      const active = (Array.isArray(list) ? list : []).some((inc) =>
+        ACTIVE_STATUSES.has(inc.status)
+      )
+      setHasActiveIncidents(active)
+    } catch {
+      setHasActiveIncidents(false)
+    } finally {
+      setIncidentsLoading(false)
+    }
+  }, [authFetch])
+
+  useEffect(() => {
+    void loadIncidents()
+  }, [loadIncidents, historyVersion])
 
   useEffect(() => {
     if (selectedIncident) {
@@ -126,6 +152,14 @@ export default function TriageView({
               </button>
             </div>
           )}
+
+          {!selectedIncident &&
+            !result &&
+            !logs.trim() &&
+            !incidentsLoading &&
+            !hasActiveIncidents && (
+              <EmptyState icon="✅" title="All clear. No active incidents." />
+            )}
 
           {!selectedIncident && (
             <>
