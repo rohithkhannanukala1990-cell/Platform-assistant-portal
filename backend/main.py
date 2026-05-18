@@ -1814,6 +1814,11 @@ async def portal_ws(
     await accept_portal_connection(websocket, user_id=user_id)
 
 
+from .ws_portal import router as ws_portal_router
+
+app.include_router(ws_portal_router)
+
+
 # ── Admin health dashboard API ────────────────────────────────────────────────
 
 
