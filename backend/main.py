@@ -171,6 +171,8 @@ app.include_router(workspaces_router)
 app.include_router(templates_router)
 app.include_router(rbac_router)
 app.include_router(ai_router)
+from .routers.agents import router as agents_router
+app.include_router(agents_router)
 app.include_router(entity_actions_module.catalog_router)
 app.include_router(entity_actions_module.runs_router)
 app.include_router(entity_actions_module.router)

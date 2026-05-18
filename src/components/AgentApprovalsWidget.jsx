@@ -453,6 +453,69 @@ function ApprovalCard({ incident, onApprove, onReject }) {
   )
 }
 
+function AgentPipelineApprovalCard({ run, authFetch, onDone, showToast }) {
+  const [busy, setBusy] = useState(false)
+
+  async function approve() {
+    setBusy(true)
+    try {
+      const res = await authFetch(`/api/agents/${run.run_id}/approve`, { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      showToast('Agent run approved', 'success')
+      onDone(run.run_id)
+    } catch (e) {
+      showToast(e.message || 'Approve failed', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function reject() {
+    setBusy(true)
+    try {
+      const res = await authFetch(`/api/agents/${run.run_id}/reject`, { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      showToast('Agent run rejected', 'info')
+      onDone(run.run_id)
+    } catch (e) {
+      showToast(e.message || 'Reject failed', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-4 flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-xs font-bold text-violet-300 uppercase">{run.agent}</span>
+        <span className="text-[10px] text-slate-500">{run.environment}</span>
+      </div>
+      <p className="text-sm text-slate-200">{run.summary}</p>
+      <p className="text-[10px] text-slate-500">
+        By {run.triggered_by} · {run.timestamp ? new Date(run.timestamp).toLocaleString() : '—'}
+      </p>
+      <div className="flex gap-2 mt-1">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void approve()}
+          className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold disabled:opacity-50"
+        >
+          Approve
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void reject()}
+          className="flex-1 py-2 rounded-lg border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-800 disabled:opacity-50"
+        >
+          Reject
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function AgentApprovalsWidget({ roleFilter = null }) {
   const { role } = useRole()
   const { authFetch, user } = useAuth()
@@ -464,11 +527,13 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
 
   const [incidents, setIncidents] = useState([])
   const [aiPending, setAiPending] = useState([])
+  const [agentRuns, setAgentRuns] = useState([])
   const [loading, setLoading] = useState(true)
 
   const securityRiskCount = incidents.filter((i) => i.status === 'ESCALATED_SECURITY_RISK').length
   const approvalCount = incidents.filter((i) => i.status === 'AWAITING_APPROVAL').length
   const aiPendingCount = aiPending.length
+  const pipelineApprovalCount = agentRuns.length
 
   const fetchAll = useCallback(async () => {
     try {
@@ -481,12 +546,18 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
         const ar = await authFetch('/api/ai/executions/pending')
         if (ar.ok) setAiPending(await ar.json())
         else setAiPending([])
+
+        const pr = await authFetch('/api/agents/approvals')
+        if (pr.ok) setAgentRuns(await pr.json())
+        else setAgentRuns([])
       } else {
         setAiPending([])
+        setAgentRuns([])
       }
     } catch {
       setIncidents([])
       setAiPending([])
+      setAgentRuns([])
     } finally {
       setLoading(false)
     }
@@ -518,6 +589,10 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
 
   function removeAiExecution(id) {
     setAiPending((prev) => prev.filter((x) => x.id !== id))
+  }
+
+  function removeAgentRun(runId) {
+    setAgentRuns((prev) => prev.filter((r) => r.run_id !== runId))
   }
 
   if (loading) return (
@@ -572,13 +647,22 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
         )}
       </div>
 
-      {incidents.length === 0 && aiPending.length === 0 ? (
+      {incidents.length === 0 && aiPending.length === 0 && agentRuns.length === 0 ? (
         <div className="flex items-center gap-2 px-4 py-5 rounded-xl border border-dashed border-slate-700 text-slate-600 text-xs justify-center">
           <CheckCircle2 className="w-4 h-4 text-green-600" />
           No incidents or AI actions awaiting approval — queue is clear.
         </div>
       ) : (
         <div className="flex flex-col gap-3">
+          {agentRuns.map((run) => (
+            <AgentPipelineApprovalCard
+              key={run.run_id}
+              run={run}
+              authFetch={authFetch}
+              onDone={removeAgentRun}
+              showToast={showToast}
+            />
+          ))}
           {aiPending.map((ex) => (
             <AIHitlExecutionCard
               key={ex.id}

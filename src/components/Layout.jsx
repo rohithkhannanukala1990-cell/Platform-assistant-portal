@@ -109,7 +109,7 @@ export default function Layout({ user, onLogout }) {
           </div>
         )}
         {healthWsToast && role === 'Admin' && (
-          <div className="fixed bottom-6 right-6 z-[60] max-w-sm px-4 py-3 rounded-lg border border-amber-500/40 bg-amber-950/90 text-amber-100 text-sm shadow-xl">
+          <div className="fixed bottom-6 left-6 z-[60] max-w-sm px-4 py-3 rounded-lg border border-amber-500/40 bg-amber-950/90 text-amber-100 text-sm shadow-xl">
             ⚠️ {healthWsToast}
           </div>
         )}

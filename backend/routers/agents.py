@@ -1,0 +1,198 @@
+"""Agent pipeline API — run, list, approvals."""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlmodel import Session, select
+
+from ..agents import get_agent, list_agents, AgentNotFound
+from ..agents.base import AgentResult
+from ..auth import AuditLog, User, get_current_user, write_audit
+from ..context import PlatformContext
+from ..database import AgentRun, engine
+from ..executor.safe_executor import safe_executor
+from ..pipeline.orchestrator import orchestrator_agent
+
+router = APIRouter(prefix="/api/agents", tags=["agents"])
+
+
+class RunAgentRequest(BaseModel):
+    task: str
+    context: dict = Field(default_factory=dict)
+    override_agents: Optional[list[str]] = None
+
+
+def _session():
+    with Session(engine) as session:
+        yield session
+
+
+def _role_for_user(user: User) -> str:
+    return "Admin" if (user.role or "").strip() == "Admin" else "User"
+
+
+def _run_to_dict(row: AgentRun) -> dict[str, Any]:
+    return {
+        "run_id": row.id,
+        "agent": row.agent,
+        "status": row.status,
+        "summary": row.summary,
+        "details": json.loads(row.details_json or "{}"),
+        "requires_approval": row.requires_approval,
+        "approval_payload": json.loads(row.approval_payload_json or "{}"),
+        "execution_log": row.execution_log,
+        "triggered_by": row.triggered_by,
+        "workspace": row.workspace_id,
+        "environment": row.environment,
+        "timestamp": row.created_at.isoformat() if row.created_at else "",
+        "task": row.task,
+    }
+
+
+@router.get("/")
+def list_all_agents(current_user: User = Depends(get_current_user)):
+    return list_agents()
+
+
+@router.post("/run")
+async def run_agent(
+    body: RunAgentRequest,
+    current_user: User = Depends(get_current_user),
+):
+    ctx = PlatformContext.from_dict(
+        body.context,
+        user_id=current_user.username,
+        user_role=_role_for_user(current_user),
+    )
+    with Session(engine) as session:
+        result = await orchestrator_agent.run(
+            body.task,
+            ctx,
+            session,
+            override_agents=body.override_agents,
+        )
+    return result.to_dict()
+
+
+@router.get("/approvals")
+def list_approvals(
+    workspace_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    with Session(engine) as session:
+        q = select(AgentRun).where(AgentRun.status == "pending_approval")
+        if workspace_id:
+            q = q.where(AgentRun.workspace_id == workspace_id)
+        rows = session.exec(q.order_by(AgentRun.created_at.desc())).all()
+    return [_run_to_dict(r) for r in rows]
+
+
+@router.get("/{agent_name}")
+def get_agent_meta(
+    agent_name: str,
+    current_user: User = Depends(get_current_user),
+):
+    if agent_name == "approvals":
+        return list_approvals(None, current_user)
+    try:
+        agent = get_agent(agent_name)
+    except AgentNotFound:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    with Session(engine) as session:
+        logs = session.exec(
+            select(AuditLog)
+            .where(AuditLog.resource == agent_name)
+            .order_by(AuditLog.timestamp.desc())
+            .limit(10)
+        ).all()
+
+    return {
+        "name": agent.name,
+        "description": agent.description,
+        "requires_approval_envs": agent.requires_approval_envs,
+        "primary_tools": agent.primary_tools,
+        "recent_audit": [
+            {
+                "timestamp": l.timestamp.isoformat(),
+                "actor": l.actor,
+                "event_type": l.event_type,
+                "detail": l.detail,
+            }
+            for l in logs
+        ],
+    }
+
+
+@router.post("/{run_id}/approve")
+async def approve_run(
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    with Session(engine) as session:
+        row = session.get(AgentRun, run_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if row.status != "pending_approval":
+            raise HTTPException(status_code=400, detail="Run is not pending approval")
+
+        payload = json.loads(row.approval_payload_json or "{}")
+        commands = payload.get("commands") or []
+        if not commands and isinstance(payload.get("agents"), list):
+            for sub in payload["agents"]:
+                commands.extend(sub.get("details", {}).get("commands") or [])
+
+        exec_log = None
+        if commands:
+            out = await safe_executor.execute(
+                commands, incident_id=0, approved_by=current_user.username
+            )
+            exec_log = out.get("logs")
+            row.status = "success" if out.get("success") else "failed"
+        else:
+            row.status = "success"
+
+        row.execution_log = exec_log
+        row.requires_approval = False
+        row.updated_at = datetime.now(timezone.utc)
+        session.add(row)
+        session.commit()
+
+        write_audit(
+            current_user.username,
+            current_user.role,
+            "agent_approved",
+            resource=row.agent,
+            detail=row.id,
+        )
+        return _run_to_dict(row)
+
+
+@router.post("/{run_id}/reject")
+def reject_run(
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    with Session(engine) as session:
+        row = session.get(AgentRun, run_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Run not found")
+        row.status = "failed"
+        row.requires_approval = False
+        row.summary = f"Rejected by {current_user.username}: {row.summary}"
+        row.updated_at = datetime.now(timezone.utc)
+        session.add(row)
+        session.commit()
+        write_audit(
+            current_user.username,
+            current_user.role,
+            "agent_rejected",
+            resource=row.agent,
+            detail=row.id,
+        )
+        return _run_to_dict(row)

@@ -9,9 +9,7 @@ import {
   RefreshCw,
   Inbox,
 } from 'lucide-react'
-import { API_BASE } from '../config/apiBase'
-
-const API = `${API_BASE}/api/incidents`
+import { useAuth } from '../contexts/AuthContext'
 
 const SEVERITY_STYLES = {
   Critical: 'bg-red-500/15 border-red-500/40 text-red-400',
@@ -49,6 +47,7 @@ function formatTime(iso) {
 }
 
 export default function IncidentHistory({ version, onSelectIncident, selectedId }) {
+  const { authFetch } = useAuth()
   const [incidents, setIncidents]   = useState([])
   const [loading, setLoading]       = useState(false)
   const [collapsed, setCollapsed]   = useState(false)
@@ -56,14 +55,14 @@ export default function IncidentHistory({ version, onSelectIncident, selectedId 
   const fetchIncidents = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(API)
+      const res = await authFetch('/api/incidents')
       if (res.ok) setIncidents(await res.json())
     } catch {
       // backend not reachable — fail silently
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [authFetch])
 
   // Re-fetch whenever a new analysis completes (version bumps)
   useEffect(() => { fetchIncidents() }, [fetchIncidents, version])

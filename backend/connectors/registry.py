@@ -81,10 +81,25 @@ CONNECTOR_MAP: dict[str, dict[str, Any]] = {
 }
 
 
+class ToolConnectionNotFound(Exception):
+    pass
+
+
 class BaseConnector:
     def __init__(self, account: dict[str, Any]):
         self.account = account
         self.tool_id = account.get("tool_id")
+
+    async def execute_action(self, action: str, params: dict) -> dict[str, Any]:
+        """Execute a tool-specific action (override in connector modules)."""
+        await asyncio.sleep(0.05)
+        return {
+            "ok": True,
+            "tool": self.tool_id,
+            "action": action,
+            "params": params,
+            "message": f"Action '{action}' simulated for {self.tool_id}",
+        }
 
     async def test_connection(self) -> dict[str, Any]:
         start = time.time()
@@ -289,3 +304,49 @@ def get_auth_types(tool_id: str) -> list[str]:
 def get_required_fields(tool_id: str) -> list[str]:
     config = CONNECTOR_MAP.get(tool_id, {})
     return list(config.get("required_fields", []))
+
+
+def _connection_row_to_account(row) -> dict[str, Any]:
+    import json
+
+    cfg = json.loads(row.config or "{}")
+    return {
+        "tool_id": row.tool_id,
+        "account_name": row.account_name,
+        "account_identifier": row.account_alias,
+        "account_alias": row.account_alias,
+        "auth_type": row.auth_type,
+        "region": cfg.get("region"),
+        "instance_url": cfg.get("instance_url"),
+        "status": row.status,
+    }
+
+
+def get_connector_for_account(tool_id: str, workspace_id: str, account_alias: str, db) -> BaseConnector:
+    from ..database import get_tool_connection
+
+    row = get_tool_connection(db, workspace_id, tool_id, account_alias)
+    if not row:
+        raise ToolConnectionNotFound(
+            f"No connection for tool={tool_id} workspace={workspace_id} alias={account_alias}"
+        )
+    return get_connector(tool_id, _connection_row_to_account(row))
+
+
+def list_accounts(tool_id: str, workspace_id: str, db) -> list[dict]:
+    from ..database import get_tool_connections
+
+    rows = get_tool_connections(db, workspace_id, tool_id)
+    return [_connection_row_to_account(r) for r in rows if r.status == "connected"]
+
+
+def get_default_account(tool_id: str, workspace_id: str, db) -> dict:
+    from ..database import get_tool_connections
+
+    accounts = list_accounts(tool_id, workspace_id, db)
+    if accounts:
+        return accounts[0]
+    rows = get_tool_connections(db, workspace_id, tool_id)
+    if not rows:
+        raise ToolConnectionNotFound(f"No accounts for {tool_id} in workspace {workspace_id}")
+    return _connection_row_to_account(rows[0])

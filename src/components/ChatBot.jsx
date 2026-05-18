@@ -1,11 +1,13 @@
+/**
+ * Floating SRE chat widget (/api/chat). Full-page agent UI lives in AIAssistant.jsx
+ * (/ai-assistant) — merge or dedupe in Sprint 13 if both stay long-term.
+ */
 import { useState, useRef, useEffect } from 'react'
 import {
   MessageSquare, X, Send, Bot, User,
   Loader2, AlertCircle, Sparkles,
 } from 'lucide-react'
-import { API_BASE } from '../config/apiBase'
-
-const API = `${API_BASE}/api/chat`
+import { useAuth } from '../contexts/AuthContext'
 
 const SUGGESTIONS = [
   'How many open incidents do I have?',
@@ -92,7 +94,7 @@ export default function ChatBot() {
     setLoading(true)
 
     try {
-      const res  = await fetch(API, {
+      const res = await authFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userText }),
@@ -116,7 +118,7 @@ export default function ChatBot() {
       {/* ── FAB ──────────────────────────────────────────────────────────────── */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className={`fixed bottom-6 right-6 z-40 flex items-center justify-center w-14 h-14 rounded-full shadow-2xl
+        className={`fixed bottom-6 right-6 z-[45] flex items-center justify-center w-14 h-14 rounded-full shadow-2xl
           border transition-all duration-200 group
           ${open
             ? 'bg-slate-800 border-slate-600 rotate-90'
@@ -132,7 +134,7 @@ export default function ChatBot() {
 
       {/* ── Chat panel ───────────────────────────────────────────────────────── */}
       <div
-        className={`fixed bottom-24 right-6 z-40 flex flex-col w-96 rounded-2xl border border-border bg-surface shadow-2xl
+        className={`fixed bottom-24 right-6 z-[45] flex flex-col w-96 rounded-2xl border border-border bg-surface shadow-2xl
           transition-all duration-300 origin-bottom-right
           ${open ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'}`}
         style={{ height: '540px' }}

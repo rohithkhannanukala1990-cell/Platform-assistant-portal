@@ -417,6 +417,89 @@ class AIToolExecution(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ToolConnection(SQLModel, table=True):
+    """Workspace-scoped tool credentials (agent pipeline)."""
+
+    __tablename__ = "tool_connections"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "tool_id", "account_alias", name="uq_tool_conn_ws_tool_alias"),
+    )
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    workspace_id: str = Field(index=True)
+    tool_id: str = Field(index=True)
+    account_name: str
+    account_alias: str
+    auth_type: str
+    credentials: str = Field(default="{}")
+    config: str = Field(default="{}")
+    status: str = Field(default="disconnected")
+    last_tested_at: Optional[datetime] = Field(default=None)
+    connected_by: str = Field(default="")
+    workspace_scoped: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AgentRun(SQLModel, table=True):
+    """Persisted agent pipeline runs (HITL approvals)."""
+
+    __tablename__ = "agent_runs"
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    agent: str = Field(default="orchestrator", index=True)
+    status: str = Field(default="pending_approval", index=True)
+    summary: str = Field(default="")
+    details_json: str = Field(default="{}")
+    requires_approval: bool = Field(default=False)
+    approval_payload_json: str = Field(default="{}")
+    execution_log: Optional[str] = Field(default=None)
+    triggered_by: str = Field(default="", index=True)
+    workspace_id: str = Field(default="", index=True)
+    environment: str = Field(default="development")
+    task: str = Field(default="")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+def get_tool_connections(session: Session, workspace_id: str, tool_id: str | None = None) -> list[ToolConnection]:
+    q = select(ToolConnection).where(ToolConnection.workspace_id == workspace_id)
+    if tool_id:
+        q = q.where(ToolConnection.tool_id == tool_id)
+    return list(session.exec(q).all())
+
+
+def get_tool_connection(
+    session: Session, workspace_id: str, tool_id: str, account_alias: str
+) -> ToolConnection | None:
+    return session.exec(
+        select(ToolConnection).where(
+            ToolConnection.workspace_id == workspace_id,
+            ToolConnection.tool_id == tool_id,
+            ToolConnection.account_alias == account_alias,
+        )
+    ).first()
+
+
+def create_tool_connection(session: Session, **kwargs) -> ToolConnection:
+    row = ToolConnection(**kwargs)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def update_tool_connection_status(session: Session, connection_id: str, status: str) -> None:
+    row = session.get(ToolConnection, connection_id)
+    if not row:
+        return
+    row.status = status
+    row.last_tested_at = datetime.now(timezone.utc)
+    row.updated_at = datetime.now(timezone.utc)
+    session.add(row)
+    session.commit()
+
+
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 DEFAULT_SETTINGS = {
