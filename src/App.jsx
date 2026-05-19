@@ -45,6 +45,7 @@ import LivePipelinesView from './components/LivePipelinesView'
 import SchemaBrowserView from './components/SchemaBrowserView'
 import DataLineageView from './components/DataLineageView'
 import PermissionGate from './components/PermissionGate'
+import NotificationsPage from './components/NotificationsPage'
 
 const OPS_URL_VIEWS = new Set([
   'dashboard',
@@ -251,7 +252,7 @@ function AuthenticatedRoutes() {
             </PrivateRoute>
           )}
         />
-        <Route path="/notifications" element={<PrivateRoute><HistoryPanel /></PrivateRoute>} />
+        <Route path="/notifications" element={<PrivateRoute><NotificationsPage /></PrivateRoute>} />
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
