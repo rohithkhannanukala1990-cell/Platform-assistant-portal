@@ -26,6 +26,7 @@ from slowapi.errors import RateLimitExceeded
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from .middleware.workspace_isolation import WorkspaceIsolationMiddleware
 from pydantic import BaseModel, Field
 from typing import Literal
 from google import genai
@@ -195,6 +196,7 @@ app.include_router(scorecards_router)
 # Sprint 6: enforce RBAC on selected routes via Depends(require_permission("resource", "action"))
 # from .middleware.rbac_middleware import require_permission
 
+app.add_middleware(WorkspaceIsolationMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
