@@ -143,6 +143,7 @@ const NAV_GROUPS = [
     items: [
       { label: 'AI Assistant', path: '/ai-assistant', icon: 'Sparkles' },
       { label: 'Agents', path: '/agents', icon: 'Bot', badgeKey: 'agentApprovals' },
+      { label: 'Run History', path: '/agent-history', icon: 'Activity' },
       { label: 'Code Editor', path: '/editor', icon: 'Code2' },
       { label: 'Terminal', path: '/terminal', icon: 'TerminalSquare' },
     ],
