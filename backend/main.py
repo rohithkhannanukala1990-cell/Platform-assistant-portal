@@ -176,9 +176,11 @@ app.include_router(ai_router)
 from .routers.agents import router as agents_router
 from .routers.audit_log import router as audit_router
 from .routers.users import router as users_router
+from .routers.sso import router as sso_router
 app.include_router(agents_router)
 app.include_router(audit_router, prefix="")
 app.include_router(users_router, prefix="")
+app.include_router(sso_router)
 app.include_router(entity_actions_module.catalog_router)
 app.include_router(entity_actions_module.runs_router)
 app.include_router(entity_actions_module.router)

@@ -142,6 +142,19 @@ export default function LoginPage() {
             <p className="text-xs text-slate-600 text-center mt-1">Default: admin / changeme123</p>
           )}
         </form>
+
+        <div className="mt-4 border-t border-slate-700 pt-4">
+          <p className="text-xs text-slate-500 text-center mb-3">
+            Or continue with
+          </p>
+          <a href="/api/auth/sso/saml/login"
+             className="flex items-center justify-center gap-2
+                        w-full py-2.5 rounded-lg border
+                        border-slate-600 text-slate-300 text-sm
+                        hover:bg-slate-800 transition-colors">
+            🔐 SSO / SAML Login
+          </a>
+        </div>
       </div>
     </div>
   )
