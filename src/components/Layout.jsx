@@ -31,6 +31,7 @@ export default function Layout({ user, onLogout }) {
   const [criticalHealthBanner, setCriticalHealthBanner] = useState(null)
   const [healthWsToast, setHealthWsToast] = useState(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const openHealthDashboard = useCallback(() => {
     navigate('/health')
@@ -84,7 +85,7 @@ export default function Layout({ user, onLogout }) {
 
   return (
     <div className="flex h-screen bg-neutral-950 text-white overflow-hidden">
-      <Sidebar user={user} onLogout={onLogout} />
+      <Sidebar user={user} onLogout={onLogout} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-col flex-1 overflow-hidden">
         {criticalHealthBanner && role === 'Admin' && (
           <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-red-950/80 border-b border-red-700/50 text-red-100 text-sm">
@@ -117,6 +118,7 @@ export default function Layout({ user, onLogout }) {
           user={user}
           onLogout={onLogout}
           onOpenCommandPalette={() => setPaletteOpen(true)}
+          onMenuOpen={() => setSidebarOpen(true)}
         />
         <main className="flex-1 overflow-auto p-6">
           <Outlet />

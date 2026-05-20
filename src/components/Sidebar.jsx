@@ -162,7 +162,7 @@ function isActivePath(pathname, itemPath) {
   return pathname === itemPath
 }
 
-export default function Sidebar({ user, onLogout }) {
+export default function Sidebar({ user, onLogout, open = false, onClose }) {
   const location = useLocation()
   const { role, authFetch } = useAuth()
   const isAdmin = role === 'Admin'
@@ -256,9 +256,23 @@ export default function Sidebar({ user, onLogout }) {
   }
 
   return (
-    <aside
-      className={`relative flex flex-col shrink-0 bg-neutral-900 border-r border-neutral-800 overflow-hidden ${widthClass} transition-[width] duration-200`}
-    >
+    <>
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={onClose}
+        />
+      )}
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-50 w-64
+          transform transition-transform duration-200
+          md:relative md:translate-x-0 md:w-auto
+          ${open ? 'translate-x-0' : '-translate-x-full'}
+          bg-neutral-900 border-r border-neutral-800
+          flex flex-col shrink-0 overflow-hidden ${widthClass}
+        `}
+      >
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
@@ -373,5 +387,6 @@ export default function Sidebar({ user, onLogout }) {
         )}
       </div>
     </aside>
+    </>
   )
 }

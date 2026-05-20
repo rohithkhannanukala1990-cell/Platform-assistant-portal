@@ -268,7 +268,7 @@ function EnvironmentBreadcrumb() {
   )
 }
 
-export default function TopBar({ user, onLogout, onOpenCommandPalette }) {
+export default function TopBar({ user, onLogout, onOpenCommandPalette, onMenuOpen }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { authFetch } = useAuth()
@@ -347,6 +347,13 @@ export default function TopBar({ user, onLogout, onOpenCommandPalette }) {
   return (
     <header className="shrink-0 flex flex-col border-b border-neutral-800 bg-neutral-900">
       <div className="flex items-center gap-3 px-6 py-3">
+      <button
+        type="button"
+        className="md:hidden p-2 text-slate-400 hover:text-white transition-colors"
+        onClick={onMenuOpen}
+      >
+        ☰
+      </button>
       <div className="flex items-center gap-2 min-w-0 shrink-0">
         <span className="hidden lg:inline text-xs font-semibold text-neutral-500 uppercase tracking-wider shrink-0">
           Platform

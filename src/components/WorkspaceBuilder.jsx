@@ -1226,7 +1226,7 @@ export default function WorkspaceBuilder() {
             ref={canvasRef}
             onDragOver={onCanvasDragOver}
             onDrop={onCanvasDrop}
-            className="relative w-full min-h-[420px] rounded-xl border border-dashed border-slate-700 bg-slate-950/40 overflow-hidden"
+            className="hidden md:block relative w-full min-h-[420px] rounded-xl border border-dashed border-slate-700 bg-slate-950/40 overflow-hidden"
           >
             {canvasTools.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-sm pointer-events-none">
@@ -1255,6 +1255,21 @@ export default function WorkspaceBuilder() {
                     setCanvasTools((prev) => prev.filter((_, i) => i !== idx))
                   }
                 />
+              </div>
+            ))}
+          </div>
+
+          <div className="md:hidden space-y-3 p-4">
+            <p className="text-xs text-slate-400 text-center">
+              Canvas view available on desktop. Tool list below:
+            </p>
+            {canvasTools.map((tool, idx) => (
+              <div
+                key={`${tool.tool_id}-${tool.account_alias}-${idx}`}
+                className="p-3 bg-slate-800 rounded-xl border border-slate-700"
+              >
+                <p className="text-sm font-semibold text-white">{tool.tool_id}</p>
+                <p className="text-xs text-slate-400">{tool.account_alias}</p>
               </div>
             ))}
           </div>

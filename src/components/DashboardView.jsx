@@ -463,7 +463,7 @@ export default function DashboardView() {
             </button>
             <span className="text-[10px] text-slate-500 ml-1">— Engineering delivery performance</span>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <DoraCard metricKey="deployment_frequency" label="Deploy Frequency" icon={Rocket}       iconColor="text-emerald-400" metric={dora.deployment_frequency} />
             <DoraCard metricKey="lead_time"            label="Lead Time"        icon={Clock}        iconColor="text-blue-400"    metric={dora.lead_time} />
             <DoraCard metricKey="change_failure_rate"  label="Change Failure"   icon={AlertTriangle} iconColor="text-amber-400"  metric={dora.change_failure_rate} />
