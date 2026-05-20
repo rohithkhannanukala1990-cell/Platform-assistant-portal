@@ -1,6 +1,7 @@
 """Agent registry — 17 specialist agents."""
 
 from .alert_noise_agent import alert_noise_agent
+from .migration_agent import migration_agent
 from .auto_heal_agent import auto_heal_agent
 from .base import AgentResult, BaseAgent
 from .catalog_health_agent import catalog_health_agent
@@ -35,6 +36,7 @@ AGENT_REGISTRY: dict[str, BaseAgent] = {
     "scorecard_agent": scorecard_agent,
     "dependency_drift_agent": dependency_drift_agent,
     "alert_noise_agent": alert_noise_agent,
+    "migration_agent": migration_agent,
 }
 
 
