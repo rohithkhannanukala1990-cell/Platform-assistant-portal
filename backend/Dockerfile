@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .
+RUN apk add --no-cache libxmlsec1-dev libffi-dev gcc musl-dev
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
