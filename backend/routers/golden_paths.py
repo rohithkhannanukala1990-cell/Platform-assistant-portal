@@ -79,6 +79,148 @@ class GoldenPathRunRequest(BaseModel):
     inputs: Optional[dict[str, Any]] = None
 
 
+class GoldenPathSummary(BaseModel):
+    id: str
+    key: str  # stable identifier, e.g. "new-service-onboarding"
+    name: str
+    description: str
+    estimated_minutes: int | None = None
+    tags: list[str] = []
+
+
+class GoldenPathListResponse(BaseModel):
+    items: list[GoldenPathSummary]
+
+
+# Workspace template category → golden-path categories that commonly apply.
+_TEMPLATE_CATEGORY_AFFINITY: dict[str, set[str]] = {
+    "onboarding": {"Onboarding", "Platform"},
+    "operations": {"Operations", "Quality"},
+    "engineering": {"DevOps", "Onboarding", "Quality"},
+    "finops": {"Operations", "Quality"},
+    "security": {"Quality", "Operations"},
+    "general": {"Onboarding", "Platform", "DevOps", "Operations", "Quality"},
+    "custom": {"Onboarding", "Platform"},
+}
+
+
+def _parse_json_list(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(x) for x in raw if x is not None and str(x).strip()]
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw or "[]")
+        except json.JSONDecodeError:
+            return [t.strip() for t in raw.split(",") if t.strip()]
+        if isinstance(data, list):
+            return [str(x) for x in data if x is not None and str(x).strip()]
+    return []
+
+
+def _path_to_summary(row: GoldenPathTemplate) -> GoldenPathSummary:
+    tags: list[str] = []
+    if row.category:
+        tags.append(row.category)
+    if row.entity_kind:
+        tags.append(row.entity_kind)
+    estimated: int | None = None
+    try:
+        steps = json.loads(row.steps_json or "[]")
+        if isinstance(steps, list) and steps:
+            estimated = len(steps) * 5
+    except json.JSONDecodeError:
+        estimated = None
+    return GoldenPathSummary(
+        id=str(row.id),
+        key=row.slug,
+        name=row.name,
+        description=row.description or "",
+        estimated_minutes=estimated,
+        tags=tags,
+    )
+
+
+def _active_golden_paths(session: Session) -> list[GoldenPathTemplate]:
+    return list(
+        session.exec(
+            select(GoldenPathTemplate)
+            .where(GoldenPathTemplate.is_active == True)  # noqa: E712
+            .order_by(GoldenPathTemplate.name)
+        ).all()
+    )
+
+
+def find_applicable_paths_for_template(
+    session: Session, template: Any
+) -> list[GoldenPathTemplate]:
+    """Discover golden paths that apply to a workspace Template blueprint."""
+    category = (getattr(template, "category", None) or "general").strip().lower()
+    affinity = _TEMPLATE_CATEGORY_AFFINITY.get(category, {"Onboarding", "Platform"})
+    template_tags = {t.lower() for t in _parse_json_list(getattr(template, "tags", None))}
+    name_blob = f"{getattr(template, 'name', '')} {getattr(template, 'description', '') or ''}".lower()
+
+    matched: list[GoldenPathTemplate] = []
+    seen: set[int] = set()
+    for path in _active_golden_paths(session):
+        pid = path.id
+        if pid is None or pid in seen:
+            continue
+        path_cat = (path.category or "").strip()
+        haystack = f"{path.slug} {path.name} {path_cat} {path.entity_kind or ''}".lower()
+        if path_cat in affinity:
+            seen.add(pid)
+            matched.append(path)
+            continue
+        if template_tags and any(tag in haystack for tag in template_tags):
+            seen.add(pid)
+            matched.append(path)
+            continue
+        # Keyword overlap with template name/description (e.g. "observability", "cicd")
+        keywords = [w for w in re.split(r"[^a-z0-9]+", name_blob) if len(w) >= 4]
+        if any(kw in haystack for kw in keywords):
+            seen.add(pid)
+            matched.append(path)
+
+    if matched:
+        return matched
+    # Sensible onboarding fallback when no affinity match.
+    return [p for p in _active_golden_paths(session) if (p.category or "") == "Onboarding"]
+
+
+def find_applicable_paths_for_entity(
+    session: Session, entity: Any
+) -> list[GoldenPathTemplate]:
+    """Discover golden paths for a catalog entity by kind and tags."""
+    kind = (getattr(entity, "kind", None) or "").strip()
+    entity_tags = {t.lower() for t in _parse_json_list(getattr(entity, "tags", None))}
+    lifecycle = (getattr(entity, "lifecycle", None) or "").strip().lower()
+
+    matched: list[GoldenPathTemplate] = []
+    seen: set[int] = set()
+    for path in _active_golden_paths(session):
+        pid = path.id
+        if pid is None or pid in seen:
+            continue
+        path_kind = (path.entity_kind or "").strip()
+        if path_kind and kind and path_kind.lower() == kind.lower():
+            seen.add(pid)
+            matched.append(path)
+            continue
+        haystack = f"{path.slug} {path.name} {path.category or ''}".lower()
+        if entity_tags and any(tag in haystack for tag in entity_tags):
+            seen.add(pid)
+            matched.append(path)
+            continue
+        # Production entities also surface readiness / ops paths.
+        if lifecycle == "production" and (path.category or "") in {"Quality", "Operations"}:
+            seen.add(pid)
+            matched.append(path)
+
+    return matched
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -406,6 +548,49 @@ def list_golden_path_templates(
     q = q.order_by(GoldenPathTemplate.name).offset(skip).limit(limit)
     rows = session.exec(q).all()
     return [_serialize_template(r) for r in rows]
+
+
+@router.get("/applicable", response_model=GoldenPathListResponse)
+def list_applicable_golden_paths(
+    template_id: str | None = Query(None),
+    entity_id: str | None = Query(None),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Return golden paths applicable to a workspace template or catalog entity."""
+    if not template_id and not entity_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide template_id or entity_id (at least one is required)",
+        )
+
+    paths: list[GoldenPathTemplate] = []
+
+    if template_id:
+        from ..database import Template
+
+        template = session.get(Template, template_id)
+        if not template or not template.is_active:
+            raise HTTPException(status_code=404, detail="Template not found")
+        paths = find_applicable_paths_for_template(session, template)
+
+    if entity_id:
+        from .catalog import CatalogEntity
+
+        entity = session.get(CatalogEntity, entity_id)
+        if not entity or not entity.is_active:
+            raise HTTPException(status_code=404, detail="Catalog entity not found")
+        entity_paths = find_applicable_paths_for_entity(session, entity)
+        if template_id:
+            # Union when both filters are provided.
+            by_id = {p.id: p for p in paths}
+            for p in entity_paths:
+                by_id[p.id] = p
+            paths = list(by_id.values())
+        else:
+            paths = entity_paths
+
+    return GoldenPathListResponse(items=[_path_to_summary(p) for p in paths])
 
 
 @router.post("")
