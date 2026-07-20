@@ -78,6 +78,7 @@ from .routers import entity_actions as entity_actions_module
 from .routers import golden_paths as golden_paths_module
 from .routers.reports import router as reports_router
 from .routers.catalog_copilot import router as catalog_copilot_router
+from .routers.dashboard import router as dashboard_router
 
 load_dotenv()
 
@@ -193,6 +194,7 @@ app.include_router(standards_module.catalog_router)
 app.include_router(standards_module.router)
 app.include_router(catalog_router)
 app.include_router(scorecards_router)
+app.include_router(dashboard_router)
 # Sprint 6: enforce RBAC on selected routes via Depends(require_permission("resource", "action"))
 # from .middleware.rbac_middleware import require_permission
 

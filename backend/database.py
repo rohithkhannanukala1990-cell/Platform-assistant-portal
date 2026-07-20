@@ -36,6 +36,12 @@ elif _is_sqlite:
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 
+def get_db():
+    """FastAPI dependency — yields a SQLModel session and closes it when done."""
+    with Session(engine) as session:
+        yield session
+
+
 # ── Tables ────────────────────────────────────────────────────────────────────
 
 class Incident(SQLModel, table=True):
