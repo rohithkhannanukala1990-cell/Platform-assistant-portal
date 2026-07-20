@@ -23,11 +23,13 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from './ToastNotification'
 
 const MOCK_USERS = [
-  { id: 'admin', name: 'Administrator' },
-  { id: 'developer1', name: 'Developer One' },
-  { id: 'developer2', name: 'Developer Two' },
-  { id: 'dataeng1', name: 'Data Engineer' },
+  { id: 'admin', name: 'Administrator', role: 'Admin' },
+  { id: 'developer1', name: 'Developer One', role: 'User' },
+  { id: 'developer2', name: 'Developer Two', role: 'User' },
+  { id: 'dataeng1', name: 'Data Engineer', role: 'User' },
 ]
+
+const PLATFORM_ROLES = ['Admin', 'User', 'ReadOnly']
 
 const ACTION_ORDER = ['read', 'create', 'update', 'delete', 'apply', 'test', 'export', 'manage']
 
@@ -65,7 +67,7 @@ export default function RBACManager() {
   const [roleDetailCache, setRoleDetailCache] = useState({})
   const [matrixRoleDetails, setMatrixRoleDetails] = useState({})
   const [expandedRoleId, setExpandedRoleId] = useState(null)
-  const [users] = useState(MOCK_USERS)
+  const [users, setUsers] = useState(MOCK_USERS)
   const [userRolesMap, setUserRolesMap] = useState({})
   const [workspaces, setWorkspaces] = useState([])
   const [isLoading, setIsLoading] = useState(false)
@@ -76,6 +78,24 @@ export default function RBACManager() {
   const [assignForm, setAssignForm] = useState({ roleId: '', scope: 'global', workspaceId: '' })
   const [createForm, setCreateForm] = useState(emptyCreateForm)
   const [userSearch, setUserSearch] = useState('')
+
+  const loadPlatformUsers = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/users/')
+      if (!res.ok) throw new Error(await res.text())
+      const list = await res.json()
+      setUsers(
+        (Array.isArray(list) ? list : []).map((u) => ({
+          id: u.id,
+          username: u.username,
+          name: u.username,
+          role: u.role || 'User',
+        }))
+      )
+    } catch (e) {
+      showToast(e.message || 'Failed to load users', 'error')
+    }
+  }, [authFetch, showToast])
 
   const loadRoles = useCallback(async () => {
     setIsLoading(true)
@@ -114,26 +134,60 @@ export default function RBACManager() {
 
   const loadUserAssignments = useCallback(async () => {
     const next = {}
-    for (const u of MOCK_USERS) {
+    for (const u of users) {
+      const rbacKey = u.username || String(u.id)
       try {
-        const res = await authFetch(`/api/rbac/users/${encodeURIComponent(u.id)}/roles`)
+        const res = await authFetch(`/api/rbac/users/${encodeURIComponent(rbacKey)}/roles`)
         if (res.ok) next[u.id] = await res.json()
       } catch {
         next[u.id] = { assignments: [], effective_permissions: [], role_slugs: [] }
       }
     }
     setUserRolesMap(next)
-  }, [authFetch])
+  }, [authFetch, users])
 
   useEffect(() => {
     void loadRoles()
     void loadPermissions()
     void loadWorkspaces()
-  }, [loadRoles, loadPermissions, loadWorkspaces])
+    void loadPlatformUsers()
+  }, [loadRoles, loadPermissions, loadWorkspaces, loadPlatformUsers])
 
   useEffect(() => {
     if (activeTab === 'users') void loadUserAssignments()
   }, [activeTab, loadUserAssignments])
+
+  const handleRoleChange = async (userId, userName, newRole, previousRole) => {
+    // 1. Optimistic update — change state immediately so UI feels instant
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
+    )
+
+    try {
+      // 2. Persist to backend
+      const token = localStorage.getItem('token') || localStorage.getItem('aiops_access_token')
+      const response = await fetch(`/api/users/${userId}/role`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ role: newRole }),
+      })
+
+      if (!response.ok) throw new Error(`Server returned ${response.status}`)
+
+      // 3. Success toast
+      showToast(`Role updated to ${newRole} for ${userName}`, 'success')
+    } catch (err) {
+      // 4. Rollback on failure
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, role: previousRole } : u))
+      )
+      showToast(`Failed to update role for ${userName}. Please try again.`, 'error')
+      console.error('Role update failed:', err)
+    }
+  }
 
   useEffect(() => {
     if (activeTab !== 'permissions' || !roles.length) return
@@ -369,7 +423,12 @@ export default function RBACManager() {
   const filteredUsers = useMemo(() => {
     const q = userSearch.trim().toLowerCase()
     if (!q) return users
-    return users.filter((u) => u.id.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q))
+    return users.filter(
+      (u) =>
+        String(u.id).toLowerCase().includes(q) ||
+        (u.name || '').toLowerCase().includes(q) ||
+        (u.username || '').toLowerCase().includes(q)
+    )
   }, [users, userSearch])
 
   const renderExpandedPerms = (rid) => {
@@ -597,7 +656,9 @@ export default function RBACManager() {
           <div className="space-y-3">
             {filteredUsers.map((u) => {
               const pack = userRolesMap[u.id] || { assignments: [] }
-              const initials = (u.name || u.id).slice(0, 2).toUpperCase()
+              const displayName = u.username || u.name || String(u.id)
+              const initials = displayName.slice(0, 2).toUpperCase()
+              const rbacKey = u.username || String(u.id)
               return (
                 <div
                   key={u.id}
@@ -608,9 +669,25 @@ export default function RBACManager() {
                       {initials}
                     </div>
                     <div className="min-w-0">
-                      <p className="font-semibold text-white">{u.id}</p>
-                      <p className="text-xs text-slate-500">{u.name}</p>
+                      <p className="font-semibold text-white">{displayName}</p>
+                      <p className="text-xs text-slate-500">{u.name || u.username}</p>
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <label className="text-[10px] uppercase tracking-wider text-slate-500">Platform role</label>
+                    <select
+                      value={u.role || 'User'}
+                      onChange={(e) =>
+                        void handleRoleChange(u.id, displayName, e.target.value, u.role || 'User')
+                      }
+                      className="bg-slate-900 border border-border rounded-lg px-2 py-1.5 text-sm text-white"
+                    >
+                      {PLATFORM_ROLES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="flex-1 flex flex-wrap gap-2 items-center">
                     {(pack.assignments || []).map((a) => {
@@ -630,7 +707,7 @@ export default function RBACManager() {
                             type="button"
                             className="p-0.5 rounded-full hover:bg-red-900/50 text-slate-500 hover:text-red-300 opacity-70 group-hover:opacity-100"
                             title="Remove role"
-                            onClick={() => void removeUserRole(u.id, a.role_id)}
+                            onClick={() => void removeUserRole(rbacKey, a.role_id)}
                           >
                             <UserX className="w-3.5 h-3.5" />
                           </button>
@@ -643,7 +720,7 @@ export default function RBACManager() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => openAssign(u.id)}
+                    onClick={() => openAssign(rbacKey)}
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold shrink-0"
                   >
                     <UserCheck className="w-4 h-4" /> Assign role

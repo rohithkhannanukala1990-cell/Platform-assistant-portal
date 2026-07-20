@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from ..auth import User, hash_password, normalize_role, require_admin, write_audit
-from ..database import UserAgentPermission, engine
+from ..auth import User, get_current_user, hash_password, normalize_role, require_admin, write_audit
+from ..database import UserAgentPermission, engine, get_db
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -288,3 +288,31 @@ def revoke_permission(
         agent_name=agent_name,
     )
     return {"revoked": True}
+
+
+class RoleUpdateRequest(BaseModel):
+    role: str
+
+
+@router.patch("/{user_id}/role")
+async def update_user_role(
+    user_id: int,
+    body: RoleUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Only Admins can change roles")
+
+    valid_roles = ["Admin", "User", "ReadOnly"]
+    if body.role not in valid_roles:
+        raise HTTPException(status_code=400, detail=f"Role must be one of {valid_roles}")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.role = body.role
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "username": user.username, "role": user.role}
