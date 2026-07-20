@@ -164,9 +164,54 @@ async def google_oauth_start():
 
 
 @router.get("/oauth/google/callback")
-async def google_oauth_callback(code: str, request: Request):  # noqa: ARG001
-    # Exchange code for token — stub, complete with httpx
-    raise HTTPException(
-        501,
-        "Google OAuth callback — complete with httpx in production",
-    )
+async def google_oauth_callback(request: Request):
+    """Complete Google OAuth2 authorization-code flow and issue a JWT."""
+    try:
+        code = request.query_params.get("code")
+        if not code:
+            raise HTTPException(400, "Missing authorization code")
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            token_response = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": os.getenv("GOOGLE_CLIENT_ID", ""),
+                    "client_secret": os.getenv("GOOGLE_CLIENT_SECRET", ""),
+                    "redirect_uri": os.getenv("GOOGLE_REDIRECT_URI", ""),
+                    "grant_type": "authorization_code",
+                },
+            )
+            if token_response.status_code != 200:
+                raise HTTPException(
+                    502,
+                    f"Google token exchange failed: {token_response.text}",
+                )
+            access_token = token_response.json()["access_token"]
+
+            userinfo_response = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if userinfo_response.status_code != 200:
+                raise HTTPException(502, "Failed to fetch Google user info")
+
+            email = userinfo_response.json().get("email")
+            if not email:
+                raise HTTPException(400, "Google account has no email address")
+
+        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
+        role = (
+            "Admin"
+            if email.strip() in [e.strip() for e in admin_emails]
+            else "User"
+        )
+        user = _get_or_create_sso_user(email=email, role=role)
+        token = create_access_token(username=user.username, role=role)
+        return RedirectResponse(
+            f"{os.getenv('FRONTEND_URL')}/auth/callback#token={token}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
