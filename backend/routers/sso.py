@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
+from onelogin.saml2.auth import OneLogin_Saml2_Auth
 from sqlmodel import Session, select
 
 from ..auth import User, create_access_token, hash_password
@@ -70,18 +71,46 @@ async def saml_login():
 
 @router.post("/sso/saml/acs")
 async def saml_acs(request: Request):
-    """Assertion Consumer Service — validates SAML response."""
-    # Full python3-saml integration stub
-    # In production: validate assertion with python3-saml
-    form = await request.form()
-    email = str(form.get("email") or form.get("nameID") or "")
-    if not email:
-        raise HTTPException(400, "No email in SAML assertion")
+    """Assertion Consumer Service — validates SAML response via python3-saml."""
+    settings = {
+        "sp": {
+            "entityId": os.getenv("SAML_SP_ENTITY_ID", ""),
+            "assertionConsumerService": {
+                "url": os.getenv("SAML_SP_ACS_URL", ""),
+            },
+            "x509cert": os.getenv("SAML_SP_CERT", ""),
+            "privateKey": os.getenv("SAML_SP_KEY", ""),
+        },
+        "idp": {
+            "entityId": os.getenv("SAML_IDP_ENTITY_ID", ""),
+            "singleSignOnService": {
+                "url": os.getenv("SAML_IDP_SSO_URL", ""),
+            },
+            "x509cert": os.getenv("SAML_IDP_CERT", ""),
+        },
+    }
+
+    form_data = await request.form()
+    req = {
+        "https": "on" if request.url.scheme == "https" else "off",
+        "http_host": request.headers.get("host"),
+        "script_name": request.url.path,
+        "server_port": str(request.url.port or 443),
+        "get_data": dict(request.query_params),
+        "post_data": dict(form_data),
+    }
+
+    auth = OneLogin_Saml2_Auth(req, settings)
+    auth.process_response()
+
+    if auth.get_errors() or not auth.is_authenticated():
+        raise HTTPException(status_code=401, detail=str(auth.get_errors()))
+
+    email = auth.get_nameid()
     role = "Admin" if email in ADMIN_EMAILS else "User"
     user = _get_or_create_sso_user(email=email, role=role)
-    token = create_access_token(username=user.username, role=role)
-    frontend = os.getenv("FRONTEND_URL", "http://localhost:5173")
-    return RedirectResponse(f"{frontend}/auth/callback#token={token}")
+    token = create_access_token(username=user.username, role=user.role)
+    return RedirectResponse(f"{os.getenv('FRONTEND_URL')}/auth/callback#token={token}")
 
 
 # ── Google OAuth2 stub ────────────────────────────────────────────────────────
