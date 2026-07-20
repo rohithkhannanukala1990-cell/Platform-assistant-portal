@@ -78,6 +78,19 @@ services:
       - ./backend/.env
     environment:
       <<: *backend-env
+      SAML_SP_ENTITY_ID:
+      SAML_SP_ACS_URL:
+      SAML_SP_CERT:
+      SAML_SP_KEY:
+      SAML_IDP_ENTITY_ID:
+      SAML_IDP_SSO_URL:
+      SAML_IDP_CERT:
+      SAML_IDP_METADATA_URL:
+      GOOGLE_CLIENT_ID:
+      GOOGLE_CLIENT_SECRET:
+      GOOGLE_REDIRECT_URI:
+      FRONTEND_URL: http://localhost:5173
+      ADMIN_EMAILS:
     depends_on:
       postgres:
         condition: service_healthy
