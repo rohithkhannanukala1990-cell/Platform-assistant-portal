@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from onelogin.saml2.auth import OneLogin_Saml2_Auth
@@ -63,10 +65,38 @@ async def saml_metadata():
 
 @router.get("/sso/saml/login")
 async def saml_login():
-    idp_url = os.getenv("SAML_IDP_METADATA_URL", "")
-    if not idp_url:
-        raise HTTPException(400, "SAML not configured")
-    return RedirectResponse(idp_url)
+    """Fetch IdP metadata and redirect to the HTTP-Redirect SSO URL."""
+    try:
+        idp_url = os.getenv("SAML_IDP_METADATA_URL", "")
+        if not idp_url:
+            raise HTTPException(400, "SAML not configured")
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(idp_url)
+
+        if response.status_code != 200:
+            raise HTTPException(502, "IdP metadata unavailable")
+
+        root = ET.fromstring(response.text)
+        sso_url = None
+        for el in root.findall(
+            ".//{urn:oasis:names:tc:SAML:2.0:metadata}SingleSignOnService"
+        ):
+            binding = el.get("Binding") or ""
+            if "HTTP-Redirect" in binding:
+                sso_url = el.get("Location")
+                break
+
+        if not sso_url:
+            raise HTTPException(
+                502, "No HTTP-Redirect binding found in IdP metadata"
+            )
+
+        return RedirectResponse(sso_url)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, str(e))
 
 
 @router.post("/sso/saml/acs")
