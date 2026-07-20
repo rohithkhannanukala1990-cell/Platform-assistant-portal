@@ -15,6 +15,30 @@ os.environ.setdefault("JWT_SECRET_KEY", "pytest-jwt-secret-not-for-production")
 os.environ.setdefault("DEFAULT_ADMIN_USERNAME", "admin")
 os.environ.setdefault("DEFAULT_ADMIN_PASSWORD", "Admin123!")
 
+# SSO / SAML / Google OAuth defaults for backend.tests.test_sso
+os.environ.setdefault("SAML_IDP_METADATA_URL", "https://idp.example.com/metadata")
+os.environ.setdefault("SAML_SP_ENTITY_ID", "https://sp.example.com/metadata")
+os.environ.setdefault("SAML_SP_ACS_URL", "https://sp.example.com/acs")
+os.environ.setdefault("SAML_IDP_ENTITY_ID", "https://idp.example.com/metadata")
+os.environ.setdefault("SAML_IDP_SSO_URL", "https://idp.example.com/login")
+os.environ.setdefault(
+    "SAML_IDP_CERT",
+    "MIIDXTCCAkWgAwIBAgIJAJC1HiInMyklMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV"
+    "BAYTAkFVMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYDVQQKDBhJbnRlcm5ldCBX"
+    "aWRnaXRzIFB0eSBMdGQwHhcNMTYxMTExMTgxNjM0WhcNMTcxMTExMTgxNjM0WjBF"
+    "MQswCQYDVQQGEwJBVTETMBEGA1UECAwKU29tZS1TdGF0ZTEhMB8GA1UECgwYSW50"
+    "ZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB"
+    "CgKCAQEAuopExampleCertForPytestOnlyNotRealAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQCexample",
+)
+os.environ.setdefault("GOOGLE_CLIENT_ID", "test")
+os.environ.setdefault("GOOGLE_CLIENT_SECRET", "secret")
+os.environ.setdefault("GOOGLE_REDIRECT_URI", "http://localhost/cb")
+os.environ.setdefault("FRONTEND_URL", "http://localhost:5173")
+os.environ.setdefault("ADMIN_EMAILS", "")
+
 import pytest
 from fastapi.testclient import TestClient
 

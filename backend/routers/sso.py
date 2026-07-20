@@ -130,8 +130,11 @@ async def saml_acs(request: Request):
         "post_data": dict(form_data),
     }
 
-    auth = OneLogin_Saml2_Auth(req, settings)
-    auth.process_response()
+    try:
+        auth = OneLogin_Saml2_Auth(req, settings)
+        auth.process_response()
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid SAML response: {e}") from e
 
     if auth.get_errors() or not auth.is_authenticated():
         raise HTTPException(status_code=401, detail=str(auth.get_errors()))
