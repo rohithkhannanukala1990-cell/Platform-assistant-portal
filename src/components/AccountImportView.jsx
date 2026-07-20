@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import Papa from 'papaparse'
 import {
   Upload,
   Download,
@@ -18,6 +19,86 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { PermissionGate } from './PermissionGate'
+
+function fieldValue(row, field) {
+  if (row[field] != null && row[field] !== '') return row[field]
+  const key = Object.keys(row).find((k) => k.toLowerCase() === field)
+  return key != null ? row[key] : ''
+}
+
+/**
+ * Client-side CSV validation before the upload API call.
+ * @returns {Promise<{ validRows: object[], errors: object[], headerError: string|null }>}
+ */
+function validateCSV(file) {
+  return new Promise((resolve) => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (result) => {
+        const REQUIRED_HEADERS = ['name', 'email', 'role', 'team']
+        const actualHeaders = (result.meta.fields || []).map((h) => (h || '').toLowerCase())
+        const missingHeaders = REQUIRED_HEADERS.filter((h) => !actualHeaders.includes(h))
+
+        if (missingHeaders.length > 0) {
+          resolve({
+            validRows: [],
+            errors: [],
+            headerError: `Missing required columns: ${missingHeaders.join(', ')}`,
+          })
+          return
+        }
+
+        const validRows = []
+        const errors = []
+        const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        const VALID_ROLES = ['Admin', 'User', 'ReadOnly']
+
+        result.data.forEach((row, index) => {
+          const rowNum = index + 2 // 1-indexed + header row
+          const rowErrors = []
+          const name = String(fieldValue(row, 'name') ?? '')
+          const email = String(fieldValue(row, 'email') ?? '')
+          const role = String(fieldValue(row, 'role') ?? '')
+
+          if (!name || name.trim() === '') {
+            rowErrors.push({ row: rowNum, field: 'name', message: 'Name is required' })
+          }
+          if (!EMAIL_REGEX.test(email)) {
+            rowErrors.push({
+              row: rowNum,
+              field: 'email',
+              message: `"${email}" is not a valid email`,
+            })
+          }
+          if (!VALID_ROLES.includes(role)) {
+            rowErrors.push({
+              row: rowNum,
+              field: 'role',
+              message: `Role must be Admin, User, or ReadOnly (got "${role}")`,
+            })
+          }
+
+          if (rowErrors.length === 0) validRows.push(row)
+          else errors.push(...rowErrors)
+        })
+        resolve({ validRows, errors, headerError: null })
+      },
+      error: (err) => {
+        resolve({
+          validRows: [],
+          errors: [],
+          headerError: err?.message || 'Failed to parse CSV',
+        })
+      },
+    })
+  })
+}
+
+function rowsToCsvBlob(rows) {
+  const csv = Papa.unparse(rows)
+  return new Blob([csv], { type: 'text/csv' })
+}
 
 const AWS_REGION_OPTIONS = [
   { id: 'us-east-1', label: 'us-east-1' },
@@ -102,6 +183,7 @@ export default function AccountImportView() {
   const [uploadType, setUploadType] = useState('csv')
   const [fileContent, setFileContent] = useState('')
   const [fileName, setFileName] = useState('')
+  const [selectedFile, setSelectedFile] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
   const [parseResult, setParseResult] = useState(null)
   const [selectedRows, setSelectedRows] = useState(() => new Set())
@@ -110,6 +192,9 @@ export default function AccountImportView() {
   const [importResult, setImportResult] = useState(null)
   const [showJsonExample, setShowJsonExample] = useState(false)
   const [parseErrorsOpen, setParseErrorsOpen] = useState(true)
+  const [showHeaderError, setShowHeaderError] = useState(null)
+  const [rowErrors, setRowErrors] = useState([])
+  const [validRowCount, setValidRowCount] = useState(0)
 
   const [discoverResult, setDiscoverResult] = useState(null)
   const [discoverKind, setDiscoverKind] = useState(null)
@@ -204,6 +289,10 @@ export default function AccountImportView() {
       window.alert('Please choose a .json file for JSON mode.')
       return
     }
+    setSelectedFile(file)
+    setShowHeaderError(null)
+    setRowErrors([])
+    setValidRowCount(0)
     const reader = new FileReader()
     reader.onload = () => {
       setFileContent(typeof reader.result === 'string' ? reader.result : '')
@@ -242,11 +331,32 @@ export default function AccountImportView() {
   }, [authFetch])
 
   const runParse = useCallback(async () => {
-    if (!fileContent.trim()) return
+    if (!fileContent.trim() && !selectedFile) return
     setImportResult(null)
+    setShowHeaderError(null)
+    setRowErrors([])
+    setValidRowCount(0)
     try {
       if (uploadType === 'csv') {
-        const blob = new Blob([fileContent], { type: 'text/csv' })
+        const file =
+          selectedFile ||
+          new File([fileContent], fileName || 'upload.csv', { type: 'text/csv' })
+        const { validRows, errors, headerError } = await validateCSV(file)
+
+        if (headerError) {
+          setShowHeaderError(headerError)
+          return
+        }
+        if (errors.length > 0) {
+          setRowErrors(errors)
+        }
+        setValidRowCount(validRows.length)
+        if (validRows.length === 0) {
+          window.alert('No valid rows to import')
+          return
+        }
+
+        const blob = rowsToCsvBlob(validRows)
         const fd = new FormData()
         fd.append('file', blob, fileName || 'upload.csv')
         const res = await authFetch('/api/import/csv', { method: 'POST', body: fd })
@@ -264,7 +374,7 @@ export default function AccountImportView() {
     } catch (err) {
       window.alert(`Parse failed: ${err.message || err}`)
     }
-  }, [authFetch, fileContent, fileName, uploadType])
+  }, [authFetch, fileContent, fileName, selectedFile, uploadType])
 
   const toggleRow = useCallback((id) => {
     setSelectedRows((prev) => {
@@ -485,7 +595,11 @@ export default function AccountImportView() {
                 setUploadType('csv')
                 setFileContent('')
                 setFileName('')
+                setSelectedFile(null)
                 setParseResult(null)
+                setShowHeaderError(null)
+                setRowErrors([])
+                setValidRowCount(0)
               }}
               className={`px-4 py-2 rounded-md text-sm font-medium ${
                 uploadType === 'csv' ? 'bg-accent/20 text-accent' : 'text-slate-400'
@@ -499,7 +613,11 @@ export default function AccountImportView() {
                 setUploadType('json')
                 setFileContent('')
                 setFileName('')
+                setSelectedFile(null)
                 setParseResult(null)
+                setShowHeaderError(null)
+                setRowErrors([])
+                setValidRowCount(0)
               }}
               className={`px-4 py-2 rounded-md text-sm font-medium ${
                 uploadType === 'json' ? 'bg-accent/20 text-accent' : 'text-slate-400'
@@ -539,6 +657,49 @@ export default function AccountImportView() {
             <p className="text-slate-200 font-medium">Drag & drop your {uploadType.toUpperCase()} file here</p>
             <p className="text-sm text-slate-500 mt-1">or click to browse</p>
           </div>
+
+          {showHeaderError ? (
+            <div
+              role="alert"
+              className="rounded-lg border border-red-500/50 bg-red-950/40 px-4 py-3 text-sm text-red-200 flex items-start gap-2"
+            >
+              <XCircle className="w-5 h-5 shrink-0 text-red-400 mt-0.5" aria-hidden />
+              <span>{showHeaderError}</span>
+            </div>
+          ) : null}
+
+          {rowErrors.length > 0 ? (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-950/30 p-4 space-y-3">
+              <p className="text-sm font-semibold text-amber-200 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden />
+                Some rows have validation errors
+              </p>
+              <div className="overflow-x-auto rounded-lg border border-amber-500/25">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-amber-950/50 text-amber-200/80 text-xs uppercase">
+                    <tr>
+                      <th className="px-3 py-2">Row #</th>
+                      <th className="px-3 py-2">Field</th>
+                      <th className="px-3 py-2">Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rowErrors.map((err, i) => (
+                      <tr key={`${err.row}-${err.field}-${i}`} className="border-t border-amber-500/20 text-amber-100/90">
+                        <td className="px-3 py-2 whitespace-nowrap">{err.row}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{err.field}</td>
+                        <td className="px-3 py-2">{err.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-sm text-amber-200/90">
+                {new Set(rowErrors.map((e) => e.row)).size} rows have errors and will be skipped.{' '}
+                {validRowCount} valid rows will be imported.
+              </p>
+            </div>
+          ) : null}
 
           {uploadType === 'csv' && (
             <div className="flex items-center gap-2 text-sm text-slate-400">
