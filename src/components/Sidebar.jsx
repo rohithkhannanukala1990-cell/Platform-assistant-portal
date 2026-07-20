@@ -221,19 +221,23 @@ export default function Sidebar({ user, onLogout, open = false, onClose }) {
 
   function NavItem({ label, path, icon, badgeKey }) {
     const Icon = ICON_MAP[icon] || LayoutDashboard
-    const active = isActivePath(location.pathname, path)
     const badgeCount = badgeKey === 'agentApprovals' ? agentApprovalCount : 0
+    const layoutClasses = collapsed && !narrow ? 'justify-center px-2' : 'px-3'
     return (
       <NavLink
         to={path}
+        end
         title={collapsed ? label : undefined}
-        className={`flex items-center gap-3 py-2 rounded-lg mx-2 text-sm transition-colors ${
-          collapsed && !narrow ? 'justify-center px-2' : 'px-3'
-        } ${
-          active
-            ? 'bg-indigo-600 text-white font-medium'
-            : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
-        }`}
+        aria-current={isActivePath(location.pathname, path) ? 'page' : undefined}
+        className={({ isActive }) => {
+          const active =
+            path === '/dashboard' ? isActive || location.pathname === '/' : isActive
+          return `flex items-center gap-3 py-2 rounded-lg mx-2 text-sm transition-colors ${layoutClasses} ${
+            active
+              ? 'bg-indigo-600 text-white font-medium'
+              : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
+          }`
+        }}
       >
         <span className="relative shrink-0">
           <Icon className="w-4 h-4" strokeWidth={2} />
@@ -294,13 +298,16 @@ export default function Sidebar({ user, onLogout, open = false, onClose }) {
             <NavLink
               to="/admin"
               title={collapsed ? 'Admin Console' : undefined}
-              className={`flex items-center gap-3 py-2 rounded-lg text-sm transition-colors ${
-                collapsed && !narrow ? 'justify-center px-2' : 'px-3'
-              } ${
-                location.pathname === '/admin'
-                  ? 'bg-violet-600 text-white font-medium'
-                  : 'text-violet-300 hover:bg-neutral-800 hover:text-white border border-violet-500/30'
-              }`}
+              aria-current={location.pathname === '/admin' ? 'page' : undefined}
+              className={({ isActive }) =>
+                `flex items-center gap-3 py-2 rounded-lg text-sm transition-colors ${
+                  collapsed && !narrow ? 'justify-center px-2' : 'px-3'
+                } ${
+                  isActive
+                    ? 'bg-violet-600 text-white font-medium'
+                    : 'text-violet-300 hover:bg-neutral-800 hover:text-white border border-violet-500/30'
+                }`
+              }
             >
               <ShieldCheck className="w-4 h-4 shrink-0" strokeWidth={2} />
               {!collapsed && !hiddenOnNarrow && <span className="truncate">Admin Console</span>}
