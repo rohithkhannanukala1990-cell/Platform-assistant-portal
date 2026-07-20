@@ -18,6 +18,7 @@ import AgentApprovalsWidget from './AgentApprovalsWidget'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import { API_BASE } from '../config/apiBase'
+import useDashboardData from '../hooks/useDashboardData'
 
 const API        = `${API_BASE}/api/analytics`
 const SCAN_API   = `${API_BASE}/api/logs/scan-anomalies`
@@ -156,9 +157,10 @@ export default function DashboardView() {
   const { activeWorkspace } = usePortalContext()
   const workspaceId = activeWorkspace?.id ?? ''
   const navigate = useNavigate()
-  const [data, setData]         = useState(null)
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState(null)
+  const { data, isLoading, error, refetch } = useDashboardData()
+  const [analyticsData, setAnalyticsData] = useState(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(true)
+  const [analyticsError, setAnalyticsError] = useState(null)
   const [lastFetch, setLastFetch] = useState(null)
   const [platform, setPlatform] = useState(null)
   const [catalogStats, setCatalogStats] = useState(null)
@@ -233,20 +235,20 @@ export default function DashboardView() {
   }
 
   async function fetchAnalytics() {
-    setLoading(true)
-    setError(null)
+    setAnalyticsLoading(true)
+    setAnalyticsError(null)
     try {
       const [res, doraRes] = await Promise.all([authFetch(API), authFetch(DORA_API)])
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const json = await res.json()
-      setData(json)
+      setAnalyticsData(json)
       setLastFetch(new Date())
       if (doraRes.ok) setDora(await doraRes.json())
       void fetchPlatformSummary()
     } catch (e) {
-      setError(e.message)
+      setAnalyticsError(e.message)
     } finally {
-      setLoading(false)
+      setAnalyticsLoading(false)
     }
   }
 
@@ -297,36 +299,75 @@ export default function DashboardView() {
     loadPortalKpis()
   }, [authFetch])
 
-  if (loading && !data) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 gap-3 text-slate-500">
         <RefreshCw className="w-5 h-5 animate-spin text-accent" />
-        <span className="text-sm">Loading analytics…</span>
+        <span className="text-sm">Loading...</span>
       </div>
     )
   }
 
-  if (error && !data) {
+  if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-2 text-red-400 text-sm">
-        <AlertTriangle className="w-6 h-6" />
-        <p>Could not load analytics: {error}</p>
-        <button onClick={fetchAnalytics} className="mt-2 px-4 py-2 rounded-lg border border-red-500/30 hover:bg-red-500/10 text-xs transition-colors">
+      <div className="error-state flex flex-col items-center justify-center h-64 gap-2 text-red-400 text-sm">
+        {error}{' '}
+        <button
+          type="button"
+          onClick={refetch}
+          className="mt-2 px-4 py-2 rounded-lg border border-red-500/30 hover:bg-red-500/10 text-xs transition-colors"
+        >
           Retry
         </button>
       </div>
     )
   }
 
-  const d        = data
-  const sev      = d.incidents_by_severity ?? []
-  const sources  = d.top_sources ?? []
-  const overtime = d.incidents_over_time ?? []
-  const modules  = d.module_activity ?? []
+  const d        = analyticsData
+  const sev      = d?.incidents_by_severity ?? []
+  const sources  = d?.top_sources ?? []
+  const overtime = d?.incidents_over_time ?? []
+  const modules  = d?.module_activity ?? []
   const sevTotal = sev.reduce((s, i) => s + i.value, 0)
+
+  const doraFromSummary = data?.dora
+    ? {
+        deployment_frequency: {
+          value: data.dora.deployment_frequency,
+          level: 'High',
+          trend: 'from dashboard summary',
+          trend_dir: 'flat',
+        },
+        lead_time: {
+          value: `${data.dora.lead_time_hours}h`,
+          level: 'High',
+          trend: 'from dashboard summary',
+          trend_dir: 'flat',
+        },
+        change_failure_rate: {
+          value: `${Math.round((data.dora.change_failure_rate || 0) * 100)}%`,
+          level: 'High',
+          trend: 'from dashboard summary',
+          trend_dir: 'flat',
+        },
+        mttr: {
+          value: `${data.dora.mttr_hours}h`,
+          level: 'High',
+          trend: 'from dashboard summary',
+          trend_dir: 'flat',
+        },
+      }
+    : dora
+  const doraView = doraFromSummary
 
   return (
     <div className="flex flex-col gap-6 max-w-6xl mx-auto pb-16 animate-fade-in">
+
+      {data?.mock === true && (
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-2 rounded mb-4 text-sm">
+          ⚠️ Dashboard is showing sample data — connect your data sources to see live metrics
+        </div>
+      )}
 
       {/* ── Page header ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
@@ -341,11 +382,11 @@ export default function DashboardView() {
             </span>
           )}
           <button
-            onClick={fetchAnalytics}
-            disabled={loading}
+            onClick={() => { fetchAnalytics(); refetch() }}
+            disabled={analyticsLoading || isLoading}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border rounded-lg hover:bg-card transition-colors text-slate-400 hover:text-white disabled:opacity-40"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${analyticsLoading || isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
         </div>
@@ -358,8 +399,8 @@ export default function DashboardView() {
           icon={BookOpen}
           iconBg="bg-indigo-500/15 text-indigo-400"
           label="Catalog Entities"
-          value={catalogStats?.total_entities ?? '—'}
-          sub={`${catalogStats?.missing_owner ?? 0} missing owner`}
+          value={data?.services?.total ?? catalogStats?.total_entities ?? '—'}
+          sub={`${data?.services?.healthy ?? catalogStats?.missing_owner ?? 0} healthy · ${data?.services?.degraded ?? 0} degraded · ${data?.services?.down ?? 0} down`}
           border="border-indigo-500/20"
         />
         <NavStatCard
@@ -380,7 +421,7 @@ export default function DashboardView() {
           icon={Zap}
           iconBg="bg-amber-500/15 text-amber-400"
           label="Open Actions"
-          value={openActionsCount}
+          value={data?.open_incidents ?? openActionsCount}
           sub="pending runs"
           border="border-amber-500/20"
         />
@@ -400,8 +441,14 @@ export default function DashboardView() {
               icon={Package}
               iconBg="bg-indigo-500/15 text-indigo-400"
               label="Catalog entities"
-              value={platform.catalog?.total_entities ?? 0}
-              sub={platform.catalog?.missing_owner ? `${platform.catalog.missing_owner} missing owner` : undefined}
+              value={data?.services?.total ?? platform.catalog?.total_entities ?? 0}
+              sub={
+                data?.services
+                  ? `${data.services.healthy} healthy · ${data.services.degraded} degraded · ${data.services.down} down`
+                  : platform.catalog?.missing_owner
+                    ? `${platform.catalog.missing_owner} missing owner`
+                    : undefined
+              }
               border="border-indigo-500/20"
             />
             <NavStatCard
@@ -449,7 +496,7 @@ export default function DashboardView() {
       )}
 
       {/* ── DORA Metrics ─────────────────────────────────────────────────── */}
-      {dora && (
+      {doraView && (
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
             <Gauge size={15} className="text-violet-400" />
@@ -464,10 +511,10 @@ export default function DashboardView() {
             <span className="text-[10px] text-slate-500 ml-1">— Engineering delivery performance</span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <DoraCard metricKey="deployment_frequency" label="Deploy Frequency" icon={Rocket}       iconColor="text-emerald-400" metric={dora.deployment_frequency} />
-            <DoraCard metricKey="lead_time"            label="Lead Time"        icon={Clock}        iconColor="text-blue-400"    metric={dora.lead_time} />
-            <DoraCard metricKey="change_failure_rate"  label="Change Failure"   icon={AlertTriangle} iconColor="text-amber-400"  metric={dora.change_failure_rate} />
-            <DoraCard metricKey="mttr"                 label="MTTR"             icon={RefreshCw}    iconColor="text-violet-400"  metric={dora.mttr} />
+            <DoraCard metricKey="deployment_frequency" label="Deploy Frequency" icon={Rocket}       iconColor="text-emerald-400" metric={doraView.deployment_frequency} />
+            <DoraCard metricKey="lead_time"            label="Lead Time"        icon={Clock}        iconColor="text-blue-400"    metric={doraView.lead_time} />
+            <DoraCard metricKey="change_failure_rate"  label="Change Failure"   icon={AlertTriangle} iconColor="text-amber-400"  metric={doraView.change_failure_rate} />
+            <DoraCard metricKey="mttr"                 label="MTTR"             icon={RefreshCw}    iconColor="text-violet-400"  metric={doraView.mttr} />
           </div>
         </div>
       )}
@@ -619,23 +666,23 @@ export default function DashboardView() {
           icon={Layers}
           iconBg="bg-accent/15 text-accent"
           label="Total Incidents"
-          value={d.total_incidents}
-          sub="All time"
+          value={data?.open_incidents ?? d?.total_incidents}
+          sub="Open / all time"
           border="border-accent/20"
         />
         <StatCard
           icon={AlertTriangle}
           iconBg="bg-red-500/15 text-red-400"
           label="Critical Alerts"
-          value={d.critical_alerts}
-          sub={`${d.total_incidents ? Math.round((d.critical_alerts / d.total_incidents) * 100) : 0}% of total`}
+          value={d?.critical_alerts}
+          sub={`${d?.total_incidents ? Math.round((d.critical_alerts / d.total_incidents) * 100) : 0}% of total`}
           border="border-red-500/20"
         />
         <StatCard
           icon={Clock}
           iconBg="bg-blue-500/15 text-blue-400"
           label="Avg Gap (MTTR proxy)"
-          value={d.mttr}
+          value={data?.dora?.mttr_hours != null ? `${data.dora.mttr_hours}h` : d?.mttr}
           sub="Between incidents"
           border="border-blue-500/20"
         />
@@ -643,7 +690,7 @@ export default function DashboardView() {
           icon={Wifi}
           iconBg="bg-cyan-500/15 text-cyan-400"
           label="Unread Notifications"
-          value={d.unread_notifications}
+          value={d?.unread_notifications}
           sub="Pending review"
           border="border-cyan-500/20"
         />
@@ -653,9 +700,9 @@ export default function DashboardView() {
       {/* ── Module totals ──────────────────────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Infra Generations', value: d.total_infra, icon: Construction, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-          { label: 'CI/CD Pipelines',   value: d.total_cicd,  icon: Rocket,       color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' },
-          { label: 'AI Alerts Triaged', value: d.total_incidents, icon: ShieldAlert, color: 'text-accent', bg: 'bg-accent/10 border-accent/20' },
+          { label: 'Infra Generations', value: d?.total_infra, icon: Construction, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
+          { label: 'CI/CD Pipelines',   value: data?.deployments_today ?? d?.total_cicd,  icon: Rocket,       color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' },
+          { label: 'AI Alerts Triaged', value: d?.total_incidents, icon: ShieldAlert, color: 'text-accent', bg: 'bg-accent/10 border-accent/20' },
         ].map(({ label, value, icon: Icon, color, bg }) => (
           <div key={label} className={`flex items-center gap-3 px-4 py-3.5 rounded-xl border ${bg}`}>
             <Icon className={`w-5 h-5 ${color} shrink-0`} />
