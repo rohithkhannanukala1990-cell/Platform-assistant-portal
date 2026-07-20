@@ -3,22 +3,25 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import Index
 from sqlmodel import Field, Session, SQLModel, select
 
 from ..auth import User, get_current_user
-from ..database import engine
+from ..database import engine, get_db
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
 
 class CatalogEntity(SQLModel, table=True):
     __tablename__ = "catalog_entities"
+    __table_args__ = (Index("ix_catalog_name_type", "name", "kind"),)
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     name: str
@@ -72,6 +75,23 @@ class CatalogUpdate(BaseModel):
     description: Optional[str] = None
     tags: Optional[str] = None
     health_status: Optional[str] = None
+
+
+class CatalogSearchResult(BaseModel):
+    id: str
+    name: str
+    type: str
+    owner: str
+    description: str = ""
+    tags: list[str] = []
+
+
+class PaginatedCatalogResults(BaseModel):
+    items: list[CatalogSearchResult]
+    total: int
+    page: int
+    per_page: int
+    pages: int
 
 
 def _tags_parse(raw: Optional[str]) -> list[str]:
@@ -189,6 +209,46 @@ def delete_dependency(dep_id: str, current_user: User = Depends(get_current_user
         session.delete(row)
         session.commit()
     return {"ok": True}
+
+
+@router.get("/search", response_model=PaginatedCatalogResults)
+def search_catalog(
+    q: str = Query(default="", description="Search term"),
+    type: str = Query(default="", description="Entity type filter"),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Paginated catalog search. Declared before /{entity_id} so 'search' is not captured as an id."""
+    q_obj = db.query(CatalogEntity).filter(CatalogEntity.is_active == 1)
+    if q:
+        q_obj = q_obj.filter(CatalogEntity.name.ilike(f"%{q}%"))
+    if type:
+        q_obj = q_obj.filter(CatalogEntity.kind == type)
+
+    total = q_obj.count()
+    rows = q_obj.offset((page - 1) * per_page).limit(per_page).all()
+    pages = math.ceil(total / per_page) if per_page else 0
+
+    items = [
+        CatalogSearchResult(
+            id=row.id,
+            name=row.name,
+            type=row.kind,
+            owner=row.owner_team,
+            description=row.description or "",
+            tags=_tags_parse(row.tags),
+        )
+        for row in rows
+    ]
+    return PaginatedCatalogResults(
+        items=items,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
+    )
 
 
 @router.post("")
