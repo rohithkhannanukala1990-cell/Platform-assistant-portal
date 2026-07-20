@@ -21,6 +21,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { RunActionModal, LogsDrawer } from './entityActionsShared'
 import CatalogCopilotPanel from './CatalogCopilotPanel'
+import useCatalogSearch from '../hooks/useCatalogSearch'
 
 const KIND_TABS = ['All', 'Service', 'API', 'Library', 'Website']
 
@@ -92,6 +93,7 @@ export default function CatalogPage() {
   const [saving, setSaving] = useState(false)
   const [filterKind, setFilterKind] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
   const [scorecard, setScorecard] = useState(null)
   const [scorecardLoading, setScorecardLoading] = useState(false)
   const [scorecardEvaluating, setScorecardEvaluating] = useState(false)
@@ -284,19 +286,15 @@ export default function CatalogPage() {
     return [...byId.values()]
   }, [copilotActions, entityActions])
 
-  const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    return entities.filter((e) => {
-      if (filterKind !== 'All' && e.kind !== filterKind) return false
-      if (!q) return true
-      const tagStr = tagsToDisplay(e.tags).toLowerCase()
-      return (
-        (e.name || '').toLowerCase().includes(q) ||
-        (e.owner_team || '').toLowerCase().includes(q) ||
-        tagStr.includes(q)
-      )
-    })
-  }, [entities, filterKind, searchQuery])
+  const { results, total, pages, isLoading, error: searchError } = useCatalogSearch({
+    query: searchQuery,
+    type: filterKind === 'All' ? '' : filterKind,
+    page: currentPage,
+  })
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, filterKind])
 
   const openCreate = () => {
     setEditingId(null)
@@ -419,53 +417,63 @@ export default function CatalogPage() {
       {error && (
         <div className="rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-200">{error}</div>
       )}
+      {searchError && (
+        <div className="rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-200">{searchError}</div>
+      )}
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20 text-slate-400 gap-2">
-          <Loader2 className="w-5 h-5 animate-spin" /> Loading catalog…
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="animate-pulse bg-gray-100 h-24 rounded-lg" />
+          ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : results.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border py-16 text-center text-slate-500">
           No catalog entries match your filters.
         </div>
       ) : (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((entity) => (
+          {results.map((entity) => {
+            const kind = entity.kind || entity.type
+            const owner = entity.owner_team || entity.owner
+            const full = entities.find((e) => e.id === entity.id) || entity
+            return (
             <button
               key={entity.id}
               type="button"
-              onClick={() => setSelectedEntity(entity)}
+              onClick={() => setSelectedEntity(full)}
               className="relative text-left rounded-xl border border-border bg-slate-900/50 p-4 hover:border-blue-500/40 hover:bg-slate-900/80 transition-colors min-h-[140px] flex flex-col"
             >
               <div className="flex items-start justify-between gap-2 mb-2">
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase text-white ${
-                    KIND_BADGE[entity.kind] || 'bg-slate-600'
+                    KIND_BADGE[kind] || 'bg-slate-600'
                   }`}
                 >
-                  {entity.kind}
+                  {kind}
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-[10px] text-slate-400 capitalize shrink-0">
                   <span
-                    className={`w-2 h-2 rounded-full ${LIFECYCLE_DOT[entity.lifecycle] || 'bg-slate-500'}`}
+                    className={`w-2 h-2 rounded-full ${LIFECYCLE_DOT[full.lifecycle] || 'bg-slate-500'}`}
                   />
-                  {entity.lifecycle}
+                  {full.lifecycle || '—'}
                 </span>
               </div>
               <p className="text-white font-semibold text-base mb-2 line-clamp-2">{entity.name}</p>
               <p className="text-gray-400 text-sm flex items-center gap-1.5 mb-1">
                 <Users className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">{entity.owner_team}</span>
+                <span className="truncate">{owner}</span>
               </p>
-              {entity.language ? (
+              {full.language ? (
                 <p className="text-gray-500 text-xs flex items-center gap-1.5 mb-1">
                   <Code className="w-3.5 h-3.5 shrink-0" />
-                  {entity.language}
+                  {full.language}
                 </p>
               ) : null}
-              {entity.repo_url ? (
+              {full.repo_url ? (
                 <a
-                  href={entity.repo_url}
+                  href={full.repo_url}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(ev) => ev.stopPropagation()}
@@ -478,13 +486,37 @@ export default function CatalogPage() {
               )}
               <span
                 className={`absolute bottom-3 right-3 w-2.5 h-2.5 rounded-full ring-2 ring-slate-900 ${
-                  HEALTH_DOT[entity.health_status] || HEALTH_DOT.unknown
+                  HEALTH_DOT[full.health_status] || HEALTH_DOT.unknown
                 }`}
-                title={`Health: ${entity.health_status}`}
+                title={`Health: ${full.health_status || 'unknown'}`}
               />
             </button>
-          ))}
+            )
+          })}
         </div>
+        <div className="flex gap-2 justify-center mt-6">
+          <button
+            type="button"
+            disabled={currentPage <= 1}
+            onClick={() => setCurrentPage((p) => p - 1)}
+            className="px-3 py-1.5 rounded-lg border border-border text-sm text-slate-300 disabled:opacity-40 hover:bg-slate-800"
+          >
+            Previous
+          </button>
+          <span className="text-sm text-slate-400 self-center">
+            Page {currentPage} of {pages}
+            {total ? ` · ${total} total` : ''}
+          </span>
+          <button
+            type="button"
+            disabled={currentPage >= pages}
+            onClick={() => setCurrentPage((p) => p + 1)}
+            className="px-3 py-1.5 rounded-lg border border-border text-sm text-slate-300 disabled:opacity-40 hover:bg-slate-800"
+          >
+            Next
+          </button>
+        </div>
+        </>
       )}
 
       {selectedEntity && (
