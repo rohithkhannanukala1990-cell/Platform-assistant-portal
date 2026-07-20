@@ -36,19 +36,44 @@ class TemplateCreate(BaseModel):
     category: Optional[str] = "general"
     environment: Optional[str] = "production"
     tags: Optional[List[str]] = []
+    recommended_golden_path_keys: Optional[List[str]] = []
     is_published: Optional[bool] = False
 
 
 class TemplateUpdate(BaseModel):
+    """Partial update for workspace templates (PUT/PATCH)."""
+
     name: Optional[str] = None
     description: Optional[str] = None
     icon: Optional[str] = None
     color: Optional[str] = None
-    category: Optional[str] = None
+    category: str | None = None
     environment: Optional[str] = None
     tags: Optional[List[str]] = None
+    recommended_golden_path_keys: list[str] | None = None
     is_published: Optional[bool] = None
     is_active: Optional[bool] = None
+
+
+class TemplateResponse(BaseModel):
+    """API shape for template payloads (list/detail/mutations)."""
+
+    id: str
+    name: str
+    slug: str
+    description: str = ""
+    icon: str = "📋"
+    color: str = "#6366f1"
+    category: str | None = None
+    environment: str = "production"
+    tags: list[str] = []
+    recommended_golden_path_keys: list[str] = []
+    is_active: bool = True
+    is_published: bool = False
+    use_count: int = 0
+    created_by: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class TemplateToolAdd(BaseModel):
@@ -81,6 +106,41 @@ def _tags_parse(raw: str | None) -> list:
 
 def _tags_dump(tags: Optional[List[str]]) -> str:
     return json.dumps(list(tags or []))
+
+
+def _normalize_category(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cat = str(value).strip()
+    if not cat:
+        raise HTTPException(status_code=400, detail="category must be a non-empty string")
+    # TODO: enforce against a shared allowed-category registry when one exists.
+    return cat
+
+
+def _normalize_golden_path_keys(keys: list[str] | None) -> list[str]:
+    """Basic validation for recommended golden-path keys (slugs)."""
+    if keys is None:
+        return []
+    cleaned: list[str] = []
+    for raw in keys:
+        key = str(raw or "").strip()
+        if not key:
+            raise HTTPException(
+                status_code=400,
+                detail="recommended_golden_path_keys entries must be non-empty strings",
+            )
+        cleaned.append(key)
+    # TODO: cross-check against GoldenPathTemplate.slug via a shared validator when available.
+    return cleaned
+
+
+def _golden_path_keys_parse(raw: str | None) -> list[str]:
+    return [str(x) for x in _tags_parse(raw) if str(x).strip()]
+
+
+def _golden_path_keys_dump(keys: Optional[List[str]]) -> str:
+    return json.dumps(_normalize_golden_path_keys(list(keys or [])))
 
 
 def slugify(name: str) -> str:
@@ -126,6 +186,9 @@ def _template_base_dict(t: Template) -> dict[str, Any]:
         "category": t.category,
         "environment": t.environment,
         "tags": _tags_parse(t.tags),
+        "recommended_golden_path_keys": _golden_path_keys_parse(
+            getattr(t, "recommended_golden_path_keys", None)
+        ),
         "is_active": bool(t.is_active),
         "is_published": bool(t.is_published),
         "use_count": t.use_count,
@@ -331,6 +394,7 @@ def create_template(body: TemplateCreate, admin: User = Depends(require_admin)):
     now = _now()
     with Session(engine) as session:
         slug = _ensure_unique_template_slug(session, base_slug)
+        category = _normalize_category(body.category or "general") or "general"
         row = Template(
             id=tid,
             name=body.name.strip(),
@@ -338,9 +402,12 @@ def create_template(body: TemplateCreate, admin: User = Depends(require_admin)):
             description=(body.description or "").strip() or None,
             icon=body.icon or "📋",
             color=body.color or "#6366f1",
-            category=(body.category or "general").strip(),
+            category=category,
             environment=(body.environment or "production").strip(),
             tags=_tags_dump(body.tags),
+            recommended_golden_path_keys=_golden_path_keys_dump(
+                body.recommended_golden_path_keys
+            ),
             is_active=1,
             is_published=1 if body.is_published else 0,
             use_count=0,
@@ -352,6 +419,39 @@ def create_template(body: TemplateCreate, admin: User = Depends(require_admin)):
         session.commit()
         session.refresh(row)
         return _template_base_dict(row)
+
+
+def _apply_template_update(session: Session, t: Template, data: dict[str, Any]) -> Template:
+    if "name" in data and data["name"] is not None:
+        t.name = str(data["name"]).strip()
+        t.slug = _ensure_unique_template_slug(session, slugify(t.name), exclude_id=t.id)
+    if "description" in data:
+        t.description = (
+            str(data["description"]).strip() if data["description"] is not None else None
+        )
+    if "icon" in data and data["icon"] is not None:
+        t.icon = data["icon"]
+    if "color" in data and data["color"] is not None:
+        t.color = data["color"]
+    if "category" in data and data["category"] is not None:
+        t.category = _normalize_category(data["category"]) or t.category
+    if "environment" in data and data["environment"] is not None:
+        t.environment = str(data["environment"]).strip()
+    if "tags" in data and data["tags"] is not None:
+        t.tags = _tags_dump(data["tags"])
+    if "recommended_golden_path_keys" in data and data["recommended_golden_path_keys"] is not None:
+        t.recommended_golden_path_keys = _golden_path_keys_dump(
+            data["recommended_golden_path_keys"]
+        )
+    if "is_published" in data and data["is_published"] is not None:
+        t.is_published = 1 if data["is_published"] else 0
+    if "is_active" in data and data["is_active"] is not None:
+        t.is_active = 1 if data["is_active"] else 0
+    t.updated_at = _now()
+    session.add(t)
+    session.commit()
+    session.refresh(t)
+    return t
 
 
 @router.put("/{template_id}")
@@ -367,31 +467,25 @@ def update_template(
         t = session.get(Template, template_id)
         if not t:
             raise HTTPException(status_code=404, detail="Template not found")
-        if "name" in data and data["name"] is not None:
-            t.name = str(data["name"]).strip()
-            t.slug = _ensure_unique_template_slug(session, slugify(t.name), exclude_id=t.id)
-        if "description" in data:
-            t.description = (
-                str(data["description"]).strip() if data["description"] is not None else None
-            )
-        if "icon" in data and data["icon"] is not None:
-            t.icon = data["icon"]
-        if "color" in data and data["color"] is not None:
-            t.color = data["color"]
-        if "category" in data and data["category"] is not None:
-            t.category = str(data["category"]).strip()
-        if "environment" in data and data["environment"] is not None:
-            t.environment = str(data["environment"]).strip()
-        if "tags" in data and data["tags"] is not None:
-            t.tags = _tags_dump(data["tags"])
-        if "is_published" in data and data["is_published"] is not None:
-            t.is_published = 1 if data["is_published"] else 0
-        if "is_active" in data and data["is_active"] is not None:
-            t.is_active = 1 if data["is_active"] else 0
-        t.updated_at = _now()
-        session.add(t)
-        session.commit()
-        session.refresh(t)
+        t = _apply_template_update(session, t, data)
+        return _template_base_dict(t)
+
+
+@router.patch("/{template_id}")
+def patch_template(
+    template_id: str,
+    body: TemplateUpdate,
+    _admin: User = Depends(require_admin),
+):
+    """Partial update — category / recommended golden paths (Admin / PlatformAdmin)."""
+    data = body.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    with Session(engine) as session:
+        t = session.get(Template, template_id)
+        if not t:
+            raise HTTPException(status_code=404, detail="Template not found")
+        t = _apply_template_update(session, t, data)
         return _template_base_dict(t)
 
 
@@ -572,6 +666,7 @@ def duplicate_template(template_id: str, _admin: User = Depends(require_admin)):
             category=t.category,
             environment=t.environment,
             tags=t.tags,
+            recommended_golden_path_keys=getattr(t, "recommended_golden_path_keys", None) or "[]",
             is_active=1,
             is_published=0,
             use_count=0,

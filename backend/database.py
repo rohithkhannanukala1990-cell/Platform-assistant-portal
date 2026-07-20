@@ -285,6 +285,8 @@ class Template(SQLModel, table=True):
     category: str = Field(default="general")
     environment: str = Field(default="production")
     tags: str = Field(default="[]")  # JSON array string
+    # JSON array of golden-path slugs recommended for this blueprint.
+    recommended_golden_path_keys: str = Field(default="[]")
     is_active: int = Field(default=1)
     is_published: int = Field(default=0)
     use_count: int = Field(default=0)
@@ -946,6 +948,7 @@ def _migrate():
         ("notification", "incident_id",                 "INTEGER", "NULL"),
         ("user",         "last_login",                  "TIMESTAMP", "NULL"),
         ("workspaces",   "canvas_json",                 "TEXT",    "'{}'"),
+        ("templates",    "recommended_golden_path_keys", "TEXT",   "'[]'"),
     ]
     with Session(engine) as session:
         for table, col, col_type, default in migrations:
