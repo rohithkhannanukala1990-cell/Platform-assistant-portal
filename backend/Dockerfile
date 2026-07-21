@@ -17,5 +17,7 @@ RUN ln -sfn /app /app/backend
 
 EXPOSE 8000
 
-# Use exec form so signals (SIGTERM) are forwarded correctly
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Use exec form so signals (SIGTERM) are forwarded correctly.
+# Do not use --reload here: the compose service is read_only and the
+# reloader cannot write watch state, which prevents the process from becoming healthy.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

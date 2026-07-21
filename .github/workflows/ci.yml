@@ -63,8 +63,26 @@ jobs:
         run: docker compose -f docker-compose.yml build
       - name: Test healthchecks
         run: |
+          set +e
           docker compose -f docker-compose.yml up -d
-          sleep 90
-          docker compose -f docker-compose.yml ps
-          curl -fsS http://localhost:8000/health
-          docker compose -f docker-compose.yml down -v
+          UP_RC=$?
+          set -e
+          # Poll /health directly so we do not rely solely on compose depends_on.
+          for i in $(seq 1 40); do
+            if curl -fsS http://localhost:8000/health; then
+              echo "Backend healthy"
+              docker compose -f docker-compose.yml ps
+              docker compose -f docker-compose.yml down -v
+              exit 0
+            fi
+            echo "Waiting for backend health... attempt $i"
+            sleep 5
+          done
+          echo "=== compose ps ==="
+          docker compose -f docker-compose.yml ps || true
+          echo "=== backend logs ==="
+          docker compose -f docker-compose.yml logs backend --no-color || true
+          echo "=== celery logs ==="
+          docker compose -f docker-compose.yml logs celery_worker --no-color || true
+          docker compose -f docker-compose.yml down -v || true
+          exit 1
