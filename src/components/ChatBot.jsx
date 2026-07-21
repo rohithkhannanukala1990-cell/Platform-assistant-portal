@@ -66,6 +66,7 @@ function MessageBubble({ role, content, error }) {
 }
 
 export default function ChatBot() {
+  const { authFetch }         = useAuth()
   const [open, setOpen]       = useState(false)
   const [messages, setMsgs]   = useState([
     {

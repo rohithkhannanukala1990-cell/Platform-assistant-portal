@@ -190,6 +190,7 @@ function CategoryBars({ scores }) {
 
 export default function ScorecardsPage() {
   const { authFetch } = useAuth()
+  const navigate = useNavigate()
   const [entities, setEntities] = useState([])
   const [cards, setCards] = useState({})
   const [loading, setLoading] = useState(true)
