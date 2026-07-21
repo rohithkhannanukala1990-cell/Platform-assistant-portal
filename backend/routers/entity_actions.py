@@ -14,6 +14,7 @@ from sqlmodel import Field, Session, SQLModel, select
 
 from ..auth import User, get_current_user
 from ..database import engine
+from .audit_log import log_audit_event
 from .catalog import CatalogEntity
 
 router = APIRouter(prefix="/api/entity-actions", tags=["entity-actions"])
@@ -193,6 +194,32 @@ async def _dispatch_action(
     return "completed", {"simulated": True, "message": "Action queued"}
 
 
+def _audit_action_run(
+    user: User,
+    action: EntityAction,
+    entity: CatalogEntity,
+    run: EntityActionRun,
+    inputs: dict[str, Any],
+) -> None:
+    """Central audit hook for action runs — covers every dispatch path."""
+    log_audit_event(
+        user,
+        action.slug or "entity_action_run",
+        entity.id,
+        details={
+            "run_id": run.id,
+            "action_id": action.id,
+            "action_name": action.name,
+            "action_type": action.action_type,
+            "entity_name": entity.name,
+            "entity_kind": entity.kind,
+            "entity_lifecycle": entity.lifecycle,
+            "inputs": inputs,
+        },
+        status=run.status,
+    )
+
+
 def seed_default_actions(session: Session) -> None:
     defaults = [
         ("Re-evaluate Scorecard", "re-eval-scorecard", "all", "internal", "RefreshCw", 0),
@@ -254,6 +281,19 @@ def create_entity_action(body: EntityActionCreate, current_user: User = Depends(
         session.add(row)
         session.commit()
         session.refresh(row)
+        log_audit_event(
+            current_user,
+            "entity_action_created",
+            row.id,
+            details={
+                "name": row.name,
+                "slug": row.slug,
+                "entity_kind": row.entity_kind,
+                "action_type": row.action_type,
+                "requires_approval": bool(row.requires_approval),
+            },
+            resource_type="entity_action",
+        )
         return _serialize_action(row)
 
 
@@ -320,6 +360,8 @@ async def run_entity_action(
         session.add(run)
         session.commit()
         session.refresh(run)
+
+        _audit_action_run(current_user, action, entity, run, inputs)
 
         from ..ws_portal import broadcast_json
 

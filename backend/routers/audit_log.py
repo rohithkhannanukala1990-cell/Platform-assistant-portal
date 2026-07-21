@@ -36,6 +36,54 @@ CSV_COLUMNS = [
 ]
 
 
+_SECRET_KEY_MARKERS = ("secret", "token", "password", "api_key", "apikey", "credential", "private_key")
+
+
+def _redact_secrets(value: Any) -> Any:
+    """Recursively strip values whose keys look secret-bearing."""
+    if isinstance(value, dict):
+        return {
+            k: ("[REDACTED]" if any(m in str(k).lower() for m in _SECRET_KEY_MARKERS) else _redact_secrets(v))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_secrets(v) for v in value]
+    return value
+
+
+def log_audit_event(
+    user: User,
+    action: str,
+    entity_id: str,
+    details: dict[str, Any] | None = None,
+    *,
+    resource_type: str = "catalog_entity",
+    status: str = "success",
+) -> None:
+    """Reusable audit writer: who did what, to which entity, when, with what parameters.
+
+    `details` values are redacted for secret-looking keys before persisting.
+    Timestamps are added by `write_audit` (AuditLog.timestamp).
+    """
+    payload: dict[str, Any] = {
+        "user_id": user.username,
+        "role": user.role,
+        "action": action,
+        "resource_type": resource_type,
+        "resource_id": entity_id,
+        "status": status,
+    }
+    if details:
+        payload["parameters"] = _redact_secrets(details)
+    write_audit(
+        actor=user.username,
+        actor_role=user.role,
+        event_type=action,
+        resource=f"{resource_type}:{entity_id}",
+        detail=json.dumps(payload, ensure_ascii=False, default=str),
+    )
+
+
 def _parse_detail(detail: str) -> dict[str, Any]:
     if not detail:
         return {}
