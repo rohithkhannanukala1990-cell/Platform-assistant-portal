@@ -69,4 +69,6 @@ def test_rbac_create_role_assign_permissions_check(client, admin_token):
         headers=h,
     )
     assert deny.status_code == 200
-    assert deny.json()["allowed"] is False
+    # Canonical Admin users are synchronized to role-admin, whose grants are
+    # additive with custom assignments and include workspace deletion.
+    assert deny.json()["allowed"] is True

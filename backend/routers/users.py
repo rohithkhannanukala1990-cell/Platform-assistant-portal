@@ -10,7 +10,16 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from ..auth import User, get_current_user, hash_password, normalize_role, require_admin, write_audit
+from ..auth import (
+    VALID_ROLES,
+    User,
+    get_current_user,
+    hash_password,
+    normalize_role,
+    require_admin,
+    sync_user_rbac_role,
+    write_audit,
+)
 from ..database import UserAgentPermission, engine, get_db
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -91,6 +100,7 @@ def list_users(_admin: User = Depends(require_admin)):
     return [_user_out(u) for u in rows]
 
 
+# TODO: Use normalize_role(...) for role assignments and keep role set consistent with RBAC
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(
     body: UserCreateBody,
@@ -98,7 +108,7 @@ def create_user(
     admin: User = Depends(require_admin),
 ):
     role = normalize_role(body.role)
-    if role not in {"Admin", "User"}:
+    if role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail="Invalid role")
 
     with Session(engine) as session:
@@ -114,6 +124,8 @@ def create_user(
             created_at=datetime.now(timezone.utc),
         )
         session.add(user)
+        session.flush()
+        sync_user_rbac_role(session, user, granted_by=admin.username)
         session.commit()
         session.refresh(user)
 
@@ -128,6 +140,7 @@ def create_user(
     return _user_out(user)
 
 
+# TODO: Use normalize_role(...) for role assignments and keep role set consistent with RBAC
 @router.patch("/{user_id}", response_model=UserOut)
 def update_user(
     user_id: int,
@@ -141,6 +154,7 @@ def update_user(
             raise HTTPException(status_code=404, detail="User not found")
         if body.role is not None:
             user.role = normalize_role(body.role)
+            sync_user_rbac_role(session, user, granted_by=admin.username)
         if body.is_active is not None:
             user.is_active = body.is_active
         if body.email is not None:
@@ -301,18 +315,23 @@ async def update_user_role(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if current_user.role != "Admin":
+    if normalize_role(current_user.role) != "Admin":
         raise HTTPException(status_code=403, detail="Only Admins can change roles")
 
-    valid_roles = ["Admin", "User", "ReadOnly"]
-    if body.role not in valid_roles:
-        raise HTTPException(status_code=400, detail=f"Role must be one of {valid_roles}")
+    # TODO: Use normalize_role(...) for role assignments and keep role set consistent with RBAC
+    role = normalize_role(body.role)
+    if role not in VALID_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Role must be one of {sorted(VALID_ROLES)}",
+        )
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user.role = body.role
+    user.role = role
+    sync_user_rbac_role(db, user, granted_by=current_user.username)
     db.commit()
     db.refresh(user)
     return {"id": user.id, "username": user.username, "role": user.role}

@@ -15,6 +15,7 @@ from sqlmodel import Field, Session, SQLModel, select
 from ..auth import User, get_current_user, get_session, write_audit
 from ..database import engine
 from .rbac import VIEW_GOLDEN_PATHS, require_capability
+from backend.middleware.rbac_middleware import require_permission
 
 router = APIRouter(prefix="/api/golden-paths", tags=["golden-paths"])
 runs_router = APIRouter(prefix="/api/golden-path-runs", tags=["golden-paths"])
@@ -596,11 +597,13 @@ def list_applicable_golden_paths(
     return GoldenPathListResponse(items=[_path_to_summary(p) for p in paths])
 
 
+# TODO: Protect golden path template management and runs with require_permission("golden_paths", "manage") / ("golden_paths", "run")
 @router.post("")
 def create_golden_path_template(
     body: GoldenPathTemplateCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    _perm: None = Depends(require_permission("golden_paths", "manage")),
 ):
     slug = (body.slug or _slugify(body.name)).strip()
     dup = session.exec(select(GoldenPathTemplate).where(GoldenPathTemplate.slug == slug)).first()
@@ -639,12 +642,14 @@ def get_golden_path_template(
     return _serialize_template(row)
 
 
+# TODO: Protect golden path template management and runs with require_permission("golden_paths", "manage") / ("golden_paths", "run")
 @router.put("/{template_id}")
 def update_golden_path_template(
     template_id: int,
     body: GoldenPathTemplateUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    _perm: None = Depends(require_permission("golden_paths", "manage")),
 ):
     row = session.get(GoldenPathTemplate, template_id)
     if not row:
@@ -669,11 +674,13 @@ def update_golden_path_template(
     return _serialize_template(row)
 
 
+# TODO: Protect golden path template management and runs with require_permission("golden_paths", "manage") / ("golden_paths", "run")
 @router.delete("/{template_id}")
 def delete_golden_path_template(
     template_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    _perm: None = Depends(require_permission("golden_paths", "manage")),
 ):
     row = session.get(GoldenPathTemplate, template_id)
     if not row:
@@ -686,12 +693,14 @@ def delete_golden_path_template(
     return {"ok": True, "id": template_id}
 
 
+# TODO: Protect golden path template management and runs with require_permission("golden_paths", "manage") / ("golden_paths", "run")
 @router.post("/{template_id}/run")
 async def run_golden_path(
     template_id: int,
     body: GoldenPathRunRequest | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    _perm: None = Depends(require_permission("golden_paths", "run")),
 ):
     template = session.get(GoldenPathTemplate, template_id)
     if not template or not template.is_active:

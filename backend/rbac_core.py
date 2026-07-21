@@ -8,6 +8,8 @@ from sqlmodel import Session, select
 
 from .database import Permission, Role, RolePermission, UserRole
 
+# TODO: Align RBAC role IDs and permission sets with the normalized role model
+
 
 def perm_key(resource: str, action: str) -> str:
     return f"{resource}:{action}"
@@ -30,9 +32,27 @@ def is_action_allowed(granted: set[str], resource: str, action: str) -> bool:
     return False
 
 
+def _candidate_user_ids(session: Session, user_id: str | int) -> set[str]:
+    """Bridge numeric auth IDs and legacy username-based RBAC assignments."""
+    from .auth import User
+
+    value = str(user_id)
+    candidates = {value}
+    user = None
+    if value.isdigit():
+        user = session.get(User, int(value))
+    if user is None:
+        user = session.exec(select(User).where(User.username == value)).first()
+    if user:
+        candidates.add(user.username)
+        if user.id is not None:
+            candidates.add(str(user.id))
+    return candidates
+
+
 def collect_grants_for_check(
     session: Session,
-    user_id: str,
+    user_id: str | int,
     check_scope_type: str,
     check_scope_id: str,
 ) -> set[str]:
@@ -41,7 +61,10 @@ def collect_grants_for_check(
     check_scope_id = (check_scope_id or "").strip()
 
     out: set[str] = set()
-    ur_rows = session.exec(select(UserRole).where(UserRole.user_id == user_id)).all()
+    candidate_user_ids = _candidate_user_ids(session, user_id)
+    ur_rows = session.exec(
+        select(UserRole).where(UserRole.user_id.in_(candidate_user_ids))  # type: ignore[attr-defined]
+    ).all()
     for ur in ur_rows:
         role = session.get(Role, ur.role_id)
         if not role or not role.is_active:
@@ -62,12 +85,17 @@ def collect_grants_for_check(
     return out
 
 
-def collect_all_grants_for_user(session: Session, user_id: str) -> tuple[set[str], list[str]]:
+def collect_all_grants_for_user(
+    session: Session, user_id: str | int
+) -> tuple[set[str], list[str]]:
     """Union of all permission keys from all assignments + role slugs (for listing)."""
     out: set[str] = set()
     slugs: list[str] = []
     seen_slug: set[str] = set()
-    ur_rows = session.exec(select(UserRole).where(UserRole.user_id == user_id)).all()
+    candidate_user_ids = _candidate_user_ids(session, user_id)
+    ur_rows = session.exec(
+        select(UserRole).where(UserRole.user_id.in_(candidate_user_ids))  # type: ignore[attr-defined]
+    ).all()
     for ur in ur_rows:
         role = session.get(Role, ur.role_id)
         if not role or not role.is_active:
@@ -79,9 +107,10 @@ def collect_all_grants_for_user(session: Session, user_id: str) -> tuple[set[str
     return out, sorted(slugs)
 
 
+# TODO: Ensure check_user_permission is used by all critical routes (AI tools, catalog writes, golden path runs)
 def check_user_permission(
     session: Session,
-    user_id: str,
+    user_id: str | int,
     resource: str,
     action: str,
     scope_type: str,

@@ -27,6 +27,7 @@ from ..database import (
     WorkspaceTool,
 )
 from ..routers.workspaces import _resolve_account, _tool_rows_ordered
+from backend.middleware.rbac_middleware import require_permission
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -600,8 +601,12 @@ def delete_conversation(conversation_id: str, current_user: User = Depends(get_c
     return {"deleted": True}
 
 
+# TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints
 @router.get("/executions/pending")
-def list_pending_executions(_admin: User = Depends(require_admin)):
+def list_pending_executions(
+    _admin: User = Depends(require_admin),
+    _perm: None = Depends(require_permission("ai_tools", "execute")),
+):
     with Session(engine) as session:
         rows = session.exec(
             select(AIToolExecution)
@@ -627,11 +632,13 @@ def list_pending_executions(_admin: User = Depends(require_admin)):
         return out
 
 
+# TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints
 @router.post("/executions/{execution_id}/approve")
 async def approve_execution(
     execution_id: str,
     body: ApproveExecutionRequest,
     _admin: User = Depends(require_admin),
+    _perm: None = Depends(require_permission("ai_tools", "approve")),
 ):
     approver = (body.approved_by or "admin").strip()
     with Session(engine) as session:
@@ -653,11 +660,13 @@ async def approve_execution(
         return _execution_to_dict(row)
 
 
+# TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints
 @router.post("/executions/{execution_id}/reject")
 async def reject_execution(
     execution_id: str,
     body: RejectExecutionRequest,
     _admin: User = Depends(require_admin),
+    _perm: None = Depends(require_permission("ai_tools", "approve")),
 ):
     rejector = (body.rejected_by or "admin").strip()
     with Session(engine) as session:

@@ -15,6 +15,7 @@ from sqlmodel import Field, Session, SQLModel, select
 
 from ..auth import User, get_current_user
 from ..database import engine, get_db
+from backend.middleware.rbac_middleware import require_permission
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -251,8 +252,13 @@ def search_catalog(
     )
 
 
+# TODO: Protect catalog mutations with require_permission("catalog", "write")
 @router.post("")
-def create_catalog(body: CatalogCreate, current_user: User = Depends(get_current_user)):
+def create_catalog(
+    body: CatalogCreate,
+    current_user: User = Depends(get_current_user),
+    _perm: None = Depends(require_permission("catalog", "write")),
+):
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
@@ -297,11 +303,13 @@ def get_catalog(entity_id: str, current_user: User = Depends(get_current_user)):
         return _serialize(_get_active(session, entity_id))
 
 
+# TODO: Protect catalog mutations with require_permission("catalog", "write")
 @router.put("/{entity_id}")
 def update_catalog(
     entity_id: str,
     body: CatalogUpdate,
     current_user: User = Depends(get_current_user),
+    _perm: None = Depends(require_permission("catalog", "write")),
 ):
     data = body.model_dump(exclude_unset=True)
     if not data:
@@ -332,8 +340,13 @@ def update_catalog(
         return _serialize(row)
 
 
+# TODO: Protect catalog mutations with require_permission("catalog", "write")
 @router.delete("/{entity_id}")
-def delete_catalog(entity_id: str, current_user: User = Depends(get_current_user)):
+def delete_catalog(
+    entity_id: str,
+    current_user: User = Depends(get_current_user),
+    _perm: None = Depends(require_permission("catalog", "write")),
+):
     with Session(engine) as session:
         row = _get_active(session, entity_id)
         row.is_active = 0

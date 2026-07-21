@@ -12,7 +12,14 @@ from fastapi.responses import RedirectResponse, Response
 from onelogin.saml2.auth import OneLogin_Saml2_Auth
 from sqlmodel import Session, select
 
-from ..auth import User, create_access_token, hash_password
+from ..auth import (
+    User,
+    create_access_token,
+    hash_password,
+    normalize_role,
+    sync_user_rbac_role,
+    write_audit,
+)
 from ..database import engine
 
 router = APIRouter(prefix="/api/auth", tags=["sso"])
@@ -24,24 +31,47 @@ ADMIN_EMAILS = {
 }
 
 
+# TODO: Apply normalize_role(...) and write_audit(...) when assigning roles from SSO, instead of ad-hoc role strings
 def _get_or_create_sso_user(email: str, role: str) -> User:
     """Look up a user by email; create one if not found."""
+    canonical_role = normalize_role(role)
+    role_changed = False
+    created = False
     with Session(engine) as session:
         user = session.exec(select(User).where(User.email == email)).first()
         if user:
-            return user
-        user = User(
-            username=email,
-            email=email,
-            hashed_password=hash_password(os.urandom(32).hex()),
-            role=role.capitalize(),
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-        )
-        session.add(user)
+            normalized_existing_role = normalize_role(user.role)
+            role_changed = user.role != normalized_existing_role
+            user.role = normalized_existing_role
+        else:
+            user = User(
+                username=email,
+                email=email,
+                hashed_password=hash_password(os.urandom(32).hex()),
+                role=canonical_role,
+                is_active=True,
+                created_at=datetime.now(timezone.utc),
+            )
+            session.add(user)
+            session.flush()
+            created = True
+            role_changed = True
+        sync_user_rbac_role(session, user, granted_by="sso")
         session.commit()
         session.refresh(user)
-        return user
+
+    if role_changed:
+        write_audit(
+            actor=user.username,
+            actor_role=normalize_role(user.role),
+            event_type="SSO_ROLE_ASSIGNED",
+            resource=f"user:{user.username}",
+            detail=(
+                f"Assigned canonical SSO role {normalize_role(user.role)}"
+                + (" to new user" if created else "")
+            ),
+        )
+    return user
 
 
 # ── SAML ──────────────────────────────────────────────────────────────────────
@@ -142,7 +172,17 @@ async def saml_acs(request: Request):
     email = auth.get_nameid()
     role = "Admin" if email in ADMIN_EMAILS else "User"
     user = _get_or_create_sso_user(email=email, role=role)
-    token = create_access_token(username=user.username, role=user.role)
+    token = create_access_token(
+        username=user.username,
+        role=normalize_role(user.role),
+    )
+    write_audit(
+        actor=user.username,
+        actor_role=normalize_role(user.role),
+        event_type="SSO_LOGIN",
+        resource="saml",
+        detail="SAML login succeeded",
+    )
     return RedirectResponse(f"{os.getenv('FRONTEND_URL')}/auth/callback#token={token}")
 
 
@@ -210,7 +250,16 @@ async def google_oauth_callback(request: Request):
             else "User"
         )
         user = _get_or_create_sso_user(email=email, role=role)
-        token = create_access_token(username=user.username, role=role)
+        canonical_role = normalize_role(user.role)
+        token = create_access_token(username=user.username, role=canonical_role)
+        write_audit(
+            actor=user.username,
+            actor_role=canonical_role,
+            event_type="SSO_LOGIN",
+            resource="google",
+            detail="Google OAuth login succeeded",
+            ip_address=(request.client.host if request.client else ""),
+        )
         return RedirectResponse(
             f"{os.getenv('FRONTEND_URL')}/auth/callback#token={token}"
         )

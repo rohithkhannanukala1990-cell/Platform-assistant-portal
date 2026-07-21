@@ -2,29 +2,29 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from sqlmodel import Session
 
+from ..auth import User, get_current_user
 from ..database import engine
 from ..rbac_core import check_user_permission
 
 
+# TODO: Remove X-User-Id == 'admin' bypass and rely on authenticated user identity from auth.py
 def require_permission(resource: str, action: str):
-    """
-    FastAPI dependency factory.
-    Reads `X-User-Id` from the request. Skips enforcement when value is `admin` (dev escape hatch).
-    """
+    """FastAPI dependency factory backed only by authenticated identity."""
 
-    def _dep(request: Request) -> None:
-        uid = (request.headers.get("X-User-Id") or "").strip()
-        if uid == "admin":
-            return
-        if not uid:
-            raise HTTPException(status_code=403, detail="Missing X-User-Id header")
+    def _dep(
+        request: Request,
+        _authenticated_user: User = Depends(get_current_user),
+    ) -> None:
+        user = getattr(request.state, "user", None)
+        if not user:
+            raise HTTPException(status_code=401, detail="Unauthenticated")
         with Session(engine) as session:
             allowed, reason = check_user_permission(
                 session,
-                uid,
+                user.id,
                 resource,
                 action,
                 "global",

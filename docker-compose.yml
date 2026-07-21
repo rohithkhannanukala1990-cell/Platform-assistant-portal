@@ -10,7 +10,8 @@ x-backend-env: &backend-env
   DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/aiops
   CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
   CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
-  JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev_jwt_secret_change_me}
+  ENV: ${ENV:-dev}
+  SECRET_KEY: ${SECRET_KEY:-dev_jwt_secret_change_me}
   JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-480}
   DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
   DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-Admin123!}

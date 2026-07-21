@@ -6,26 +6,40 @@ import pyotp
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
+from dotenv import load_dotenv
 from sqlmodel import SQLModel, Field, Session, select
 from sqlalchemy import Column, String
 
 from .database import engine
 
+load_dotenv()
 
-VALID_ROLES = {"Admin", "User"}
+
+VALID_ROLES = {"Admin", "User", "ReadOnly"}
+CANONICAL_ROLE_TO_RBAC_ROLE_ID = {
+    "Admin": "role-admin",
+    "User": "role-operator",
+    "ReadOnly": "role-viewer",
+}
 
 
+# TODO: Normalize roles into a single canonical set (e.g. Admin, Operator, Viewer) used across auth, users, RBAC, and SSO
 def normalize_role(role: str | None) -> str:
-    """Platform has exactly two roles: Admin and User."""
-    if role and str(role).strip() == "Admin":
+    """Normalize legacy and RBAC role names to Admin, User, or ReadOnly."""
+    value = str(role or "").strip().lower().replace("_", "").replace("-", "")
+    if value in {"admin", "superadmin", "platformadmin"}:
         return "Admin"
+    if value in {"readonly", "viewer", "read only"}:
+        return "ReadOnly"
     return "User"
+
+
 limiter = Limiter(key_func=get_remote_address)
 
 def get_session():
@@ -87,9 +101,18 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
+def verify_mfa_code(secret: str | None, totp_code: str) -> bool:
+    if not secret or not totp_code:
+        return False
+    return bool(pyotp.TOTP(secret).verify(totp_code))
+
+
 # ── JWT CONFIG ────────────────────────────────────────────────────────────────
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION")
+# TODO: Read SECRET_KEY from environment and refuse insecure defaults in non-test environments
+SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_ME_IN_PRODUCTION")
+if SECRET_KEY == "CHANGE_ME_IN_PRODUCTION" and os.getenv("ENV", "dev") != "test":
+    raise RuntimeError("SECRET_KEY must be set for non-test environments")
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
 JWT_PRIVATE_KEY_PEM = os.getenv("JWT_PRIVATE_KEY", "")
@@ -144,6 +167,21 @@ class Token(BaseModel):
     username: str
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+    totp_code: str | None = None
+
+    @classmethod
+    def as_form(
+        cls,
+        username: str = Form(...),
+        password: str = Form(...),
+        totp_code: str | None = Form(None),
+    ) -> "LoginRequest":
+        return cls(username=username, password=password, totp_code=totp_code)
+
+
 class UserCreate(BaseModel):
     username: str
     password: str
@@ -173,7 +211,10 @@ class LLMConfigUpdate(BaseModel):
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+def get_current_user(
+    request: Request,
+    token: str = Depends(oauth2_scheme),
+) -> User:
     payload = decode_token(token)
     username = str(payload.get("sub"))
     with Session(engine) as session:
@@ -184,12 +225,14 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
                 detail="Invalid credentials",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        request.state.user = user
         return user
 
 
 def require_role(*roles: str) -> Callable:
     def _dep(user: User = Depends(get_current_user)) -> User:
-        if user.role not in roles:
+        allowed_roles = {normalize_role(role) for role in roles}
+        if normalize_role(user.role) not in allowed_roles:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
         return user
 
@@ -197,7 +240,7 @@ def require_role(*roles: str) -> Callable:
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    if user.role != "Admin":
+    if normalize_role(user.role) != "Admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return user
 
@@ -230,6 +273,50 @@ def write_audit(
         print(f"[audit] WARNING: failed to write audit log: {exc}")
 
 
+def sync_user_rbac_role(
+    session: Session,
+    user: User,
+    *,
+    granted_by: str = "system",
+) -> None:
+    """Keep a user's canonical auth role aligned with its global system RBAC role."""
+    from .database import Role, UserRole
+
+    if user.id is None:
+        session.flush()
+    canonical_role = normalize_role(user.role)
+    user.role = canonical_role
+    role_id = CANONICAL_ROLE_TO_RBAC_ROLE_ID[canonical_role]
+    if not session.get(Role, role_id):
+        return
+
+    user_id = str(user.id)
+    system_role_ids = set(CANONICAL_ROLE_TO_RBAC_ROLE_ID.values())
+    assignments = session.exec(
+        select(UserRole).where(
+            UserRole.user_id == user_id,
+            UserRole.scope_type == "global",
+            UserRole.scope_id == "",
+        )
+    ).all()
+    for assignment in assignments:
+        if assignment.role_id in system_role_ids and assignment.role_id != role_id:
+            session.delete(assignment)
+
+    if not any(assignment.role_id == role_id for assignment in assignments):
+        session.add(
+            UserRole(
+                id=f"ur-system-{user_id}-{role_id.removeprefix('role-')}",
+                user_id=user_id,
+                role_id=role_id,
+                scope_type="global",
+                scope_id="",
+                granted_by=granted_by,
+                granted_at=datetime.now(timezone.utc),
+            )
+        )
+
+
 # ── SEED FUNCTIONS ────────────────────────────────────────────────────────────
 
 def seed_default_admin() -> None:
@@ -240,9 +327,9 @@ def seed_default_admin() -> None:
             select(User).where(User.username == username)
         ).first()
         if existing_admin:
-            return
-        session.add(
-            User(
+            admin = existing_admin
+        else:
+            admin = User(
                 username=username,
                 email="",
                 hashed_password=hash_password(password),
@@ -250,12 +337,15 @@ def seed_default_admin() -> None:
                 is_active=True,
                 created_at=datetime.now(timezone.utc),
             )
-        )
+            session.add(admin)
+            session.flush()
+        sync_user_rbac_role(session, admin)
         session.commit()
-    print(
-        f"[auth] WARNING: seeded default admin user ({username}). "
-        "Set strong credentials via DEFAULT_ADMIN_USERNAME / DEFAULT_ADMIN_PASSWORD."
-    )
+    if not existing_admin:
+        print(
+            f"[auth] WARNING: seeded default admin user ({username}). "
+            "Set strong credentials via DEFAULT_ADMIN_USERNAME / DEFAULT_ADMIN_PASSWORD."
+        )
 
 
 def seed_default_llm_config() -> None:
@@ -284,17 +374,26 @@ def seed_default_llm_config() -> None:
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+# TODO: Enforce MFA when user.mfa_enabled is True:
+# - Extend login request model with totp_code
+# - Verify TOTP code before issuing JWT
 @limiter.limit("5/15minutes")
 @auth_router.post("/login", response_model=Token)
 def login(
     request: Request,
-    form: OAuth2PasswordRequestForm = Depends(),
+    login_request: LoginRequest = Depends(LoginRequest.as_form),
 ):
     with Session(engine) as session:
-        user = session.exec(select(User).where(User.username == form.username)).first()
-        if not user or not user.is_active or not verify_password(form.password, user.hashed_password):
+        user = session.exec(
+            select(User).where(User.username == login_request.username)
+        ).first()
+        if (
+            not user
+            or not user.is_active
+            or not verify_password(login_request.password, user.hashed_password)
+        ):
             write_audit(
-                actor=form.username,
+                actor=login_request.username,
                 actor_role="unknown",
                 event_type="LOGIN_FAILED",
                 detail="Invalid credentials attempt",
@@ -302,8 +401,18 @@ def login(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     if user.mfa_enabled:
-        if not totp_code or not pyotp.TOTP(user.mfa_secret).verify(totp_code):
-            raise HTTPException(status_code=401, detail="MFA code required or invalid")
+        if not login_request.totp_code:
+            raise HTTPException(status_code=401, detail="MFA code required")
+        if not verify_mfa_code(user.mfa_secret, login_request.totp_code):
+            write_audit(
+                actor=user.username,
+                actor_role=normalize_role(user.role),
+                event_type="LOGIN_FAILED_MFA",
+                resource="auth",
+                detail="Invalid MFA code",
+                ip_address=(request.client.host if request.client else ""),
+            )
+            raise HTTPException(status_code=401, detail="Invalid MFA code")
 
     norm_role = normalize_role(user.role)
     with Session(engine) as session:
@@ -312,6 +421,7 @@ def login(
             db_user.last_login = datetime.now(timezone.utc)
             if db_user.role != norm_role and db_user.role not in VALID_ROLES:
                 db_user.role = norm_role
+            sync_user_rbac_role(session, db_user, granted_by=db_user.username)
             session.add(db_user)
             session.commit()
 
@@ -389,6 +499,8 @@ def create_user(
             created_at=datetime.now(timezone.utc),
         )
         session.add(user)
+        session.flush()
+        sync_user_rbac_role(session, user, granted_by=admin.username)
         session.commit()
         session.refresh(user)
 
