@@ -23,6 +23,92 @@ from ..rbac_core import check_user_permission, collect_all_grants_for_user
 
 router = APIRouter(prefix="/api/rbac", tags=["rbac"])
 
+# Capabilities used by platform-content and entity-operation routes.
+VIEW_TEMPLATES = "templates:read"
+VIEW_GOLDEN_PATHS = "golden_paths:read"
+VIEW_SERVICE_HEALTH = "health:read"
+TRIGGER_ENTITY_ACTION = "entity_actions:trigger"
+
+ALL_PLATFORM_CAPABILITIES = frozenset(
+    {
+        VIEW_TEMPLATES,
+        VIEW_GOLDEN_PATHS,
+        VIEW_SERVICE_HEALTH,
+        TRIGGER_ENTITY_ACTION,
+    }
+)
+
+# Legacy auth roles are mapped explicitly while database-backed RBAC remains
+# available for custom/global role assignments.
+ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
+    "admin": ALL_PLATFORM_CAPABILITIES,
+    "superadmin": ALL_PLATFORM_CAPABILITIES,
+    "super admin": ALL_PLATFORM_CAPABILITIES,
+    "platformadmin": ALL_PLATFORM_CAPABILITIES,
+    "platform admin": ALL_PLATFORM_CAPABILITIES,
+    "platformengineer": ALL_PLATFORM_CAPABILITIES,
+    "platform engineer": ALL_PLATFORM_CAPABILITIES,
+    "developer": ALL_PLATFORM_CAPABILITIES,
+    "operator": ALL_PLATFORM_CAPABILITIES,
+    # Preserve existing User behavior while making the grant explicit.
+    "user": ALL_PLATFORM_CAPABILITIES,
+    "viewer": frozenset(
+        {VIEW_TEMPLATES, VIEW_GOLDEN_PATHS, VIEW_SERVICE_HEALTH}
+    ),
+    "readonly": frozenset(
+        {VIEW_TEMPLATES, VIEW_GOLDEN_PATHS, VIEW_SERVICE_HEALTH}
+    ),
+    "read only": frozenset(
+        {VIEW_TEMPLATES, VIEW_GOLDEN_PATHS, VIEW_SERVICE_HEALTH}
+    ),
+}
+
+
+def require_capability(capability: str):
+    """FastAPI dependency supporting legacy roles and global RBAC grants."""
+    if ":" not in capability:
+        raise ValueError(f"Invalid capability: {capability}")
+    resource, action = capability.split(":", 1)
+
+    def dependency(current_user: User = Depends(get_current_user)) -> User:
+        role_key = (current_user.role or "").strip().lower()
+        # Administrative legacy roles remain unconditional break-glass roles.
+        if role_key in {
+            "admin",
+            "superadmin",
+            "super admin",
+            "platformadmin",
+            "platform admin",
+        }:
+            return current_user
+
+        with Session(engine) as session:
+            assignments = session.exec(
+                select(UserRole).where(UserRole.user_id == current_user.username)
+            ).all()
+            allowed, _reason = check_user_permission(
+                session,
+                current_user.username,
+                resource,
+                action,
+                "global",
+                None,
+            )
+        if allowed:
+            return current_user
+
+        # Explicit database assignments take precedence over broad legacy
+        # defaults, including when the assignment is scoped and cannot grant
+        # this global request.
+        if assignments:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        if capability in ROLE_CAPABILITIES.get(role_key, frozenset()):
+            return current_user
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    return dependency
+
 
 class RoleCreate(BaseModel):
     name: str

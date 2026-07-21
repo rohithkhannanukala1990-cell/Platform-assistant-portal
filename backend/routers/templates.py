@@ -24,6 +24,7 @@ from ..database import (
     WorkspaceTool,
     engine,
 )
+from .rbac import VIEW_TEMPLATES, require_capability
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
@@ -300,7 +301,9 @@ def _full_workspace(session: Session, workspace_id: str) -> dict[str, Any]:
 
 
 @router.get("/categories")
-def list_template_categories(current_user: User = Depends(get_current_user)):
+def list_template_categories(
+    current_user: User = Depends(require_capability(VIEW_TEMPLATES)),
+):
     with Session(engine) as session:
         rows = session.exec(select(Template).where(Template.is_active == 1)).all()
         counts: dict[str, int] = {}
@@ -313,7 +316,7 @@ def list_template_categories(current_user: User = Depends(get_current_user)):
 def list_templates(
     category: Optional[str] = Query(None),
     published: Optional[bool] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_capability(VIEW_TEMPLATES)),
 ):
     with Session(engine) as session:
         q = select(Template).where(Template.is_active == 1)
@@ -376,7 +379,10 @@ def list_template_applications(
 
 
 @router.get("/{template_id}")
-def get_template(template_id: str, current_user: User = Depends(get_current_user)):
+def get_template(
+    template_id: str,
+    current_user: User = Depends(require_capability(VIEW_TEMPLATES)),
+):
     with Session(engine) as session:
         t = session.get(Template, template_id)
         if not t or not t.is_active:

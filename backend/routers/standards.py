@@ -11,9 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Field, Session, SQLModel, select
 
-from ..auth import User, get_current_user, require_admin
+from ..auth import User, require_admin
 from ..database import engine
 from .catalog import CatalogEntity
+from .rbac import VIEW_SERVICE_HEALTH, require_capability
 
 router = APIRouter(prefix="/api/standards", tags=["standards"])
 catalog_router = APIRouter(prefix="/api/catalog", tags=["standards"])
@@ -352,7 +353,9 @@ def calculate_service_health_status(
 
 
 @router.get("")
-def list_standards(current_user: User = Depends(get_current_user)):
+def list_standards(
+    current_user: User = Depends(require_capability(VIEW_SERVICE_HEALTH)),
+):
     with Session(engine) as session:
         rows = session.exec(
             select(Standard).where(Standard.is_active == 1).order_by(Standard.name)
@@ -374,9 +377,11 @@ def list_standards(current_user: User = Depends(get_current_user)):
 )
 def get_service_health(
     entity_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_capability(VIEW_SERVICE_HEALTH)),
 ):
     with Session(engine) as session:
+        # TODO: Enforce workspace membership when CatalogEntity gains a
+        # workspace relationship; entities are currently global.
         entity = _get_active_entity(session, entity_id)
         standards = evaluate_service_standards(session, entity)
         scorecards = collect_service_scorecards(session, entity)
@@ -391,7 +396,10 @@ def get_service_health(
 
 
 @router.get("/{standard_id}")
-def get_standard(standard_id: str, current_user: User = Depends(get_current_user)):
+def get_standard(
+    standard_id: str,
+    current_user: User = Depends(require_capability(VIEW_SERVICE_HEALTH)),
+):
     with Session(engine) as session:
         row = session.get(Standard, standard_id)
         if not row or not row.is_active:
@@ -438,7 +446,10 @@ def create_standard(body: StandardCreate, _admin: User = Depends(require_admin))
 
 
 @catalog_router.get("/{entity_id}/standards")
-def list_entity_standards(entity_id: str, current_user: User = Depends(get_current_user)):
+def list_entity_standards(
+    entity_id: str,
+    current_user: User = Depends(require_capability(VIEW_SERVICE_HEALTH)),
+):
     with Session(engine) as session:
         _get_active_entity(session, entity_id)
         rows = session.exec(
@@ -461,9 +472,11 @@ def list_entity_standards(entity_id: str, current_user: User = Depends(get_curre
 def evaluate_entity_standard(
     entity_id: str,
     standard_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_capability(VIEW_SERVICE_HEALTH)),
 ):
     with Session(engine) as session:
+        # TODO: Enforce workspace membership when CatalogEntity gains a
+        # workspace relationship; entities are currently global.
         entity = _get_active_entity(session, entity_id)
         standard = session.get(Standard, standard_id)
         if not standard or not standard.is_active:

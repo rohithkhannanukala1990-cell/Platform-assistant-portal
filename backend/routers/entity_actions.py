@@ -16,6 +16,7 @@ from ..auth import User, get_current_user
 from ..database import engine
 from .audit_log import log_audit_event
 from .catalog import CatalogEntity
+from .rbac import TRIGGER_ENTITY_ACTION, require_capability
 
 router = APIRouter(prefix="/api/entity-actions", tags=["entity-actions"])
 catalog_router = APIRouter(prefix="/api/catalog", tags=["entity-actions"])
@@ -315,9 +316,11 @@ async def run_entity_action(
     entity_id: str,
     action_id: str,
     body: ActionRunRequest | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_capability(TRIGGER_ENTITY_ACTION)),
 ):
     with Session(engine) as session:
+        # TODO: Enforce workspace membership when CatalogEntity gains a
+        # workspace relationship; entities are currently global.
         entity = _get_active_entity(session, entity_id)
         action = session.get(EntityAction, action_id)
         if not action or not action.is_active:

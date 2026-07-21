@@ -14,6 +14,7 @@ from sqlmodel import Field, Session, SQLModel, select
 
 from ..auth import User, get_current_user, get_session, write_audit
 from ..database import engine
+from .rbac import VIEW_GOLDEN_PATHS, require_capability
 
 router = APIRouter(prefix="/api/golden-paths", tags=["golden-paths"])
 runs_router = APIRouter(prefix="/api/golden-path-runs", tags=["golden-paths"])
@@ -536,7 +537,7 @@ def list_golden_path_templates(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_capability(VIEW_GOLDEN_PATHS)),
 ):
     q = select(GoldenPathTemplate)
     if is_active:
@@ -555,7 +556,7 @@ def list_applicable_golden_paths(
     template_id: str | None = Query(None),
     entity_id: str | None = Query(None),
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_capability(VIEW_GOLDEN_PATHS)),
 ):
     """Return golden paths applicable to a workspace template or catalog entity."""
     if not template_id and not entity_id:
@@ -577,6 +578,8 @@ def list_applicable_golden_paths(
     if entity_id:
         from .catalog import CatalogEntity
 
+        # TODO: Enforce workspace membership here when CatalogEntity gains a
+        # workspace relationship. WorkspaceMember cannot currently scope it.
         entity = session.get(CatalogEntity, entity_id)
         if not entity or not entity.is_active:
             raise HTTPException(status_code=404, detail="Catalog entity not found")
@@ -628,7 +631,7 @@ def create_golden_path_template(
 def get_golden_path_template(
     template_id: int,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_capability(VIEW_GOLDEN_PATHS)),
 ):
     row = session.get(GoldenPathTemplate, template_id)
     if not row:
@@ -769,7 +772,7 @@ def list_golden_path_runs(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_capability(VIEW_GOLDEN_PATHS)),
 ):
     q = select(GoldenPathRun).order_by(GoldenPathRun.created_at.desc())
     if template_id is not None:
@@ -784,7 +787,7 @@ def list_golden_path_runs(
 def get_golden_path_run(
     run_id: int,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_capability(VIEW_GOLDEN_PATHS)),
 ):
     row = session.get(GoldenPathRun, run_id)
     if not row:
