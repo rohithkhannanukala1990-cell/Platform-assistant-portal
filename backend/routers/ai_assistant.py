@@ -26,6 +26,12 @@ from ..database import (
     Workspace,
     WorkspaceTool,
 )
+from ..observability.logger import logger
+from ..observability.metrics import (
+    AI_ACTIONS_APPROVED_TOTAL,
+    AI_ACTIONS_ERROR_TOTAL,
+    AI_ACTIONS_REJECTED_TOTAL,
+)
 from ..routers.workspaces import _resolve_account, _tool_rows_ordered
 from backend.middleware.rbac_middleware import require_permission
 
@@ -63,12 +69,105 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# TODO: Replace keyword-based action detection with parsing of an ACTIONS_JSON block produced by the LLM
 def _detect_keyword_action(text: str) -> Optional[str]:
     low = text.lower()
     for kw, action in KEYWORD_ACTIONS:
         if kw in low:
             return action
     return None
+
+
+_ACTIONS_JSON_MARKER = re.compile(r"ACTIONS_JSON\s*:?", re.IGNORECASE)
+
+# Structured operation → canonical executor action name.
+_OPERATION_ACTION_MAP = {
+    "restart": "restart_service",
+    "delete": "delete_resource",
+    "scale": "scale_deployment",
+    "deploy": "deploy_to_production",
+    "apply": "apply_terraform",
+    "merge": "merge_pull_request",
+    "rotate": "rotate_secrets",
+    "modify_iam": "modify_iam_policy",
+}
+
+
+def _extract_json_object(text: str) -> tuple[str | None, int]:
+    """Return the first balanced JSON object in text and its end offset."""
+    start = text.find("{")
+    if start == -1:
+        return None, -1
+    depth = 0
+    in_string = False
+    escaped = False
+    for idx in range(start, len(text)):
+        ch = text[idx]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : idx + 1], idx + 1
+    return None, -1
+
+
+def _parse_actions_json(response_text: str) -> tuple[str, list[dict[str, Any]]]:
+    """Split an LLM response into natural language + parsed ACTIONS_JSON actions.
+
+    Invalid or missing JSON is treated as "no actions"; the failure is logged
+    and counted so guardrail regressions are observable.
+    """
+    text = response_text or ""
+    match = _ACTIONS_JSON_MARKER.search(text)
+    if not match:
+        return text.strip(), []
+
+    natural = text[: match.start()].strip()
+    raw_block, end = _extract_json_object(text[match.end():])
+    if raw_block is None:
+        AI_ACTIONS_ERROR_TOTAL.inc()
+        logger.warning(
+            "ACTIONS_JSON marker present but no JSON object found",
+            extra={"source": "ai_assistant"},
+        )
+        return natural or text.strip(), []
+
+    trailing = text[match.end() + end :].strip()
+    if trailing:
+        natural = f"{natural}\n{trailing}".strip()
+
+    try:
+        parsed = json.loads(raw_block)
+    except json.JSONDecodeError as exc:
+        AI_ACTIONS_ERROR_TOTAL.inc()
+        logger.warning(
+            "Failed to parse ACTIONS_JSON block",
+            extra={"source": "ai_assistant", "provider": str(exc)},
+        )
+        return natural or text.strip(), []
+
+    actions = parsed.get("actions") if isinstance(parsed, dict) else None
+    if not isinstance(actions, list):
+        return natural or text.strip(), []
+    return natural or text.strip(), [a for a in actions if isinstance(a, dict)]
+
+
+def _structured_action_name(action: dict[str, Any]) -> str:
+    operation = str(action.get("operation") or "").strip().lower()
+    if not operation:
+        return ""
+    return _OPERATION_ACTION_MAP.get(operation, operation)
 
 
 def _tool_statuses_line(session: Session, workspace_id: Optional[str]) -> str:
@@ -313,10 +412,15 @@ def _build_platform_grounding(
     }
 
 
+# TODO: Ensure grounding prompt explains the ACTIONS_JSON format and that risky production actions may require HITL
 def _grounding_system_prompt(context: dict[str, Any]) -> str:
     """Render only the allowlisted grounding object into model instructions."""
     return (
-        "\n\nGrounding requirements:\n"
+        "\n\nAction proposals must use the ACTIONS_JSON block described above. "
+        "Risky production actions (deploys, restarts, deletions, secret "
+        "rotation, infra changes) may be held for human-in-the-loop approval "
+        "before execution.\n"
+        "\nGrounding requirements:\n"
         "- Always base service suggestions on the supplied golden_paths and "
         "service_health. Do not invent templates, paths, checks, or scores.\n"
         "- For 'how do I create X', recommend one supplied template and one "
@@ -467,6 +571,9 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
         )
         response_text = await llm_router.chat(llm_messages, model=model, system_prompt=system_prompt)
 
+        # Separate prose from the structured ACTIONS_JSON block (if present).
+        natural_response, structured_actions = _parse_actions_json(response_text or "")
+
         asst_msg_id = f"ai-msg-{uuid.uuid4().hex[:12]}"
         session.add(
             AIMessage(
@@ -484,16 +591,47 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
         session.commit()
 
         pending_execution = None
-        action = _detect_keyword_action(response_text or "") if hitl_enabled else None
+        action: Optional[str] = None
+        action_parameters: dict[str, Any] = {}
+        action_environment = env
+        if hitl_enabled:
+            if structured_actions:
+                first = structured_actions[0]
+                action = _structured_action_name(first) or None
+                if action:
+                    action_parameters = {
+                        "resource": first.get("resource"),
+                        "operation": first.get("operation"),
+                        "environment": first.get("environment") or env,
+                        "identifier": first.get("identifier"),
+                        "reason": first.get("reason"),
+                    }
+                    action_environment = (
+                        str(first.get("environment") or env).strip().lower() or env
+                    )
+            else:
+                action = _detect_keyword_action(natural_response or "")
         if action:
-            exec_payload = await tool_executor.execute(
-                tool_id="platform",
-                action=action,
-                parameters={},
-                environment=env,
-                conversation_id=conv_id,
-                message_id=asst_msg_id,
-            )
+            try:
+                exec_payload = await tool_executor.execute(
+                    tool_id="platform",
+                    action=action,
+                    parameters=action_parameters,
+                    environment=action_environment,
+                    conversation_id=conv_id,
+                    message_id=asst_msg_id,
+                )
+            except Exception as exc:
+                # TODO: Increment ai_actions_error_total and log the failure for observability
+                AI_ACTIONS_ERROR_TOTAL.inc()
+                logger.error(
+                    "AI action execution failed",
+                    extra={"source": "ai_assistant", "provider": str(exc)},
+                )
+                exec_payload = None
+        else:
+            exec_payload = None
+        if exec_payload:
             row = AIToolExecution(
                 id=exec_payload["id"],
                 conversation_id=conv_id,
@@ -633,6 +771,7 @@ def list_pending_executions(
 
 
 # TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints
+# TODO: Increment ai_actions_approved_total / ai_actions_rejected_total when HITL decisions are made
 @router.post("/executions/{execution_id}/approve")
 async def approve_execution(
     execution_id: str,
@@ -648,7 +787,16 @@ async def approve_execution(
         if row.status != "pending_approval":
             raise HTTPException(status_code=400, detail="Execution is not pending approval")
 
-        result = await tool_executor.approve_execution(execution_id, approver)
+        try:
+            result = await tool_executor.approve_execution(execution_id, approver)
+        except Exception as exc:
+            # TODO: Increment ai_actions_error_total and log the failure for observability
+            AI_ACTIONS_ERROR_TOTAL.inc()
+            logger.error(
+                "AI execution approval failed",
+                extra={"source": "ai_assistant", "provider": str(exc)},
+            )
+            raise HTTPException(status_code=502, detail="Execution failed") from exc
         row.status = "completed"
         row.approved_by = result.get("approved_by") or approver
         row.approved_at = _now()
@@ -657,10 +805,12 @@ async def approve_execution(
         session.add(row)
         session.commit()
         session.refresh(row)
+        AI_ACTIONS_APPROVED_TOTAL.inc()
         return _execution_to_dict(row)
 
 
 # TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints
+# TODO: Increment ai_actions_approved_total / ai_actions_rejected_total when HITL decisions are made
 @router.post("/executions/{execution_id}/reject")
 async def reject_execution(
     execution_id: str,
@@ -682,6 +832,7 @@ async def reject_execution(
         session.add(row)
         session.commit()
         session.refresh(row)
+        AI_ACTIONS_REJECTED_TOTAL.inc()
         return _execution_to_dict(row)
 
 

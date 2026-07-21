@@ -13,22 +13,51 @@ HITL_REQUIRED_ACTIONS = [
     "modify_iam_policy"
 ]
 
+# Any operation verb that mutates state; in production these always need HITL.
+_PRODUCTION_MUTATING_PREFIXES = (
+    "restart",
+    "delete",
+    "scale",
+    "apply",
+    "merge",
+    "deploy",
+    "rotate",
+    "modify",
+    "create",
+    "update",
+    "terminate",
+    "drain",
+    "failover",
+)
 
+
+# TODO: Standardize tool execution results using a common schema (AgentResult-like dict)
 class ToolExecutor:
 
+    # TODO: Review HITL_REQUIRED_ACTIONS and ensure all production-mutating operations require HITL in production
     def requires_hitl(self, tool_id: str,
                       action: str,
                       environment: str) -> bool:
+        action_norm = (action or "").strip().lower()
         if environment == "production":
-            return action in HITL_REQUIRED_ACTIONS
+            if action_norm in HITL_REQUIRED_ACTIONS:
+                return True
+            # Production deployments, secret rotation, and infra changes must
+            # always be approved by a human, even for unlisted action names.
+            return action_norm.startswith(_PRODUCTION_MUTATING_PREFIXES)
         if environment in ["staging", "dr"]:
-            return action in [
+            return action_norm in [
                 "delete_resource",
                 "apply_terraform",
-                "deploy_to_production"
+                "deploy_to_production",
+                "rotate_secrets",
             ]
         return False
 
+    # TODO: Accept structured actions (resource, operation, environment, identifier) and return execution dicts with:
+    # - id, conversation_id, tool_id, action, parameters
+    # - requires_hitl, status, created_at, executed_at
+    # - result: { success, output, metadata }
     async def execute(
         self,
         tool_id: str,
@@ -52,7 +81,8 @@ class ToolExecutor:
             "requires_hitl": hitl,
             "status": "pending_approval"
                       if hitl else "executing",
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "executed_at": None,
         }
 
         if not hitl:
@@ -65,16 +95,23 @@ class ToolExecutor:
 
         return execution
 
+    # TODO: Implement real action execution or keep simulated output, but always return a structured result dict
     async def _run_action(
         self, tool_id: str,
         action: str, parameters: Dict) -> Dict:
+        params = parameters or {}
         return {
             "success": True,
-            "tool": tool_id,
-            "action": action,
             "output": f"[Simulated] {action} on "
                       f"{tool_id} completed.",
-            "parameters": parameters
+            "metadata": {
+                "tool": tool_id,
+                "action": action,
+                "resource": params.get("resource"),
+                "identifier": params.get("identifier"),
+                "environment": params.get("environment"),
+                "parameters": params,
+            },
         }
 
     async def approve_execution(

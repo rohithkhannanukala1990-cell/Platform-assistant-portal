@@ -108,6 +108,7 @@ class LLMRouter:
             "or OLLAMA_BASE_URL to enable real responses."
         )
 
+    # TODO: Extend system prompt to require a separate ACTIONS_JSON block describing actions in structured JSON
     def build_system_prompt(self, context: dict) -> str:
         workspace = context.get("workspace_name", "None")
         environment = context.get("environment", "production")
@@ -143,6 +144,15 @@ Be concise, technical, and accurate."""
                 "\n\n⚠️ You are operating in PRODUCTION.\n"
                 "Treat all destructive actions as HITL-required."
             )
+        extra += (
+            "\n\nWhen you propose actions, ALWAYS produce a separate JSON block "
+            "labeled 'ACTIONS_JSON' with this format:\n"
+            "ACTIONS_JSON: { \"actions\": [ { \"resource\": \"service\", "
+            "\"operation\": \"restart\", \"environment\": \"production\", "
+            "\"identifier\": \"svc-name\", \"reason\": \"...\" } ] }\n"
+            "Keep this JSON strictly valid. Do not include comments or extra "
+            "text inside the JSON."
+        )
         return base + extra
 
 

@@ -28,6 +28,28 @@ ACTIVE_APPROVALS = Gauge(
     "aiops_active_hitl_approvals",
     "Current incidents awaiting human approval",
 )
+# TODO: Add counters for AI actions:
+# - ai_actions_blocked_total{violation_type}
+# - ai_actions_approved_total
+# - ai_actions_rejected_total
+# - ai_actions_error_total
+AI_ACTIONS_BLOCKED_TOTAL = Counter(
+    "ai_actions_blocked_total",
+    "AI-proposed actions blocked by guardrails",
+    ["violation_type"],
+)
+AI_ACTIONS_APPROVED_TOTAL = Counter(
+    "ai_actions_approved_total",
+    "AI tool executions approved by a human",
+)
+AI_ACTIONS_REJECTED_TOTAL = Counter(
+    "ai_actions_rejected_total",
+    "AI tool executions rejected by a human",
+)
+AI_ACTIONS_ERROR_TOTAL = Counter(
+    "ai_actions_error_total",
+    "AI action parsing or execution failures",
+)
 HTTP_REQUESTS_TOTAL = Counter(
     "aiops_http_requests_total",
     "Total HTTP requests processed",
