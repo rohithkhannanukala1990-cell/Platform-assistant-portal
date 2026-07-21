@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -63,6 +63,28 @@ class StandardCreate(BaseModel):
     description: str = ""
     version: str = "1.0"
     applies_to_kind: str = "all"
+
+
+class StandardResult(BaseModel):
+    id: str
+    name: str
+    status: Literal["pass", "fail", "warn"]
+    details: str | None = None
+
+
+class ScorecardResult(BaseModel):
+    id: str
+    name: str
+    score: float
+    max_score: float
+    grade: str | None = None
+
+
+class ServiceHealthResponse(BaseModel):
+    entity_id: str
+    standards: list[StandardResult]
+    scorecards: list[ScorecardResult]
+    overall_status: Literal["good", "degraded", "poor"]
 
 
 def _get_active_entity(session: Session, entity_id: str) -> CatalogEntity:
@@ -253,6 +275,82 @@ def _run_evaluation(
     return row
 
 
+def evaluate_service_standards(
+    session: Session, entity: CatalogEntity
+) -> list[StandardResult]:
+    """Evaluate every active standard applicable to the entity."""
+    standards = session.exec(
+        select(Standard).where(Standard.is_active == 1).order_by(Standard.name)
+    ).all()
+    results: list[StandardResult] = []
+    for standard in standards:
+        applies_to = (standard.applies_to_kind or "all").strip().lower()
+        if applies_to not in ("", "all", entity.kind.lower()):
+            continue
+        evaluation = _run_evaluation(session, entity, standard)
+        status = (
+            evaluation.status
+            if evaluation.status in ("pass", "fail", "warn")
+            else "warn"
+        )
+        results.append(
+            StandardResult(
+                id=standard.id,
+                name=standard.name,
+                status=status,
+                details=f"Compliance score: {evaluation.overall_score}/100",
+            )
+        )
+    return results
+
+
+def collect_service_scorecards(
+    session: Session, entity: CatalogEntity
+) -> list[ScorecardResult]:
+    """Collect persisted scorecard checks, creating deterministic checks if absent."""
+    from .scorecards import ScorecardCheck, _persist_checks, _rule_based_checks
+
+    rows = session.exec(
+        select(ScorecardCheck)
+        .where(ScorecardCheck.entity_id == entity.id)
+        .order_by(ScorecardCheck.category, ScorecardCheck.check_name)
+    ).all()
+    if not rows:
+        rows = _persist_checks(session, entity.id, _rule_based_checks(entity))
+
+    return [
+        ScorecardResult(
+            id=row.id,
+            name=row.check_name,
+            score=float(row.score),
+            max_score=100.0,
+            grade=row.status if row.status in ("pass", "warn", "fail") else None,
+        )
+        for row in rows
+    ]
+
+
+def calculate_service_health_status(
+    standards: list[StandardResult],
+    scorecards: list[ScorecardResult],
+) -> Literal["good", "degraded", "poor"]:
+    """Derive service health from hard failures, warnings, and normalized scores."""
+    ratios = [
+        row.score / row.max_score
+        for row in scorecards
+        if row.max_score > 0
+    ]
+    if any(row.status == "fail" for row in standards) or any(
+        ratio < 0.5 for ratio in ratios
+    ):
+        return "poor"
+    if any(row.status == "warn" for row in standards) or any(
+        ratio < 0.8 for ratio in ratios
+    ):
+        return "degraded"
+    return "good"
+
+
 @router.get("")
 def list_standards(current_user: User = Depends(get_current_user)):
     with Session(engine) as session:
@@ -268,6 +366,28 @@ def list_standards(current_user: User = Depends(get_current_user)):
             )
             out.append(_serialize_standard(s, check_count=count))
         return out
+
+
+@router.get(
+    "/service/{entity_id}/health",
+    response_model=ServiceHealthResponse,
+)
+def get_service_health(
+    entity_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    with Session(engine) as session:
+        entity = _get_active_entity(session, entity_id)
+        standards = evaluate_service_standards(session, entity)
+        scorecards = collect_service_scorecards(session, entity)
+        return ServiceHealthResponse(
+            entity_id=entity.id,
+            standards=standards,
+            scorecards=scorecards,
+            overall_status=calculate_service_health_status(
+                standards, scorecards
+            ),
+        )
 
 
 @router.get("/{standard_id}")
