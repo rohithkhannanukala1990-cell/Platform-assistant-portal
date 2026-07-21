@@ -95,6 +95,7 @@ class PaginatedCatalogResults(BaseModel):
     pages: int
 
 
+# TODO: Support tag-based filters (contains any of requested tags) for catalog listings
 def _tags_parse(raw: Optional[str]) -> list[str]:
     if not raw:
         return []
@@ -149,11 +150,16 @@ def _serialize_dependency(row: ServiceDependency, names: dict[str, str]) -> dict
 _VALID_DEP_TYPES = frozenset({"calls", "uses", "depends_on"})
 
 
+# TODO: Add filters for owner_team, lifecycle, environment, and tags to the catalog list endpoint
 @router.get("")
 def list_catalog(
     kind: Optional[str] = Query(None),
     lifecycle: Optional[str] = Query(None),
     owner_team: Optional[str] = Query(None),
+    tags: list[str] | None = Query(
+        None,
+        description="Return entities containing any requested tag; repeat the parameter",
+    ),
     current_user: User = Depends(get_current_user),
 ):
     with Session(engine) as session:
@@ -166,6 +172,20 @@ def list_catalog(
             q = q.where(CatalogEntity.owner_team == owner_team)
         q = q.order_by(CatalogEntity.name.asc())
         rows = session.exec(q).all()
+        requested_tags = {
+            tag.strip().lower()
+            for value in (tags or [])
+            for tag in value.split(",")
+            if tag.strip()
+        }
+        if requested_tags:
+            rows = [
+                row
+                for row in rows
+                if requested_tags.intersection(
+                    tag.lower() for tag in _tags_parse(row.tags)
+                )
+            ]
         return [_serialize(r) for r in rows]
 
 
@@ -341,15 +361,38 @@ def update_catalog(
 
 
 # TODO: Protect catalog mutations with require_permission("catalog", "write")
+# TODO: Prevent deletion of entities that have dependencies in ServiceDependency, or require explicit force flag
 @router.delete("/{entity_id}")
 def delete_catalog(
     entity_id: str,
+    force: bool = Query(
+        False,
+        description="Delete dependency edges before deactivating the entity",
+    ),
     current_user: User = Depends(get_current_user),
     _perm: None = Depends(require_permission("catalog", "write")),
 ):
     with Session(engine) as session:
         row = _get_active(session, entity_id)
+        dependencies = list(
+            session.exec(
+                select(ServiceDependency).where(
+                    (ServiceDependency.from_entity_id == entity_id)
+                    | (ServiceDependency.to_entity_id == entity_id)
+                )
+            ).all()
+        )
+        if dependencies and not force:
+            raise HTTPException(
+                status_code=400,
+                detail="Entity has dependencies, cannot delete without force=true",
+            )
+        for dependency in dependencies:
+            session.delete(dependency)
         row.is_active = 0
         session.add(row)
         session.commit()
-    return {"deleted": True}
+    return {
+        "deleted": True,
+        "dependencies_deleted": len(dependencies),
+    }

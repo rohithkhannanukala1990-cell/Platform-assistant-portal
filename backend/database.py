@@ -981,6 +981,40 @@ def _migrate():
                 session.rollback()
                 print(f"[migrate] {table}.{col}: {exc}")
 
+        # Catalog entity IDs are UUID strings. Early golden-path schemas used
+        # INTEGER here, which prevents runs from targeting catalog entities on
+        # PostgreSQL. SQLite accepts text in the legacy column dynamically.
+        if _is_postgres:
+            try:
+                entity_id_type = session.exec(
+                    sa_text(
+                        "SELECT data_type FROM information_schema.columns "
+                        "WHERE table_name = 'golden_path_runs' "
+                        "AND column_name = 'entity_id'"
+                    )
+                ).first()
+                type_name = (
+                    str(entity_id_type[0])
+                    if entity_id_type is not None
+                    else ""
+                )
+                if type_name and type_name not in {
+                    "text",
+                    "character varying",
+                }:
+                    session.exec(
+                        sa_text(
+                            "ALTER TABLE golden_path_runs "
+                            "ALTER COLUMN entity_id TYPE TEXT "
+                            "USING entity_id::text"
+                        )
+                    )
+                    session.commit()
+                    print("[migrate] changed golden_path_runs.entity_id to TEXT")
+            except Exception as exc:
+                session.rollback()
+                print(f"[migrate] golden_path_runs.entity_id type: {exc}")
+
 
 def _seed_settings():
     """Insert default settings only if they don't already exist."""

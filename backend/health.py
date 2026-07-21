@@ -69,6 +69,66 @@ def _sync_redis_ping() -> dict[str, Any]:
         }
 
 
+# TODO: Provide health/scorecard summary data that can be consumed by golden path applicability logic and AI grounding
+def get_entity_health_summary(
+    session: Session,
+    entity: Any,
+    *,
+    standards: list[Any] | None = None,
+    scorecards: list[Any] | None = None,
+) -> dict[str, Any]:
+    """Return a compact, deterministic entity health summary and gap signals."""
+    from .routers.standards import (
+        calculate_service_health_status,
+        collect_service_scorecards,
+        evaluate_service_standards,
+    )
+
+    if standards is None:
+        standards = evaluate_service_standards(session, entity)
+    if scorecards is None:
+        scorecards = collect_service_scorecards(session, entity)
+    gaps: set[str] = set()
+
+    for standard in standards:
+        if standard.status != "pass":
+            gaps.add("production_readiness")
+
+    for scorecard in scorecards:
+        grade = (scorecard.grade or "").lower()
+        ratio = (
+            scorecard.score / scorecard.max_score
+            if scorecard.max_score > 0
+            else 0
+        )
+        if grade in {"warn", "fail"} or ratio < 0.8:
+            name = scorecard.name.lower()
+            if any(term in name for term in ("health", "reliability", "observ")):
+                gaps.add("observability")
+            if any(term in name for term in ("repo", "pipeline", "build", "deploy")):
+                gaps.add("cicd")
+            if any(term in name for term in ("security", "language")):
+                gaps.add("security")
+            if any(term in name for term in ("owner", "description", "tag")):
+                gaps.add("catalog_metadata")
+
+    health_status = (getattr(entity, "health_status", None) or "unknown").lower()
+    if health_status in {"unknown", "degraded", "unhealthy", "critical"}:
+        gaps.add("observability")
+    if not (getattr(entity, "repo_url", None) or "").strip():
+        gaps.add("cicd")
+
+    overall_status = calculate_service_health_status(standards, scorecards)
+    return {
+        "entity_id": str(entity.id),
+        "overall_status": overall_status,
+        "standards": [row.model_dump() for row in standards],
+        "scorecards": [row.model_dump() for row in scorecards],
+        "gaps": sorted(gaps),
+    }
+
+
+# TODO: Provide health/scorecard summary data that can be consumed by golden path applicability logic and AI grounding
 def _sync_tool_accounts_probe() -> dict[str, Any]:
     """
     Placeholder for external tool credential vault checks.

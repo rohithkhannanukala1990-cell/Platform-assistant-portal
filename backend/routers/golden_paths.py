@@ -44,7 +44,7 @@ class GoldenPathRun(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     template_id: int = Field(foreign_key="golden_path_templates.id")
     template_name: Optional[str] = None
-    entity_id: Optional[int] = None
+    entity_id: Optional[str] = None
     requested_by: str
     status: str = Field(default="pending")
     inputs_json: Optional[str] = None
@@ -77,7 +77,7 @@ class GoldenPathTemplateUpdate(BaseModel):
 
 
 class GoldenPathRunRequest(BaseModel):
-    entity_id: Optional[int] = None
+    entity_id: Optional[str] = None
     inputs: Optional[dict[str, Any]] = None
 
 
@@ -88,6 +88,9 @@ class GoldenPathSummary(BaseModel):
     description: str
     estimated_minutes: int | None = None
     tags: list[str] = []
+    reason_for_recommendation: str | None = None
+    estimated_duration: str | None = None
+    risk_level: str = "low"
 
 
 class GoldenPathListResponse(BaseModel):
@@ -121,7 +124,11 @@ def _parse_json_list(raw: Any) -> list[str]:
     return []
 
 
-def _path_to_summary(row: GoldenPathTemplate) -> GoldenPathSummary:
+def _path_to_summary(
+    row: GoldenPathTemplate,
+    *,
+    reason: str | None = None,
+) -> GoldenPathSummary:
     tags: list[str] = []
     if row.category:
         tags.append(row.category)
@@ -141,9 +148,17 @@ def _path_to_summary(row: GoldenPathTemplate) -> GoldenPathSummary:
         description=row.description or "",
         estimated_minutes=estimated,
         tags=tags,
+        reason_for_recommendation=reason,
+        estimated_duration=f"{estimated} minutes" if estimated is not None else None,
+        risk_level=(
+            "medium"
+            if (row.category or "").lower() in {"operations", "devops"}
+            else "low"
+        ),
     )
 
 
+# TODO: Use GoldenPathTemplate definitions to drive real execution plans instead of mock runs
 def _active_golden_paths(session: Session) -> list[GoldenPathTemplate]:
     return list(
         session.exec(
@@ -191,36 +206,81 @@ def find_applicable_paths_for_template(
     return [p for p in _active_golden_paths(session) if (p.category or "") == "Onboarding"]
 
 
+# TODO: Incorporate health and scorecard data to recommend golden paths based on gaps (e.g. missing observability, missing CI/CD)
 def find_applicable_paths_for_entity(
-    session: Session, entity: Any
+    session: Session,
+    entity: Any,
+    health_summary: dict[str, Any] | None = None,
 ) -> list[GoldenPathTemplate]:
-    """Discover golden paths for a catalog entity by kind and tags."""
+    """Discover and rank golden paths using entity metadata and health gaps."""
+    if health_summary is None:
+        from ..health import get_entity_health_summary
+
+        health_summary = get_entity_health_summary(session, entity)
+
     kind = (getattr(entity, "kind", None) or "").strip()
     entity_tags = {t.lower() for t in _parse_json_list(getattr(entity, "tags", None))}
     lifecycle = (getattr(entity, "lifecycle", None) or "").strip().lower()
+    gaps = {
+        str(gap).strip().lower()
+        for gap in (health_summary.get("gaps") or [])
+        if str(gap).strip()
+    }
 
-    matched: list[GoldenPathTemplate] = []
-    seen: set[int] = set()
+    ranked: list[tuple[int, GoldenPathTemplate]] = []
     for path in _active_golden_paths(session):
-        pid = path.id
-        if pid is None or pid in seen:
+        if path.id is None:
             continue
+        score = 0
         path_kind = (path.entity_kind or "").strip()
         if path_kind and kind and path_kind.lower() == kind.lower():
-            seen.add(pid)
-            matched.append(path)
-            continue
+            score += 20
         haystack = f"{path.slug} {path.name} {path.category or ''}".lower()
         if entity_tags and any(tag in haystack for tag in entity_tags):
-            seen.add(pid)
-            matched.append(path)
-            continue
+            score += 8
         # Production entities also surface readiness / ops paths.
         if lifecycle == "production" and (path.category or "") in {"Quality", "Operations"}:
-            seen.add(pid)
-            matched.append(path)
+            score += 10
+        if "observability" in gaps and any(
+            term in haystack for term in ("observability", "monitor", "operations")
+        ):
+            score += 30
+        if "cicd" in gaps and any(
+            term in haystack for term in ("ci/cd", "cicd", "pipeline", "devops")
+        ):
+            score += 30
+        if "production_readiness" in gaps and any(
+            term in haystack for term in ("readiness", "quality")
+        ):
+            score += 30
+        if score > 0:
+            ranked.append((score, path))
 
-    return matched
+    ranked.sort(key=lambda item: (-item[0], item[1].name))
+    return [path for _, path in ranked]
+
+
+def _recommendation_reason(
+    path: GoldenPathTemplate,
+    health_summary: dict[str, Any] | None,
+) -> str | None:
+    gaps = set((health_summary or {}).get("gaps") or [])
+    haystack = f"{path.slug} {path.name} {path.category}".lower()
+    if "observability" in gaps and any(
+        term in haystack for term in ("observability", "operations")
+    ):
+        return "Health and scorecard data indicate an observability gap."
+    if "cicd" in gaps and any(
+        term in haystack for term in ("ci/cd", "cicd", "pipeline", "devops")
+    ):
+        return "Catalog and scorecard data indicate missing CI/CD coverage."
+    if "production_readiness" in gaps and any(
+        term in haystack for term in ("readiness", "quality")
+    ):
+        return "Standards or scorecards show production-readiness gaps."
+    if path.entity_kind:
+        return f"Applies to catalog entities of kind {path.entity_kind}."
+    return None
 
 
 def _now() -> datetime:
@@ -262,6 +322,196 @@ def _serialize_template(row: GoldenPathTemplate) -> dict[str, Any]:
     }
 
 
+# TODO: Implement a step execution loop that:
+# - Iterates template steps
+# - Calls agents/connectors/internal tasks
+# - Aggregates outputs and logs
+async def _execute_golden_path_step(
+    session: Session,
+    template: GoldenPathTemplate,
+    run: GoldenPathRun,
+    step: dict[str, Any],
+    inputs: dict[str, Any],
+) -> dict[str, Any]:
+    step_type = str(step.get("type") or "internal").strip().lower()
+    label = str(step.get("label") or step.get("name") or step_type)
+    params = {
+        **inputs,
+        **(step.get("parameters") if isinstance(step.get("parameters"), dict) else {}),
+    }
+
+    if step_type == "agent":
+        from ..agents import get_agent
+        from ..context import PlatformContext
+
+        agent_name = str(step.get("agent") or step.get("agent_name") or "")
+        if not agent_name:
+            raise ValueError(f"Agent step '{label}' is missing agent name")
+        context = PlatformContext(
+            workspace_id=str(inputs.get("workspace_id") or ""),
+            workspace_name=str(inputs.get("workspace_name") or ""),
+            environment=str(inputs.get("environment") or "development"),
+            user_id=run.requested_by,
+            user_role=str(inputs.get("user_role") or "User"),
+        )
+        result = await get_agent(agent_name).run(params, context, session)
+        return result.to_dict()
+
+    if step_type == "connector":
+        from ..connectors.registry import get_connector
+
+        tool_id = str(step.get("connector") or step.get("tool_id") or "")
+        action = str(step.get("action") or "test_connection")
+        if not tool_id:
+            raise ValueError(f"Connector step '{label}' is missing connector/tool_id")
+        accounts = inputs.get("connector_accounts")
+        account = (
+            accounts.get(tool_id, {})
+            if isinstance(accounts, dict)
+            else {}
+        )
+        connector = get_connector(tool_id, {"tool_id": tool_id, **account})
+        if action == "test_connection":
+            return await connector.test_connection()
+        return await connector.execute_action(action, params)
+
+    if step_type in {"form", "review", "complete"}:
+        return {
+            "success": True,
+            "stage": step_type,
+            "message": label,
+            "input_keys": sorted(inputs),
+        }
+
+    task = str(step.get("task") or step.get("action") or template.slug)
+    if task in {"service_health", "evaluate_service_health"}:
+        from ..health import get_entity_health_summary
+        from .catalog import CatalogEntity
+
+        entity_id = str(run.entity_id or inputs.get("entity_id") or "")
+        entity = session.get(CatalogEntity, entity_id)
+        if not entity or not entity.is_active:
+            raise ValueError("Active catalog entity is required for service health")
+        return get_entity_health_summary(session, entity)
+    if task in {"catalog_lookup", "load_catalog_entity"}:
+        from .catalog import CatalogEntity, _serialize
+
+        entity_id = str(run.entity_id or inputs.get("entity_id") or "")
+        entity = session.get(CatalogEntity, entity_id)
+        if not entity or not entity.is_active:
+            raise ValueError("Active catalog entity is required for catalog lookup")
+        return _serialize(entity)
+
+    # Generic execute/internal steps still produce a concrete orchestration
+    # result derived from the template definition rather than a fabricated run.
+    return {
+        "success": True,
+        "task": task,
+        "template_slug": template.slug,
+        "message": label,
+        "inputs_processed": sorted(inputs),
+    }
+
+
+async def execute_golden_path_run(
+    session: Session,
+    template: GoldenPathTemplate,
+    run: GoldenPathRun,
+) -> GoldenPathRun:
+    """Execute template-defined steps, persisting outputs and logs per step."""
+    try:
+        steps = json.loads(template.steps_json or "[]")
+    except json.JSONDecodeError as exc:
+        raise ValueError("Golden path steps_json must be valid JSON") from exc
+    if not isinstance(steps, list):
+        raise ValueError("Golden path steps_json must contain a list")
+    try:
+        inputs = json.loads(run.inputs_json or "{}")
+    except json.JSONDecodeError:
+        inputs = {}
+    if not isinstance(inputs, dict):
+        inputs = {}
+
+    step_results: list[dict[str, Any]] = []
+    logs: list[str] = []
+    run.status = "running"
+    for index, raw_step in enumerate(steps, start=1):
+        step = raw_step if isinstance(raw_step, dict) else {"type": "internal", "label": str(raw_step)}
+        label = str(step.get("label") or step.get("name") or f"Step {index}")
+        started_at = _now()
+        logs.append(f"[{started_at.isoformat()}] Step {index}/{len(steps)} started: {label}")
+        try:
+            output = await _execute_golden_path_step(
+                session, template, run, step, inputs
+            )
+            output_status = (
+                str(output.get("status") or "").lower()
+                if isinstance(output, dict)
+                else ""
+            )
+            if output_status == "pending_approval":
+                status = "pending_approval"
+            elif output_status in {"failed", "error"} or (
+                isinstance(output, dict)
+                and (
+                    output.get("success") is False
+                    or output.get("ok") is False
+                    or output.get("connected") is False
+                )
+            ):
+                status = "failed"
+            else:
+                status = "completed"
+        except Exception as exc:
+            output = {"success": False, "error": str(exc)}
+            status = "failed"
+
+        completed_at = _now()
+        step_result = {
+            "index": index,
+            "type": str(step.get("type") or "internal"),
+            "label": label,
+            "status": status,
+            "started_at": started_at.isoformat(),
+            "completed_at": completed_at.isoformat(),
+            "output": output,
+        }
+        step_results.append(step_result)
+        logs.append(
+            f"[{completed_at.isoformat()}] Step {index} {status}: {label}"
+        )
+        run.outputs_json = json.dumps(
+            {
+                "template_slug": template.slug,
+                "steps": step_results,
+                "steps_completed": sum(
+                    1 for result in step_results if result["status"] == "completed"
+                ),
+                "steps_total": len(steps),
+                "entity_id": run.entity_id,
+            },
+            default=str,
+        )
+        run.run_logs = "\n".join(logs) + "\n"
+        run.updated_at = completed_at
+        run.status = status if status != "completed" else "running"
+        session.add(run)
+        session.commit()
+        session.refresh(run)
+        if status in {"failed", "pending_approval"}:
+            return run
+
+    run.status = "completed"
+    run.updated_at = _now()
+    logs.append(f"[{run.updated_at.isoformat()}] Golden path completed")
+    run.run_logs = "\n".join(logs) + "\n"
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    return run
+
+
+# TODO: Ensure GoldenPathRun serialization captures real step outputs and logs
 def _serialize_run(row: GoldenPathRun) -> dict[str, Any]:
     try:
         outputs = json.loads(row.outputs_json or "{}")
@@ -567,6 +817,7 @@ def list_applicable_golden_paths(
         )
 
     paths: list[GoldenPathTemplate] = []
+    entity_health: dict[str, Any] | None = None
 
     if template_id:
         from ..database import Template
@@ -584,7 +835,12 @@ def list_applicable_golden_paths(
         entity = session.get(CatalogEntity, entity_id)
         if not entity or not entity.is_active:
             raise HTTPException(status_code=404, detail="Catalog entity not found")
-        entity_paths = find_applicable_paths_for_entity(session, entity)
+        from ..health import get_entity_health_summary
+
+        entity_health = get_entity_health_summary(session, entity)
+        entity_paths = find_applicable_paths_for_entity(
+            session, entity, health_summary=entity_health
+        )
         if template_id:
             # Union when both filters are provided.
             by_id = {p.id: p for p in paths}
@@ -594,7 +850,15 @@ def list_applicable_golden_paths(
         else:
             paths = entity_paths
 
-    return GoldenPathListResponse(items=[_path_to_summary(p) for p in paths])
+    return GoldenPathListResponse(
+        items=[
+            _path_to_summary(
+                path,
+                reason=_recommendation_reason(path, entity_health),
+            )
+            for path in paths
+        ]
+    )
 
 
 # TODO: Protect golden path template management and runs with require_permission("golden_paths", "manage") / ("golden_paths", "run")
@@ -694,6 +958,10 @@ def delete_golden_path_template(
 
 
 # TODO: Protect golden path template management and runs with require_permission("golden_paths", "manage") / ("golden_paths", "run")
+# TODO: Implement a step execution loop that:
+# - Iterates template steps
+# - Calls agents/connectors/internal tasks
+# - Aggregates outputs and logs
 @router.post("/{template_id}/run")
 async def run_golden_path(
     template_id: int,
@@ -726,33 +994,20 @@ async def run_golden_path(
     session.commit()
     session.refresh(run)
 
-    await asyncio.sleep(0)
-
-    steps = json.loads(template.steps_json or "[]")
-    ts = now.isoformat()
-    run.status = "completed"
-    run.outputs_json = json.dumps(
-        {
-            "message": f"Golden Path '{template.name}' completed successfully.",
-            "steps_completed": len(steps),
-            "entity_id": entity_id,
-            "timestamp": ts,
-        }
-    )
-    run.run_logs = (
-        f"[{ts}] Starting golden path: {template.name}\n"
-        f"[{ts}] Processing inputs...\n"
-        f"[{ts}] Executing steps...\n"
-        f"[{ts}] All steps completed successfully.\n"
-    )
-    run.updated_at = _now()
-    session.add(run)
-    session.commit()
-    session.refresh(run)
+    try:
+        run = await execute_golden_path_run(session, template, run)
+    except ValueError as exc:
+        run.status = "failed"
+        run.outputs_json = json.dumps({"error": str(exc)})
+        run.run_logs = f"[{_now().isoformat()}] Golden path failed: {exc}\n"
+        run.updated_at = _now()
+        session.add(run)
+        session.commit()
+        session.refresh(run)
     _audit(
         current_user,
-        "golden_path_run_completed",
-        f"run_id={run.id} template_id={template_id}",
+        f"golden_path_run_{run.status}",
+        f"run_id={run.id} template_id={template_id} status={run.status}",
     )
 
     from ..ws_portal import broadcast_json

@@ -181,6 +181,10 @@ def _tool_statuses_line(session: Session, workspace_id: Optional[str]) -> str:
     return ", ".join(parts)
 
 
+# TODO: Expand AI context to include:
+# - catalog entity IDs, names, owner_team, lifecycle, tags
+# - health summaries
+# - applicable golden path template slugs and names
 def _build_context(session: Session, workspace_id: Optional[str], environment: str) -> dict[str, Any]:
     workspace_name = "None"
     tools: list[str] = []
@@ -199,12 +203,33 @@ def _build_context(session: Session, workspace_id: Optional[str], environment: s
                 tools.append(wt.tool_id)
     env_norm = (environment or "production").strip().lower()
     tool_statuses_line = _tool_statuses_line(session, workspace_id) if workspace_id else ""
+    from .catalog import CatalogEntity, _tags_parse
+
+    catalog_entities = list(
+        session.exec(
+            select(CatalogEntity)
+            .where(CatalogEntity.is_active == 1)
+            .order_by(CatalogEntity.name)
+            .limit(100)
+        ).all()
+    )
     return {
         "workspace_name": workspace_name,
         "environment": env_norm,
         "tools": tools,
         "tool_statuses_line": tool_statuses_line,
         "production_operating": env_norm == "production",
+        "catalog_entities": [
+            {
+                "id": entity.id,
+                "name": entity.name,
+                "owner_team": entity.owner_team,
+                "lifecycle": entity.lifecycle,
+                "tags": _tags_parse(entity.tags),
+                "health_status": entity.health_status,
+            }
+            for entity in catalog_entities
+        ],
     }
 
 
@@ -265,6 +290,8 @@ def _resolve_catalog_entity(
 
 def _safe_entity_context(entity: Any) -> dict[str, Any]:
     """Allowlist non-secret catalog fields sent to the model."""
+    from .catalog import _tags_parse
+
     return {
         "id": entity.id,
         "name": entity.name,
@@ -274,11 +301,16 @@ def _safe_entity_context(entity: Any) -> dict[str, Any]:
         "language": entity.language,
         "repo_url": entity.repo_url,
         "description": entity.description,
-        "tags": entity.tags,
+        "tags": _tags_parse(entity.tags),
         "health_status": entity.health_status,
     }
 
 
+# TODO: Return a structured list of recommended golden paths:
+# - name
+# - reason_for_recommendation
+# - estimated_duration
+# - risk_level
 def _template_suggestions(
     session: Session,
     message: str,
@@ -360,6 +392,7 @@ def _template_suggestions(
     ]
 
 
+# TODO: Ensure the grounding prompt references explicit entity IDs and golden path slugs to avoid hallucinating names
 def _build_platform_grounding(
     session: Session,
     message: str,
@@ -368,8 +401,11 @@ def _build_platform_grounding(
     """Build safe, structured catalog/health/path/template context for the LLM."""
     from .golden_paths import (
         _path_to_summary,
+        _recommendation_reason,
         find_applicable_paths_for_entity,
     )
+    from ..health import get_entity_health_summary
+    from .catalog import CatalogEntity
     from .standards import (
         calculate_service_health_status,
         collect_service_scorecards,
@@ -380,21 +416,38 @@ def _build_platform_grounding(
     entity = _resolve_catalog_entity(session, entity_lookup_text or message)
     service_health: dict[str, Any] | None = None
     golden_paths: list[dict[str, Any]] = []
+    catalog_entities = list(
+        session.exec(
+            select(CatalogEntity)
+            .where(CatalogEntity.is_active == 1)
+            .order_by(CatalogEntity.name)
+            .limit(100)
+        ).all()
+    )
 
     if entity is not None:
         standards = evaluate_service_standards(session, entity)
         scorecards = collect_service_scorecards(session, entity)
-        service_health = {
-            "entity_id": entity.id,
-            "standards": [row.model_dump() for row in standards],
-            "scorecards": [row.model_dump() for row in scorecards],
-            "overall_status": calculate_service_health_status(
-                standards, scorecards
-            ),
-        }
+        service_health = get_entity_health_summary(
+            session,
+            entity,
+            standards=standards,
+            scorecards=scorecards,
+        )
+        # Keep this explicit call as a contract check for the service-health
+        # status helper and to preserve a stable grounding status.
+        service_health["overall_status"] = calculate_service_health_status(
+            standards, scorecards
+        )
+        applicable = find_applicable_paths_for_entity(
+            session, entity, health_summary=service_health
+        )
         golden_paths = [
-            _path_to_summary(path).model_dump()
-            for path in find_applicable_paths_for_entity(session, entity)
+            _path_to_summary(
+                path,
+                reason=_recommendation_reason(path, service_health),
+            ).model_dump()
+            for path in applicable
         ]
 
     path_keys = {str(path["key"]) for path in golden_paths if path.get("key")}
@@ -405,6 +458,9 @@ def _build_platform_grounding(
     )
     return {
         "intent": intent,
+        "catalog_entities": [
+            _safe_entity_context(row) for row in catalog_entities
+        ],
         "entity": _safe_entity_context(entity) if entity is not None else None,
         "service_health": service_health,
         "golden_paths": golden_paths,
@@ -423,6 +479,10 @@ def _grounding_system_prompt(context: dict[str, Any]) -> str:
         "\nGrounding requirements:\n"
         "- Always base service suggestions on the supplied golden_paths and "
         "service_health. Do not invent templates, paths, checks, or scores.\n"
+        "- Refer to catalog entities by the exact supplied entity id and name. "
+        "Refer to golden paths by the exact supplied key/slug and name.\n"
+        "- When recommending a golden path, include its "
+        "reason_for_recommendation, estimated_duration, and risk_level.\n"
         "- For 'how do I create X', recommend one supplied template and one "
         "supplied golden path. If either is unavailable, state that clearly.\n"
         "- For 'how do I improve X', cite specific failed/warning standards "
