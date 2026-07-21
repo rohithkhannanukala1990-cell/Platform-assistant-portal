@@ -102,3 +102,22 @@ def test_developer_can_reach_health_and_entity_action_handlers(client):
     # A 404 proves authorization passed and the route reached entity lookup.
     assert health.status_code == 404
     assert action.status_code == 404
+
+
+def test_missing_view_capabilities_return_403_on_new_endpoints(client):
+    """Users without VIEW_* grants get 403 on templates / golden paths / health."""
+    app.dependency_overrides[get_current_user] = _as_role("Unknown")
+    try:
+        templates = client.get("/api/templates")
+        categories = client.get("/api/templates/categories")
+        golden_paths = client.get("/api/golden-paths")
+        applicable = client.get(
+            "/api/golden-paths/applicable?template_id=tmpl-x"
+        )
+        health = client.get("/api/standards/service/entity-x/health")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    for response in (templates, categories, golden_paths, applicable, health):
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Forbidden"

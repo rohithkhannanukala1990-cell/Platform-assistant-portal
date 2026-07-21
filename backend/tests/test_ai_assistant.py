@@ -45,11 +45,12 @@ def test_ai_chat_second_message_loads_history(client, admin_token):
     assert len(data["messages"]) == 4
 
 
-def test_ai_models_returns_correct_availability(monkeypatch, client):
+def test_ai_models_returns_correct_availability(monkeypatch, client, admin_token):
+    h = auth_headers(admin_token)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
-    r = client.get("/api/ai/models")
+    r = client.get("/api/ai/models", headers=h)
     assert r.status_code == 200
     models = {m["id"]: m for m in r.json()}
     assert models["gemini-1.5-flash"]["available"] is False
@@ -59,7 +60,7 @@ def test_ai_models_returns_correct_availability(monkeypatch, client):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    r2 = client.get("/api/ai/models")
+    r2 = client.get("/api/ai/models", headers=h)
     assert r2.status_code == 200
     m2 = {m["id"]: m for m in r2.json()}
     assert m2["gemini-1.5-flash"]["available"] is True
