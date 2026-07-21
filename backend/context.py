@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+_DEV_ENVIRONMENTS = frozenset({"dev", "development", "test", "local"})
+_PROD_ENVIRONMENTS = frozenset({"production", "prod", "dr"})
 
 
 @dataclass
@@ -18,8 +22,19 @@ class PlatformContext:
     active_tool: Optional[str] = None
     active_account: Optional[str] = None
 
+    @staticmethod
+    def current_env() -> str:
+        return (os.getenv("ENV") or "dev").strip().lower()
+
+    @classmethod
+    def is_dev_environment(cls) -> bool:
+        return cls.current_env() in _DEV_ENVIRONMENTS
+
     def is_production(self) -> bool:
-        return (self.environment or "").strip().lower() in ("production", "prod", "dr")
+        return (self.environment or "").strip().lower() in _PROD_ENVIRONMENTS
+
+    def is_dev(self) -> bool:
+        return (self.environment or "").strip().lower() in _DEV_ENVIRONMENTS
 
     def get_account(self, tool_id: str) -> Optional[str]:
         return self.tool_accounts.get(tool_id)

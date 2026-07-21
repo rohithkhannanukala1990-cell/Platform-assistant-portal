@@ -60,4 +60,15 @@ HTTP_REQUEST_DURATION_SECONDS = Histogram(
     "HTTP request duration in seconds",
     ["method", "status_code"],
 )
+# TODO: Track connector errors and health probe performance
+CONNECTOR_ERRORS_TOTAL = Counter(
+    "aiops_connector_errors_total",
+    "Total connector errors by type",
+    ["connector", "error_type"],
+)
+HEALTH_PROBE_DURATION_SECONDS = Histogram(
+    "aiops_health_probe_duration_seconds",
+    "Duration of health probes by name",
+    ["probe_name"],
+)
 

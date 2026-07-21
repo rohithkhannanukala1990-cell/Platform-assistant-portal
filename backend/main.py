@@ -1088,6 +1088,9 @@ async def ingest_webhook_log(request: Request, body: WebhookLogRequest, current_
     if not body.source.strip():
         raise HTTPException(status_code=400, detail="source cannot be empty.")
 
+    raw_body = await request.body()
+    require_valid_signature(body.source.strip().lower(), raw_body, dict(request.headers))
+
     try:
         task = process_webhook_log.delay(body.log_text, body.source.strip())
         task_id = task.id
