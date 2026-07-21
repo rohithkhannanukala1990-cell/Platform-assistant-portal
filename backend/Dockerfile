@@ -1,14 +1,13 @@
 FROM python:3.12-slim
 
-# System deps for psycopg2-binary
+# System deps for psycopg2-binary and python3-saml (xmlsec)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc libpq-dev curl \
+    gcc libpq-dev curl libxmlsec1-dev libffi-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN apk add --no-cache libxmlsec1-dev libffi-dev gcc musl-dev
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
