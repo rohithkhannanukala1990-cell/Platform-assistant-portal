@@ -2,9 +2,10 @@ import logging
 import json
 from datetime import datetime, timezone
 
+
 class JSONFormatter(logging.Formatter):
     def format(self, record):
-        log_data = {
+        data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "service": "aiops-portal",
@@ -12,10 +13,33 @@ class JSONFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
         # Attach structured extras if provided
-        for key in ["incident_id", "severity", "provider", "user", "source", "confidence", "task_id"]:
+        for key in [
+            "incident_id",
+            "severity",
+            "provider",
+            "user",
+            "source",
+            "confidence",
+            "task_id",
+            "method",
+            "path",
+            "status_code",
+            "duration_ms",
+            "user_id",
+            "workspace_id",
+        ]:
             if hasattr(record, key):
-                log_data[key] = getattr(record, key)
-        return json.dumps(log_data)
+                data[key] = getattr(record, key)
+
+        request_id = getattr(record, "request_id", None)
+        if request_id:
+            data["request_id"] = request_id
+
+        if record.exc_info:
+            data["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(data, default=str)
+
 
 def get_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)

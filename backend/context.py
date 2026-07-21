@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 @dataclass
 class PlatformContext:
+    request_id: str = ""
     workspace_id: str = ""
     workspace_name: str = ""
     environment: str = "development"
@@ -25,6 +26,7 @@ class PlatformContext:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "request_id": self.request_id,
             "workspace_id": self.workspace_id,
             "workspace_name": self.workspace_name,
             "environment": self.environment,
@@ -42,6 +44,7 @@ class PlatformContext:
         if not isinstance(accounts, dict):
             accounts = {}
         return cls(
+            request_id=str(data.get("request_id") or ""),
             workspace_id=str(data.get("workspace_id") or ""),
             workspace_name=str(data.get("workspace_name") or ""),
             environment=env,

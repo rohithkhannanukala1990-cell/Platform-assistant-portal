@@ -28,4 +28,14 @@ ACTIVE_APPROVALS = Gauge(
     "aiops_active_hitl_approvals",
     "Current incidents awaiting human approval",
 )
+HTTP_REQUESTS_TOTAL = Counter(
+    "aiops_http_requests_total",
+    "Total HTTP requests processed",
+    ["method", "status_code"],
+)
+HTTP_REQUEST_DURATION_SECONDS = Histogram(
+    "aiops_http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "status_code"],
+)
 

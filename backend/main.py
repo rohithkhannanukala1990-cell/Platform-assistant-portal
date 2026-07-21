@@ -42,7 +42,8 @@ from .tasks import process_inbound_webhook, process_webhook_log
 from .webhooks.security import require_valid_signature
 from .observability.metrics import (
     INCIDENTS_TOTAL, LLM_LATENCY_SECONDS, AGENT_CONFIDENCE,
-    GUARDRAIL_BLOCKS_TOTAL, ACTIVE_APPROVALS, HITL_APPROVAL_SECONDS, make_asgi_app
+    GUARDRAIL_BLOCKS_TOTAL, ACTIVE_APPROVALS, HITL_APPROVAL_SECONDS,
+    HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION_SECONDS, make_asgi_app
 )
 from .observability.logger import logger
 from .database import (
@@ -216,24 +217,71 @@ app.add_middleware(
 )
 
 
+# TODO: Harden global exception handling:
+# - Log full exception details via observability.logger.logger.exception(...)
+# - Return a generic error message to clients without exposing str(exc)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception(
+        "Unhandled error",
+        extra={
+            "path": request.url.path,
+            "method": request.method,
+            "request_id": getattr(request.state, "request_id", None),
+        },
+    )
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal server error",
-            "detail": str(exc),
-            "timestamp": datetime.utcnow().isoformat(),
+            "detail": "An unexpected error occurred.",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     )
 
 
+# TODO: Replace print-based request logging with structured logging:
+# - Use observability.logger.logger.info(...)
+# - Include method, path, status_code, duration_ms, user_id, workspace_id
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    start = time.time()
+    start = time.perf_counter()
     response = await call_next(request)
-    duration = time.time() - start
-    print(f"{request.method} {request.url.path} {response.status_code} {duration:.3f}s")
+    duration_seconds = time.perf_counter() - start
+    duration_ms = round(duration_seconds * 1000, 3)
+    status_code = str(response.status_code)
+    HTTP_REQUESTS_TOTAL.labels(
+        method=request.method,
+        status_code=status_code,
+    ).inc()
+    HTTP_REQUEST_DURATION_SECONDS.labels(
+        method=request.method,
+        status_code=status_code,
+    ).observe(duration_seconds)
+    logger.info(
+        "HTTP request",
+        extra={
+            "request_id": getattr(request.state, "request_id", None),
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms,
+            "user_id": getattr(
+                getattr(request.state, "user", None), "username", None
+            ),
+            "workspace_id": getattr(request.state, "workspace_id", None),
+        },
+    )
+    return response
+
+
+# TODO: Add request_id to each request for correlation across logs
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
     return response
 
 
@@ -747,6 +795,7 @@ async def _mock_hitl_slack_notify(incident_id: int, severity: str, owner_role: s
         logger.error("Slack alert failed", extra={"error": str(exc)})
 
 
+# TODO: Consider extracting incident-related endpoints to routers/incidents_api.py
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @app.post("/api/triage", response_model=TriageResponse)
@@ -815,6 +864,7 @@ async def remediate_incident(request: Request, incident_id: int, current_user: U
     return updated
 
 
+# TODO: Consider extracting HITL approval endpoints to routers/hitl_approvals_api.py
 # ── HITL Approval / Rejection routes ─────────────────────────────────────────
 
 _SERVICENOW_MOCK_URL = "https://mock-servicenow.internal/api/incidents/close"
@@ -1000,6 +1050,7 @@ async def _close_servicenow_ticket(incident_id: int):
         logger.warning("ServiceNow ticket close failed", extra={"incident_id": incident_id, "error": str(exc)})
 
 
+# TODO: Consider extracting webhook activity endpoints to routers/webhook_activity_api.py
 # ── Webhook Ingestion ──────────────────────────────────────────────────────────
 
 async def _webhook_background_fallback(log_text: str, source: str):
@@ -1825,6 +1876,7 @@ from .ws_portal import router as ws_portal_router
 app.include_router(ws_portal_router)
 
 
+# TODO: Consider extracting health alert endpoints to routers/health_alerts_api.py
 # ── Admin health dashboard API ────────────────────────────────────────────────
 
 
@@ -1941,6 +1993,7 @@ def api_health_alert_ignore(
     return {"ok": True}
 
 
+# TODO: Consider extracting tool registry endpoints to routers/tools_api.py
 # ── Tool registry (tools / accounts / connection logs) ────────────────────────
 
 _REGISTRY_CATEGORY_ORDER = (
