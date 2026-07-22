@@ -122,16 +122,19 @@ def _extract_json_object(text: str) -> tuple[str | None, int]:
     return None, -1
 
 
-def _parse_actions_json(response_text: str) -> tuple[str, list[dict[str, Any]]]:
+def _parse_actions_json(
+    response_text: str,
+) -> tuple[str, list[dict[str, Any]], list[dict[str, str]]]:
     """Split an LLM response into natural language + parsed ACTIONS_JSON actions.
 
     Invalid or missing JSON is treated as "no actions"; the failure is logged
     and counted so guardrail regressions are observable.
     """
     text = response_text or ""
+    errors: list[dict[str, str]] = []
     match = _ACTIONS_JSON_MARKER.search(text)
     if not match:
-        return text.strip(), []
+        return text.strip(), [], errors
 
     natural = text[: match.start()].strip()
     raw_block, end = _extract_json_object(text[match.end():])
@@ -141,7 +144,13 @@ def _parse_actions_json(response_text: str) -> tuple[str, list[dict[str, Any]]]:
             "ACTIONS_JSON marker present but no JSON object found",
             extra={"source": "ai_assistant"},
         )
-        return natural or text.strip(), []
+        errors.append(
+            {
+                "code": "actions_json_missing_object",
+                "message": "ACTIONS_JSON marker present but no JSON object found",
+            }
+        )
+        return natural or text.strip(), [], errors
 
     trailing = text[match.end() + end :].strip()
     if trailing:
@@ -155,12 +164,24 @@ def _parse_actions_json(response_text: str) -> tuple[str, list[dict[str, Any]]]:
             "Failed to parse ACTIONS_JSON block",
             extra={"source": "ai_assistant", "provider": str(exc)},
         )
-        return natural or text.strip(), []
+        errors.append(
+            {
+                "code": "actions_json_parse_error",
+                "message": f"Failed to parse ACTIONS_JSON: {exc}",
+            }
+        )
+        return natural or text.strip(), [], errors
 
     actions = parsed.get("actions") if isinstance(parsed, dict) else None
     if not isinstance(actions, list):
-        return natural or text.strip(), []
-    return natural or text.strip(), [a for a in actions if isinstance(a, dict)]
+        errors.append(
+            {
+                "code": "actions_json_invalid_shape",
+                "message": "ACTIONS_JSON must contain an 'actions' array",
+            }
+        )
+        return natural or text.strip(), [], errors
+    return natural or text.strip(), [a for a in actions if isinstance(a, dict)], errors
 
 
 def _structured_action_name(action: dict[str, Any]) -> str:
@@ -168,6 +189,33 @@ def _structured_action_name(action: dict[str, Any]) -> str:
     if not operation:
         return ""
     return _OPERATION_ACTION_MAP.get(operation, operation)
+
+
+def _message_to_dict(row: AIMessage) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "role": row.role,
+        "content": row.content,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def _pending_execution_summary(row: AIToolExecution | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(row, dict):
+        return {
+            "id": row.get("id"),
+            "tool_id": row.get("tool_id"),
+            "action": row.get("action"),
+            "requires_hitl": bool(row.get("requires_hitl")),
+            "status": row.get("status"),
+        }
+    return {
+        "id": row.id,
+        "tool_id": row.tool_id,
+        "action": row.action,
+        "requires_hitl": bool(row.requires_hitl),
+        "status": row.status,
+    }
 
 
 def _tool_statuses_line(session: Session, workspace_id: Optional[str]) -> str:
@@ -533,6 +581,11 @@ def _conv_to_list_item(session: Session, c: AIConversation) -> dict[str, Any]:
     }
 
 
+# TODO(S1-P1.1): Define a stable response schema for AI chat:
+# - messages: list of { role, content, created_at }
+# - actions_json: parsed actions or null
+# - pending_executions: list of { id, tool_id, action, requires_hitl, status }
+# - errors: list of { code, message }
 @router.post("/chat")
 async def chat(req: ChatRequest, current_user: User = Depends(get_current_user)):
     if not (req.message or "").strip():
@@ -551,6 +604,7 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
     with Session(engine) as session:
         conv_id = req.conversation_id
         conv: Optional[AIConversation] = None
+        response_errors: list[dict[str, str]] = []
 
         if conv_id:
             conv = session.get(AIConversation, conv_id)
@@ -632,7 +686,11 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
         response_text = await llm_router.chat(llm_messages, model=model, system_prompt=system_prompt)
 
         # Separate prose from the structured ACTIONS_JSON block (if present).
-        natural_response, structured_actions = _parse_actions_json(response_text or "")
+        natural_response, structured_actions, parse_errors = _parse_actions_json(
+            response_text or ""
+        )
+        response_errors.extend(parse_errors)
+        display_response = natural_response or response_text or ""
 
         asst_msg_id = f"ai-msg-{uuid.uuid4().hex[:12]}"
         session.add(
@@ -640,9 +698,14 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
                 id=asst_msg_id,
                 conversation_id=conv_id,
                 role="assistant",
-                content=response_text or "",
-                tool_calls="[]",
-                message_metadata="{}",
+                content=display_response,
+                tool_calls=json.dumps(structured_actions or []),
+                message_metadata=json.dumps(
+                    {
+                        "has_actions_json": bool(structured_actions),
+                        "raw_response_included": display_response != (response_text or ""),
+                    }
+                ),
                 created_at=_now(),
             )
         )
@@ -651,6 +714,7 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
         session.commit()
 
         pending_execution = None
+        pending_executions: list[dict[str, Any]] = []
         action: Optional[str] = None
         action_parameters: dict[str, Any] = {}
         action_environment = env
@@ -688,6 +752,12 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
                     "AI action execution failed",
                     extra={"source": "ai_assistant", "provider": str(exc)},
                 )
+                response_errors.append(
+                    {
+                        "code": "action_execution_error",
+                        "message": f"Failed to create tool execution: {exc}",
+                    }
+                )
                 exec_payload = None
         else:
             exec_payload = None
@@ -717,12 +787,32 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
             session.commit()
             session.refresh(row)
             pending_execution = _execution_to_dict(row)
+            pending_executions.append(_pending_execution_summary(row))
+
+        message_rows = session.exec(
+            select(AIMessage)
+            .where(AIMessage.conversation_id == conv_id)
+            .order_by(AIMessage.created_at.asc())
+        ).all()
+        messages = [_message_to_dict(m) for m in message_rows]
+        actions_json = (
+            {"actions": structured_actions} if structured_actions else None
+        )
 
         return {
             "conversation_id": conv_id,
             "message_id": asst_msg_id,
-            "response": response_text,
+            "response": display_response,
             "pending_execution": pending_execution,
+            "messages": messages,
+            "actions_json": actions_json,
+            "pending_executions": pending_executions,
+            "errors": response_errors,
+            "context": {
+                "workspace_id": conv.workspace_id,
+                "environment": conv.environment,
+                "user_role": current_user.role,
+            },
         }
 
 

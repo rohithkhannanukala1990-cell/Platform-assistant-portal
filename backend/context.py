@@ -39,6 +39,7 @@ class PlatformContext:
     def get_account(self, tool_id: str) -> Optional[str]:
         return self.tool_accounts.get(tool_id)
 
+    # TODO(S1-P1.1): Include workspace_id, environment, and user_role in serialized context for frontend hints
     def to_dict(self) -> dict[str, Any]:
         return {
             "request_id": self.request_id,
@@ -52,6 +53,7 @@ class PlatformContext:
             "active_account": self.active_account,
         }
 
+    # TODO(S1-P1.1): Include workspace_id, environment, and user_role in serialized context for frontend hints
     @classmethod
     def from_dict(cls, data: dict[str, Any], user_id: str = "", user_role: str = "User") -> "PlatformContext":
         env = (data.get("environment") or "development").strip().lower()

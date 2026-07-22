@@ -33,27 +33,30 @@ def test_parse_actions_json_extracts_actions_and_prose():
         '"operation": "restart", "environment": "production", '
         '"identifier": "payments", "reason": "OOM crash loop"}]}'
     )
-    natural, actions = _parse_actions_json(text)
+    natural, actions, errors = _parse_actions_json(text)
     assert natural == "I recommend restarting the payments service."
     assert len(actions) == 1
     assert actions[0]["operation"] == "restart"
     assert actions[0]["identifier"] == "payments"
+    assert errors == []
 
 
 def test_parse_actions_json_invalid_json_counts_error_and_returns_no_actions():
     before = AI_ACTIONS_ERROR_TOTAL._value.get()
-    natural, actions = _parse_actions_json(
+    natural, actions, errors = _parse_actions_json(
         'Some advice. ACTIONS_JSON: {"actions": [ this is not valid json }'
     )
     assert actions == []
     assert "Some advice." in natural
+    assert errors and errors[0]["code"] == "actions_json_parse_error"
     assert AI_ACTIONS_ERROR_TOTAL._value.get() == before + 1
 
 
 def test_parse_actions_json_without_marker_returns_full_text():
-    natural, actions = _parse_actions_json("Just an explanation, no actions.")
+    natural, actions, errors = _parse_actions_json("Just an explanation, no actions.")
     assert natural == "Just an explanation, no actions."
     assert actions == []
+    assert errors == []
 
 
 def test_requires_hitl_for_production_mutations():
@@ -86,6 +89,41 @@ def test_executor_returns_standardized_result_dict():
     assert result["success"] is True
     assert "output" in result
     assert result["metadata"]["identifier"] == "api"
+
+
+def test_ai_chat_stable_response_shape(client, admin_token):
+    headers = auth_headers(admin_token)
+    llm_response = (
+        "Restarting payments is required.\n"
+        'ACTIONS_JSON: {"actions": [{"resource": "service", '
+        '"operation": "restart", "environment": "production", '
+        '"identifier": "payments-svc", "reason": "crash loop"}]}'
+    )
+    with patch(
+        "backend.routers.ai_assistant.llm_router.chat",
+        new_callable=AsyncMock,
+        return_value=llm_response,
+    ):
+        response = client.post(
+            "/api/ai/chat",
+            json={"message": "Fix payments", "environment": "production"},
+            headers=headers,
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "messages" in body and len(body["messages"]) >= 2
+    assert body["messages"][-1]["role"] == "assistant"
+    assert "created_at" in body["messages"][-1]
+    assert body["actions_json"]["actions"][0]["identifier"] == "payments-svc"
+    assert body["pending_executions"]
+    assert body["pending_executions"][0]["requires_hitl"] is True
+    assert body["pending_executions"][0]["status"] == "pending_approval"
+    assert body["errors"] == []
+    assert body["context"]["environment"] == "production"
+    # Backward-compatible fields remain for existing clients/tests.
+    assert body["pending_execution"]["id"] == body["pending_executions"][0]["id"]
+    assert "restart" in body["response"].lower() or "payment" in body["response"].lower()
 
 
 def test_chat_uses_actions_json_for_hitl_execution(client, admin_token):

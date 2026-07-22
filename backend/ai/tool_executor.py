@@ -54,6 +54,10 @@ class ToolExecutor:
             ]
         return False
 
+    # TODO(S1-P1.1): Ensure ToolExecutor.execute returns explicit HITL metadata:
+    # - requires_hitl: bool
+    # - status: "pending_approval" | "executing" | "completed" | "error"
+    # - result: { success, output, metadata }
     # TODO: Accept structured actions (resource, operation, environment, identifier) and return execution dicts with:
     # - id, conversation_id, tool_id, action, parameters
     # - requires_hitl, status, created_at, executed_at
@@ -77,24 +81,44 @@ class ToolExecutor:
             "message_id": message_id,
             "tool_id": tool_id,
             "action": action,
-            "parameters": parameters,
+            "parameters": parameters or {},
             "requires_hitl": hitl,
             "status": "pending_approval"
                       if hitl else "executing",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "executed_at": None,
+            "result": None,
         }
 
         if not hitl:
-            result = await self._run_action(
-                tool_id, action, parameters)
-            execution["result"] = result
-            execution["status"] = "completed"
-            execution["executed_at"] = (
-                datetime.now(timezone.utc).isoformat())
+            try:
+                result = await self._run_action(
+                    tool_id, action, parameters)
+                execution["result"] = result
+                execution["status"] = (
+                    "completed"
+                    if result.get("success", True)
+                    else "error"
+                )
+                execution["executed_at"] = (
+                    datetime.now(timezone.utc).isoformat())
+            except Exception as exc:
+                execution["status"] = "error"
+                execution["executed_at"] = (
+                    datetime.now(timezone.utc).isoformat())
+                execution["result"] = {
+                    "success": False,
+                    "output": str(exc),
+                    "metadata": {
+                        "tool": tool_id,
+                        "action": action,
+                        "error_type": type(exc).__name__,
+                    },
+                }
 
         return execution
 
+    # TODO(S1-P1.1): Keep _run_action outputs structured and consistent for UI
     # TODO: Implement real action execution or keep simulated output, but always return a structured result dict
     async def _run_action(
         self, tool_id: str,
