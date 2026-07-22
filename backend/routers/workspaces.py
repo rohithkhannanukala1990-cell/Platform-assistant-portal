@@ -10,9 +10,11 @@ from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
-from ..auth import User, get_current_user, get_session
+from ..auth import User, get_current_user, get_session, normalize_role
+from ..context import DEFAULT_TENANT_ID, resolve_tenant_id
 from ..database import (
     Tool,
     ToolAccount,
@@ -35,6 +37,7 @@ class WorkspaceCreate(BaseModel):
     environment: Optional[str] = "production"
     tags: Optional[List[str]] = []
     is_pinned: Optional[bool] = False
+    tenant_id: Optional[str] = None
 
 
 class WorkspaceUpdate(BaseModel):
@@ -46,6 +49,7 @@ class WorkspaceUpdate(BaseModel):
     tags: Optional[List[str]] = None
     is_pinned: Optional[bool] = None
     is_active: Optional[bool] = None
+    tenant_id: Optional[str] = None
 
 
 class WorkspaceToolAdd(BaseModel):
@@ -76,6 +80,63 @@ class CanvasState(BaseModel):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _user_tenant(user: User) -> str:
+    return resolve_tenant_id(getattr(user, "tenant_id", None), DEFAULT_TENANT_ID)
+
+
+def _is_admin(user: User) -> bool:
+    return normalize_role(user.role) == "Admin"
+
+
+def _workspace_visible_to(session: Session, w: Workspace, user: User) -> bool:
+    """Tenant-scoped visibility: admins see tenant workspaces; others need membership/ownership."""
+    tenant = _user_tenant(user)
+    ws_tenant = resolve_tenant_id(getattr(w, "tenant_id", None), DEFAULT_TENANT_ID)
+    if ws_tenant != tenant:
+        return False
+    if _is_admin(user):
+        return True
+    if w.created_by == user.username:
+        return True
+    member = session.exec(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == w.id,
+            WorkspaceMember.user_id == user.username,
+        )
+    ).first()
+    return member is not None
+
+
+# TODO(S2-P2.1): Scope workspace list/detail APIs by tenant_id and current user
+def _tenant_workspace_query(user: User):
+    """Build a Workspace select filtered by tenant and (for non-admins) membership."""
+    tenant = _user_tenant(user)
+    q = select(Workspace).where(Workspace.is_active == 1)
+    # Legacy rows with NULL/empty tenant_id are treated as the default tenant.
+    if tenant == DEFAULT_TENANT_ID:
+        q = q.where(
+            or_(
+                Workspace.tenant_id == tenant,
+                Workspace.tenant_id.is_(None),  # type: ignore[union-attr]
+                Workspace.tenant_id == "",
+            )
+        )
+    else:
+        q = q.where(Workspace.tenant_id == tenant)
+
+    if not _is_admin(user):
+        member_ids = select(WorkspaceMember.workspace_id).where(
+            WorkspaceMember.user_id == user.username
+        )
+        q = q.where(
+            or_(
+                Workspace.created_by == user.username,
+                Workspace.id.in_(member_ids),  # type: ignore[union-attr]
+            )
+        )
+    return q
 
 
 def _tags_parse(raw: str | None) -> list:
@@ -190,6 +251,7 @@ def _workspace_base_dict(w: Workspace) -> dict[str, Any]:
         "is_active": bool(w.is_active),
         "is_pinned": bool(w.is_pinned),
         "created_by": w.created_by,
+        "tenant_id": getattr(w, "tenant_id", None) or DEFAULT_TENANT_ID,
         "created_at": w.created_at.isoformat(),
         "updated_at": w.updated_at.isoformat(),
     }
@@ -201,7 +263,7 @@ def list_workspaces(
     current_user: User = Depends(get_current_user),
 ):
     with Session(engine) as session:
-        q = select(Workspace).where(Workspace.is_active == 1)
+        q = _tenant_workspace_query(current_user)
         if pinned is True:
             q = q.where(Workspace.is_pinned == 1)
         q = q.order_by(Workspace.is_pinned.desc(), Workspace.created_at.desc())
@@ -240,6 +302,8 @@ def get_workspace(workspace_id: str, current_user: User = Depends(get_current_us
         w = session.get(Workspace, workspace_id)
         if not w or not w.is_active:
             raise HTTPException(status_code=404, detail="Workspace not found")
+        if not _workspace_visible_to(session, w, current_user):
+            raise HTTPException(status_code=404, detail="Workspace not found")
         members = session.exec(
             select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id)
         ).all()
@@ -264,6 +328,7 @@ def create_workspace(body: WorkspaceCreate, current_user: User = Depends(get_cur
     wid = f"ws-{uuid.uuid4().hex[:8]}"
     base_slug = slugify(body.name)
     now = _now()
+    tenant_id = resolve_tenant_id(body.tenant_id, getattr(current_user, "tenant_id", None))
     with Session(engine) as session:
         slug = _ensure_unique_slug(session, base_slug)
         row = Workspace(
@@ -278,10 +343,20 @@ def create_workspace(body: WorkspaceCreate, current_user: User = Depends(get_cur
             is_active=1,
             is_pinned=1 if body.is_pinned else 0,
             created_by=current_user.username,
+            tenant_id=tenant_id,
             created_at=now,
             updated_at=now,
         )
         session.add(row)
+        session.add(
+            WorkspaceMember(
+                id=f"wm-{uuid.uuid4().hex[:10]}",
+                workspace_id=wid,
+                user_id=current_user.username,
+                role="owner",
+                added_at=now,
+            )
+        )
         session.commit()
         session.refresh(row)
         return _workspace_base_dict(row)
@@ -299,6 +374,8 @@ def update_workspace(
     with Session(engine) as session:
         w = session.get(Workspace, workspace_id)
         if not w:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        if not _workspace_visible_to(session, w, current_user):
             raise HTTPException(status_code=404, detail="Workspace not found")
         if "name" in data and data["name"] is not None:
             w.name = str(data["name"]).strip()
@@ -320,6 +397,8 @@ def update_workspace(
             w.is_pinned = 1 if data["is_pinned"] else 0
         if "is_active" in data and data["is_active"] is not None:
             w.is_active = 1 if data["is_active"] else 0
+        if "tenant_id" in data and data["tenant_id"] is not None and _is_admin(current_user):
+            w.tenant_id = resolve_tenant_id(data["tenant_id"])
         w.updated_at = _now()
         session.add(w)
         session.commit()
@@ -332,6 +411,8 @@ def delete_workspace(workspace_id: str, current_user: User = Depends(get_current
     with Session(engine) as session:
         w = session.get(Workspace, workspace_id)
         if not w:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        if not _workspace_visible_to(session, w, current_user):
             raise HTTPException(status_code=404, detail="Workspace not found")
         w.is_active = 0
         w.updated_at = _now()
@@ -357,6 +438,8 @@ def add_workspace_tool(
     with Session(engine) as session:
         w = session.get(Workspace, workspace_id)
         if not w or not w.is_active:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        if not _workspace_visible_to(session, w, current_user):
             raise HTTPException(status_code=404, detail="Workspace not found")
         tool = session.get(Tool, body.tool_id.strip())
         if not tool:
@@ -486,6 +569,8 @@ def duplicate_workspace(workspace_id: str, current_user: User = Depends(get_curr
         w = session.get(Workspace, workspace_id)
         if not w or not w.is_active:
             raise HTTPException(status_code=404, detail="Workspace not found")
+        if not _workspace_visible_to(session, w, current_user):
+            raise HTTPException(status_code=404, detail="Workspace not found")
         new_name = f"{w.name} (Copy)"
         new_id = f"ws-{uuid.uuid4().hex[:8]}"
         base_slug = slugify(new_name)
@@ -502,10 +587,20 @@ def duplicate_workspace(workspace_id: str, current_user: User = Depends(get_curr
             is_active=1,
             is_pinned=0,
             created_by=current_user.username,
+            tenant_id=resolve_tenant_id(getattr(w, "tenant_id", None), _user_tenant(current_user)),
             created_at=now,
             updated_at=now,
         )
         session.add(clone)
+        session.add(
+            WorkspaceMember(
+                id=f"wm-{uuid.uuid4().hex[:10]}",
+                workspace_id=new_id,
+                user_id=current_user.username,
+                role="owner",
+                added_at=now,
+            )
+        )
         session.flush()
         for wt in _tool_rows_ordered(session, workspace_id):
             session.add(

@@ -62,6 +62,9 @@ class User(SQLModel, table=True):
     last_login: datetime | None = Field(default=None)
     mfa_secret: str | None = Field(default=None)
     mfa_enabled: bool = Field(default=False)
+    # TODO(S2-P2.1): Add tenant_id/org_id fields to support multi-tenant isolation
+    tenant_id: Optional[str] = Field(default="default", index=True)
+    workspace_id: Optional[str] = Field(default=None, index=True)
 
 
 class AuditLog(SQLModel, table=True):
@@ -195,6 +198,8 @@ class UserRead(BaseModel):
     email: str
     role: str
     is_active: bool
+    tenant_id: Optional[str] = None
+    workspace_id: Optional[str] = None
 
 
 class LLMConfigUpdate(BaseModel):
@@ -336,9 +341,15 @@ def seed_default_admin() -> None:
                 role="Admin",
                 is_active=True,
                 created_at=datetime.now(timezone.utc),
+                tenant_id=os.getenv("DEFAULT_TENANT_ID", "default"),
+                workspace_id=None,
             )
             session.add(admin)
             session.flush()
+        # Keep demo / single-tenant admins on the default tenant.
+        if not getattr(admin, "tenant_id", None):
+            admin.tenant_id = os.getenv("DEFAULT_TENANT_ID", "default")
+            session.add(admin)
         sync_user_rbac_role(session, admin)
         session.commit()
     if not existing_admin:

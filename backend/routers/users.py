@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from ..auth import (
@@ -20,6 +21,7 @@ from ..auth import (
     sync_user_rbac_role,
     write_audit,
 )
+from ..context import DEFAULT_TENANT_ID, resolve_tenant_id
 from ..database import UserAgentPermission, engine, get_db
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -35,6 +37,8 @@ class UserOut(BaseModel):
     is_active: bool
     created_at: datetime
     last_login: Optional[datetime] = None
+    tenant_id: Optional[str] = None
+    workspace_id: Optional[str] = None
 
 
 class UserCreateBody(BaseModel):
@@ -42,12 +46,17 @@ class UserCreateBody(BaseModel):
     email: str = ""
     password: str
     role: str = "User"
+    # TODO(S2-P2.1): Associate users with workspaces/tenants and enforce scoping in list APIs
+    tenant_id: Optional[str] = None
+    workspace_id: Optional[str] = None
 
 
 class UserPatchBody(BaseModel):
     role: Optional[str] = None
     is_active: Optional[bool] = None
     email: Optional[str] = None
+    tenant_id: Optional[str] = None
+    workspace_id: Optional[str] = None
 
 
 class PermissionBody(BaseModel):
@@ -72,7 +81,13 @@ def _user_out(user: User) -> UserOut:
         is_active=user.is_active,
         created_at=user.created_at,
         last_login=user.last_login,
+        tenant_id=getattr(user, "tenant_id", None) or DEFAULT_TENANT_ID,
+        workspace_id=getattr(user, "workspace_id", None),
     )
+
+
+def _admin_tenant(admin: User) -> str:
+    return resolve_tenant_id(getattr(admin, "tenant_id", None), DEFAULT_TENANT_ID)
 
 
 def _audit_action(
@@ -95,8 +110,21 @@ def _audit_action(
 
 @router.get("/", response_model=list[UserOut])
 def list_users(_admin: User = Depends(require_admin)):
+    tenant = _admin_tenant(_admin)
     with Session(engine) as session:
-        rows = session.exec(select(User).order_by(User.username)).all()
+        q = select(User).order_by(User.username)
+        # Scope to the admin's tenant; legacy NULL/empty tenant rows count as default.
+        if tenant == DEFAULT_TENANT_ID:
+            q = q.where(
+                or_(
+                    User.tenant_id == tenant,
+                    User.tenant_id.is_(None),  # type: ignore[union-attr]
+                    User.tenant_id == "",
+                )
+            )
+        else:
+            q = q.where(User.tenant_id == tenant)
+        rows = session.exec(q).all()
     return [_user_out(u) for u in rows]
 
 
@@ -111,6 +139,24 @@ def create_user(
     if role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail="Invalid role")
 
+    tenant_id = (body.tenant_id or "").strip() or None
+    workspace_id = (body.workspace_id or "").strip() or None
+    if not tenant_id and not workspace_id:
+        # Inherit admin tenant for demo/single-tenant; still enforce association.
+        tenant_id = _admin_tenant(admin)
+    if not tenant_id and not workspace_id:
+        raise HTTPException(
+            status_code=400,
+            detail="tenant_id or workspace_id is required",
+        )
+    tenant_id = resolve_tenant_id(tenant_id, _admin_tenant(admin))
+    # Admins may only create users in their own tenant.
+    if tenant_id != _admin_tenant(admin):
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot create users for another tenant",
+        )
+
     with Session(engine) as session:
         existing = session.exec(select(User).where(User.username == body.username)).first()
         if existing:
@@ -122,6 +168,8 @@ def create_user(
             role=role,
             is_active=True,
             created_at=datetime.now(timezone.utc),
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
         session.add(user)
         session.flush()
@@ -136,6 +184,8 @@ def create_user(
         request,
         user_id=user.username,
         role=role,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
     return _user_out(user)
 
@@ -148,10 +198,15 @@ def update_user(
     request: Request,
     admin: User = Depends(require_admin),
 ):
+    admin_tenant = _admin_tenant(admin)
     with Session(engine) as session:
         user = session.get(User, user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
+        user_tenant = resolve_tenant_id(getattr(user, "tenant_id", None), DEFAULT_TENANT_ID)
+        if user_tenant != admin_tenant:
+            raise HTTPException(status_code=404, detail="User not found")
+
         if body.role is not None:
             user.role = normalize_role(body.role)
             sync_user_rbac_role(session, user, granted_by=admin.username)
@@ -159,6 +214,21 @@ def update_user(
             user.is_active = body.is_active
         if body.email is not None:
             user.email = body.email
+        if body.tenant_id is not None:
+            new_tenant = resolve_tenant_id(body.tenant_id)
+            if new_tenant != admin_tenant:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Cannot move users to another tenant",
+                )
+            user.tenant_id = new_tenant
+        if body.workspace_id is not None:
+            user.workspace_id = (body.workspace_id or "").strip() or None
+            if not getattr(user, "tenant_id", None) and not user.workspace_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="tenant_id or workspace_id is required",
+                )
         session.add(user)
         session.commit()
         session.refresh(user)
@@ -182,9 +252,13 @@ def delete_user(
     if admin.id == user_id:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
 
+    admin_tenant = _admin_tenant(admin)
     with Session(engine) as session:
         user = session.get(User, user_id)
         if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user_tenant = resolve_tenant_id(getattr(user, "tenant_id", None), DEFAULT_TENANT_ID)
+        if user_tenant != admin_tenant:
             raise HTTPException(status_code=404, detail="User not found")
         username = user.username
         perms = session.exec(

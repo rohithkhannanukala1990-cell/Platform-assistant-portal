@@ -156,6 +156,8 @@ class ToolAccount(SQLModel, table=True):
     requires_hitl: int = Field(default=0)
     created_by: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # TODO(S2-P2.1): Add tenant_id/org_id fields to support multi-tenant isolation
+    tenant_id: Optional[str] = Field(default="default", index=True)
 
 
 class ToolConnectionLog(SQLModel, table=True):
@@ -179,6 +181,9 @@ class UserContext(SQLModel, table=True):
     active_accounts: str = Field(default="{}")  # JSON: { tool_id: account_id }
     pinned_accounts: str = Field(default="[]")  # JSON: [account_id, ...]
     last_switched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # TODO(S2-P2.1): Add tenant_id/org_id fields to support multi-tenant isolation
+    workspace_id: Optional[str] = Field(default=None, index=True)
+    tenant_id: Optional[str] = Field(default="default", index=True)
 
 
 class AccessRequest(SQLModel, table=True):
@@ -243,6 +248,8 @@ class Workspace(SQLModel, table=True):
     canvas_json: str = Field(default="{}", sa_column=Column(Text))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # TODO(S2-P2.1): Add tenant_id/org_id fields to support multi-tenant isolation
+    tenant_id: Optional[str] = Field(default="default", index=True)
 
 
 class WorkspaceTool(SQLModel, table=True):
@@ -964,7 +971,14 @@ def _migrate():
         ("incident",     "agent_execution_logs",        "TEXT",    "NULL"),
         ("notification", "incident_id",                 "INTEGER", "NULL"),
         ("user",         "last_login",                  "TIMESTAMP", "NULL"),
+        # TODO(S2-P2.1): tenant/workspace scoping — defaults keep single-tenant demos working
+        ("user",         "tenant_id",                   "TEXT",    "'default'"),
+        ("user",         "workspace_id",                "TEXT",    "NULL"),
         ("workspaces",   "canvas_json",                 "TEXT",    "'{}'"),
+        ("workspaces",   "tenant_id",                   "TEXT",    "'default'"),
+        ("tool_accounts","tenant_id",                   "TEXT",    "'default'"),
+        ("user_context", "workspace_id",                "TEXT",    "NULL"),
+        ("user_context", "tenant_id",                   "TEXT",    "'default'"),
         ("templates",    "recommended_golden_path_keys", "TEXT",   "'[]'"),
     ]
     with Session(engine) as session:
