@@ -28,6 +28,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import { useToast } from './ToastNotification'
 import { PermissionGate } from './PermissionGate'
+import WorkspaceSettings from './WorkspaceSettings'
 
 function debounce(fn, wait) {
   let t
@@ -1140,6 +1141,8 @@ export default function WorkspaceBuilder() {
             </>
           )}
         </div>
+
+        <WorkspaceSettings workspaceId={ws.id} workspaceName={ws.name} />
 
         <section>
           <div className="flex items-center justify-between gap-4 mb-4">

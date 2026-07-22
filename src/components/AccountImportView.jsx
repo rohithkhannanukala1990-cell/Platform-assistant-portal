@@ -18,6 +18,7 @@ import {
   Plus,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { usePortalContext } from '../contexts/PortalContext'
 import { PermissionGate } from './PermissionGate'
 
 function fieldValue(row, field) {
@@ -178,6 +179,9 @@ function envBadgeClass(env) {
 
 export default function AccountImportView() {
   const { authFetch } = useAuth()
+  const { activeWorkspace } = usePortalContext()
+  // TODO(S2-P2.2): Support importing accounts into the currently selected workspace
+  const importWorkspaceId = activeWorkspace?.id || null
 
   const [activeTab, setActiveTab] = useState('upload')
   const [uploadType, setUploadType] = useState('csv')
@@ -406,7 +410,10 @@ export default function AccountImportView() {
       const res = await authFetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: selectedRowObjects }),
+        body: JSON.stringify({
+          rows: selectedRowObjects,
+          workspace_id: importWorkspaceId || undefined,
+        }),
       })
       if (!res.ok) throw new Error(await res.text())
       const summary = await res.json()
@@ -418,7 +425,7 @@ export default function AccountImportView() {
     } finally {
       setIsImporting(false)
     }
-  }, [authFetch, selectedRowObjects, uploadType])
+  }, [authFetch, selectedRowObjects, uploadType, importWorkspaceId])
 
   const runDiscoverAll = useCallback(async () => {
     setIsDiscovering(true)
@@ -528,7 +535,10 @@ export default function AccountImportView() {
       const res = await authFetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accounts: selectedDiscoverAccounts }),
+        body: JSON.stringify({
+          accounts: selectedDiscoverAccounts,
+          workspace_id: importWorkspaceId || undefined,
+        }),
       })
       if (!res.ok) throw new Error(await res.text())
       setImportResult(await res.json())
@@ -539,7 +549,7 @@ export default function AccountImportView() {
     } finally {
       setIsImporting(false)
     }
-  }, [authFetch, discoverKind, selectedDiscoverAccounts])
+  }, [authFetch, discoverKind, selectedDiscoverAccounts, importWorkspaceId])
 
   const toggleAwsRegion = useCallback((id) => {
     setAwsRegions((prev) => {
@@ -577,6 +587,15 @@ export default function AccountImportView() {
         <h1 className="text-xl font-bold text-white tracking-tight">Account import</h1>
         <p className="text-sm text-slate-400 mt-1">
           Upload CSV/JSON, auto-discover from connected tools or cloud providers, and review import history.
+        </p>
+        <p className="text-xs text-slate-500 mt-2">
+          Target workspace:{' '}
+          <span className="text-slate-300 font-medium">
+            {activeWorkspace?.name || 'Demo default (no workspace selected)'}
+          </span>
+          {importWorkspaceId
+            ? ' — imported accounts will be linked to this workspace.'
+            : ' — accounts import globally until you activate a workspace.'}
         </p>
       </div>
 

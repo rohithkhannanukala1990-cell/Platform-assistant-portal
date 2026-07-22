@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ChevronDown, Star, Plus, AlertTriangle, RefreshCw } from 'lucide-react'
+import { ChevronDown, Star, Plus, AlertTriangle, RefreshCw, Check } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { usePortalContext } from '../contexts/PortalContext'
 import { useToast } from './ToastNotification'
 
 const GROUP_ORDER = ['PRODUCTION', 'STAGING', 'DR', 'NON-PRODUCTION']
@@ -48,8 +49,16 @@ function formatToolName(toolId, toolNameProp) {
     .join(' ')
 }
 
+function envBadgeClass(env) {
+  const e = (env || '').toLowerCase()
+  if (e === 'production' || e === 'dr') return 'bg-rose-500/15 text-rose-200 border-rose-500/30'
+  if (e === 'staging') return 'bg-amber-500/15 text-amber-200 border-amber-500/30'
+  return 'bg-slate-500/15 text-slate-200 border-slate-500/30'
+}
+
 export default function AccountSwitcher({ toolId, toolName, onAccountChanged, onClose }) {
   const { authFetch } = useAuth()
+  const { activeWorkspace, setActiveWorkspace } = usePortalContext()
   const { showToast } = useToast()
   const [isOpen, setIsOpenState] = useState(false)
   const setIsOpen = useCallback(
@@ -66,6 +75,9 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
   const [activeAccountId, setActiveAccountId] = useState(null)
   const [pinnedAccountIds, setPinnedAccountIds] = useState([])
   const [isLoading, setIsLoading] = useState(false)
+  // TODO(S2-P2.2): Fetch available workspaces for the current user and render them in a selector
+  const [workspaces, setWorkspaces] = useState([])
+  const [workspacesLoading, setWorkspacesLoading] = useState(false)
   const [accessModalOpen, setAccessModalOpen] = useState(false)
   const [accessAccountId, setAccessAccountId] = useState('')
   const [accessReason, setAccessReason] = useState('')
@@ -73,6 +85,23 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
   const rootRef = useRef(null)
 
   const displayToolName = formatToolName(toolId || '', toolName)
+
+  const loadWorkspaces = useCallback(async () => {
+    setWorkspacesLoading(true)
+    try {
+      const res = await authFetch('/api/workspaces')
+      if (!res.ok) {
+        setWorkspaces([])
+        return
+      }
+      const data = await res.json()
+      setWorkspaces(Array.isArray(data) ? data : [])
+    } catch {
+      setWorkspaces([])
+    } finally {
+      setWorkspacesLoading(false)
+    }
+  }, [authFetch])
 
   const loadData = useCallback(async () => {
     if (!toolId) return
@@ -108,11 +137,20 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
   }, [loadData])
 
   useEffect(() => {
+    if (!isOpen) return
+    void loadWorkspaces()
+  }, [isOpen, loadWorkspaces])
+
+  useEffect(() => {
     const onCtx = () => {
       void loadData()
     }
     window.addEventListener('context-changed', onCtx)
-    return () => window.removeEventListener('context-changed', onCtx)
+    window.addEventListener('active-workspace-changed', onCtx)
+    return () => {
+      window.removeEventListener('context-changed', onCtx)
+      window.removeEventListener('active-workspace-changed', onCtx)
+    }
   }, [loadData])
 
   useEffect(() => {
@@ -195,6 +233,16 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
     }
   }
 
+  // TODO(S2-P2.2): On selection, update global WorkspaceContext and trigger data reloads
+  async function selectWorkspace(ws) {
+    try {
+      await setActiveWorkspace(ws)
+      showToast(`Switched to ${ws.name}`, 'success')
+    } catch {
+      showToast('Could not switch workspace', 'error')
+    }
+  }
+
   const activeAccount = accounts.find((a) => a.id === activeAccountId)
 
   function openAccessModal() {
@@ -254,7 +302,52 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
       </button>
 
       {isOpen && toolId && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-[320px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-gray-800 shadow-xl flex flex-col">
+        <div className="absolute left-0 top-full mt-1 z-50 w-[320px] max-h-[460px] overflow-y-auto rounded-lg border border-gray-700 bg-gray-800 shadow-xl flex flex-col">
+          <div className="px-3 py-2 border-b border-gray-700">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+              Workspace
+            </p>
+            {workspacesLoading ? (
+              <p className="text-xs text-slate-500 flex items-center gap-1.5 py-1">
+                <RefreshCw className="w-3 h-3 animate-spin" /> Loading workspaces…
+              </p>
+            ) : workspaces.length === 0 ? (
+              <p className="text-xs text-slate-500 py-1">No workspaces — using demo default</p>
+            ) : (
+              <div className="flex flex-col gap-0.5 max-h-36 overflow-y-auto">
+                {workspaces.map((ws) => {
+                  const active = activeWorkspace?.id === ws.id
+                  return (
+                    <button
+                      key={ws.id}
+                      type="button"
+                      onClick={() => void selectWorkspace(ws)}
+                      className={`w-full text-left px-2 py-1.5 rounded-md flex items-center gap-2 text-sm transition-colors ${
+                        active
+                          ? 'bg-blue-500/15 border border-blue-500/30'
+                          : 'hover:bg-gray-700/80 border border-transparent'
+                      }`}
+                    >
+                      <span className="shrink-0">{ws.icon || '🗂️'}</span>
+                      <span className="flex-1 min-w-0 truncate text-slate-100">{ws.name}</span>
+                      {active ? <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" /> : null}
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded border uppercase font-semibold shrink-0 ${envBadgeClass(ws.environment)}`}
+                      >
+                        {ws.environment || 'dev'}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            {activeWorkspace && (
+              <p className="text-[10px] text-slate-500 mt-1.5 truncate">
+                Active: {activeWorkspace.name}
+              </p>
+            )}
+          </div>
+
           <div className="px-3 py-2 border-b border-gray-700 text-xs font-semibold text-slate-400 uppercase tracking-wide">
             Select {displayToolName} Account
           </div>

@@ -28,7 +28,7 @@ from starlette.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from .middleware.workspace_isolation import WorkspaceIsolationMiddleware
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, Optional
 from google import genai
 from sqlmodel import Session, select
 from sqlalchemy import text as sa_text
@@ -63,6 +63,8 @@ from .database import (
     AccessRequest,
     UserAccountAccess,
     ImportHistory,
+    Workspace,
+    WorkspaceTool,
 )
 from .importers.csv_importer import csv_importer
 from .importers.json_importer import json_importer
@@ -2589,11 +2591,16 @@ def _normalize_requires_hitl(val) -> int:
     return 0
 
 
-def _bulk_insert_tool_accounts(rows: list[dict], actor_username: str) -> dict:
+def _bulk_insert_tool_accounts(
+    rows: list[dict],
+    actor_username: str,
+    workspace_id: str | None = None,
+) -> dict:
     imported = 0
     skipped = 0
     failed = 0
     details: list[dict] = []
+    linked = 0
     allowed = {
         "id",
         "tool_id",
@@ -2609,8 +2616,14 @@ def _bulk_insert_tool_accounts(rows: list[dict], actor_username: str) -> dict:
         "requires_hitl",
         "created_by",
         "created_at",
+        "tenant_id",
     }
     with Session(db_engine) as session:
+        ws = None
+        if workspace_id:
+            ws = session.get(Workspace, workspace_id)
+            if not ws or not ws.is_active:
+                raise HTTPException(status_code=404, detail="Workspace not found")
         for raw in rows:
             if not isinstance(raw, dict):
                 failed += 1
@@ -2646,43 +2659,77 @@ def _bulk_insert_tool_accounts(rows: list[dict], actor_username: str) -> dict:
                         "reason": "duplicate tool_id + account_name",
                     }
                 )
-                continue
-            aid = (row.get("id") or "").strip() or str(uuid.uuid4())
-            if session.get(ToolAccount, aid):
-                aid = str(uuid.uuid4())
-            env = (row.get("environment") or "development").strip()
-            auth_type = (row.get("auth_type") or "api_key").strip()
-            hitl = _normalize_requires_hitl(row.get("requires_hitl"))
-            created_by = (row.get("created_by") or "import").strip() or actor_username
-            try:
-                ta = ToolAccount(
-                    id=aid,
-                    tool_id=tool_id,
-                    account_name=account_name,
-                    account_identifier=(row.get("account_identifier") or None)
-                    if row.get("account_identifier")
-                    else None,
-                    instance_url=(row.get("instance_url") or None) if row.get("instance_url") else None,
-                    environment=env,
-                    region=(row.get("region") or None) if row.get("region") else None,
-                    auth_type=auth_type,
-                    credentials_vault_ref=(row.get("credentials_vault_ref") or None)
-                    if row.get("credentials_vault_ref")
-                    else None,
-                    status=str(row.get("status") or "unknown"),
-                    is_active=int(row.get("is_active", 1) or 1),
-                    requires_hitl=hitl,
-                    created_by=created_by,
-                )
-                ta.created_at = _parse_import_created_at(row.get("created_at"))
-                session.add(ta)
-                imported += 1
-                details.append({"status": "imported", "id": aid, "tool_id": tool_id, "account_name": account_name})
-            except Exception as exc:
-                failed += 1
-                details.append({"status": "failed", "tool_id": tool_id, "reason": str(exc)})
+                aid = dup.id
+            else:
+                aid = (row.get("id") or "").strip() or str(uuid.uuid4())
+                if session.get(ToolAccount, aid):
+                    aid = str(uuid.uuid4())
+                env = (row.get("environment") or "development").strip()
+                auth_type = (row.get("auth_type") or "api_key").strip()
+                hitl = _normalize_requires_hitl(row.get("requires_hitl"))
+                created_by = (row.get("created_by") or "import").strip() or actor_username
+                try:
+                    ta = ToolAccount(
+                        id=aid,
+                        tool_id=tool_id,
+                        account_name=account_name,
+                        account_identifier=(row.get("account_identifier") or None)
+                        if row.get("account_identifier")
+                        else None,
+                        instance_url=(row.get("instance_url") or None) if row.get("instance_url") else None,
+                        environment=env,
+                        region=(row.get("region") or None) if row.get("region") else None,
+                        auth_type=auth_type,
+                        credentials_vault_ref=(row.get("credentials_vault_ref") or None)
+                        if row.get("credentials_vault_ref")
+                        else None,
+                        status=str(row.get("status") or "unknown"),
+                        is_active=int(row.get("is_active", 1) or 1),
+                        requires_hitl=hitl,
+                        created_by=created_by,
+                        tenant_id=(row.get("tenant_id") or getattr(ws, "tenant_id", None) or "default"),
+                    )
+                    ta.created_at = _parse_import_created_at(row.get("created_at"))
+                    session.add(ta)
+                    imported += 1
+                    details.append(
+                        {"status": "imported", "id": aid, "tool_id": tool_id, "account_name": account_name}
+                    )
+                except Exception as exc:
+                    failed += 1
+                    details.append({"status": "failed", "tool_id": tool_id, "reason": str(exc)})
+                    continue
+
+            if ws is not None and aid:
+                exists = session.exec(
+                    select(WorkspaceTool).where(
+                        WorkspaceTool.workspace_id == ws.id,
+                        WorkspaceTool.tool_id == tool_id,
+                        WorkspaceTool.account_id == aid,
+                    )
+                ).first()
+                if not exists:
+                    session.add(
+                        WorkspaceTool(
+                            id=str(uuid.uuid4()),
+                            workspace_id=ws.id,
+                            tool_id=tool_id,
+                            account_id=aid,
+                            display_order=0,
+                            is_primary=0,
+                            added_at=datetime.now(timezone.utc),
+                        )
+                    )
+                    linked += 1
         session.commit()
-    return {"imported": imported, "skipped": skipped, "failed": failed, "details": details}
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "failed": failed,
+        "linked_to_workspace": linked,
+        "workspace_id": workspace_id,
+        "details": details,
+    }
 
 
 def _tool_account_to_discovery_dict(a: ToolAccount) -> dict:
@@ -2746,6 +2793,7 @@ def _service_discovery_preview_payload(accounts: list) -> dict:
 
 class ImportConfirmBody(BaseModel):
     rows: list[dict]
+    workspace_id: Optional[str] = None
 
 
 class ImportJsonBody(BaseModel):
@@ -2759,6 +2807,7 @@ class ImportDiscoverBody(BaseModel):
 
 class ImportDiscoverConfirmBody(BaseModel):
     accounts: list[dict]
+    workspace_id: Optional[str] = None
 
 
 @app.get("/api/import/template/csv")
@@ -2794,7 +2843,9 @@ def api_import_csv_confirm(
 ):
     if not body.rows:
         raise HTTPException(status_code=400, detail="rows is required")
-    summary = _bulk_insert_tool_accounts(body.rows, current_user.username)
+    summary = _bulk_insert_tool_accounts(
+        body.rows, current_user.username, workspace_id=body.workspace_id
+    )
     _record_import_history("csv", "upload", len(body.rows), summary, current_user.username)
     return summary
 
@@ -2815,7 +2866,9 @@ def api_import_json_confirm(
 ):
     if not body.rows:
         raise HTTPException(status_code=400, detail="rows is required")
-    summary = _bulk_insert_tool_accounts(body.rows, current_user.username)
+    summary = _bulk_insert_tool_accounts(
+        body.rows, current_user.username, workspace_id=body.workspace_id
+    )
     _record_import_history("json", "upload", len(body.rows), summary, current_user.username)
     return summary
 
@@ -2858,7 +2911,9 @@ def api_import_discover_confirm(
     if not body.accounts:
         raise HTTPException(status_code=400, detail="accounts is required")
     rows = _strip_discovery_metadata(body.accounts)
-    summary = _bulk_insert_tool_accounts(rows, current_user.username)
+    summary = _bulk_insert_tool_accounts(
+        rows, current_user.username, workspace_id=body.workspace_id
+    )
     _record_import_history("cloud_discover", "provider_stub", len(body.accounts), summary, current_user.username)
     return summary
 
@@ -2889,7 +2944,9 @@ def api_discover_confirm(
     if not body.accounts:
         raise HTTPException(status_code=400, detail="accounts is required")
     rows = _strip_discovery_metadata(body.accounts)
-    summary = _bulk_insert_tool_accounts(rows, current_user.username)
+    summary = _bulk_insert_tool_accounts(
+        rows, current_user.username, workspace_id=body.workspace_id
+    )
     _record_import_history("service_discovery", "connected_scan", len(body.accounts), summary, current_user.username)
     return summary
 

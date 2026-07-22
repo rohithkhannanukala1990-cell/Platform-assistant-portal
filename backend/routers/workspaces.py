@@ -78,6 +78,57 @@ class CanvasState(BaseModel):
     tools: list[CanvasTool] = []
 
 
+class WorkspaceSettingsUpdate(BaseModel):
+    """Partial update for per-workspace settings (stored in settings_json)."""
+
+    hitl_mode: Optional[str] = None  # always | risky_only | off
+    allowed_connectors: Optional[List[str]] = None
+    default_golden_path_keys: Optional[List[str]] = None
+    flags: Optional[dict[str, Any]] = None
+
+
+_DEFAULT_WORKSPACE_SETTINGS: dict[str, Any] = {
+    # HITL can never be fully disabled for production actions (enforced server-side).
+    "hitl_mode": "risky_only",
+    "hitl_require_production": True,
+    "allowed_connectors": [],
+    "default_golden_path_keys": [],
+    "flags": {},
+}
+
+
+def _parse_workspace_settings(raw: str | None) -> dict[str, Any]:
+    out = dict(_DEFAULT_WORKSPACE_SETTINGS)
+    if not raw:
+        return out
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return out
+    if not isinstance(data, dict):
+        return out
+    if data.get("hitl_mode") in ("always", "risky_only", "off"):
+        out["hitl_mode"] = data["hitl_mode"]
+    # Production HITL is always required — never allow clients to turn this off.
+    out["hitl_require_production"] = True
+    if isinstance(data.get("allowed_connectors"), list):
+        out["allowed_connectors"] = [
+            str(x).strip() for x in data["allowed_connectors"] if str(x).strip()
+        ]
+    if isinstance(data.get("default_golden_path_keys"), list):
+        out["default_golden_path_keys"] = [
+            str(x).strip() for x in data["default_golden_path_keys"] if str(x).strip()
+        ]
+    if isinstance(data.get("flags"), dict):
+        out["flags"] = {str(k): v for k, v in data["flags"].items()}
+    return out
+
+
+def _dump_workspace_settings(settings: dict[str, Any]) -> str:
+    merged = _parse_workspace_settings(json.dumps(settings))
+    return json.dumps(merged)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -677,3 +728,69 @@ async def list_tool_accounts(
         }
         for r in rows
     ]
+
+
+@router.get("/{workspace_id}/settings")
+def get_workspace_settings(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    with Session(engine) as session:
+        w = session.get(Workspace, workspace_id)
+        if not w or not w.is_active:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        if not _workspace_visible_to(session, w, current_user):
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        settings = _parse_workspace_settings(getattr(w, "settings_json", None))
+        return {
+            "workspace_id": w.id,
+            "workspace_name": w.name,
+            "settings": settings,
+        }
+
+
+@router.put("/{workspace_id}/settings")
+def update_workspace_settings(
+    workspace_id: str,
+    body: WorkspaceSettingsUpdate,
+    current_user: User = Depends(get_current_user),
+):
+    with Session(engine) as session:
+        w = session.get(Workspace, workspace_id)
+        if not w or not w.is_active:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        if not _workspace_visible_to(session, w, current_user):
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        current = _parse_workspace_settings(getattr(w, "settings_json", None))
+        data = body.model_dump(exclude_unset=True)
+        if "hitl_mode" in data and data["hitl_mode"] is not None:
+            mode = str(data["hitl_mode"]).strip().lower()
+            if mode not in ("always", "risky_only", "off"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="hitl_mode must be always, risky_only, or off",
+                )
+            current["hitl_mode"] = mode
+        if "allowed_connectors" in data and data["allowed_connectors"] is not None:
+            current["allowed_connectors"] = [
+                str(x).strip() for x in data["allowed_connectors"] if str(x).strip()
+            ]
+        if "default_golden_path_keys" in data and data["default_golden_path_keys"] is not None:
+            current["default_golden_path_keys"] = [
+                str(x).strip() for x in data["default_golden_path_keys"] if str(x).strip()
+            ]
+        if "flags" in data and data["flags"] is not None:
+            if not isinstance(data["flags"], dict):
+                raise HTTPException(status_code=400, detail="flags must be an object")
+            current["flags"] = data["flags"]
+        # Never persist a false production-HITL requirement.
+        current["hitl_require_production"] = True
+        w.settings_json = _dump_workspace_settings(current)
+        w.updated_at = _now()
+        session.add(w)
+        session.commit()
+        return {
+            "workspace_id": w.id,
+            "workspace_name": w.name,
+            "settings": _parse_workspace_settings(w.settings_json),
+        }

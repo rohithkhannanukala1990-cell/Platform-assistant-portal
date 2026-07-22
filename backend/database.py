@@ -250,6 +250,8 @@ class Workspace(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     # TODO(S2-P2.1): Add tenant_id/org_id fields to support multi-tenant isolation
     tenant_id: Optional[str] = Field(default="default", index=True)
+    # Per-workspace flags (HITL mode, connectors, golden paths) — JSON object string.
+    settings_json: str = Field(default="{}", sa_column=Column(Text))
 
 
 class WorkspaceTool(SQLModel, table=True):
@@ -976,6 +978,7 @@ def _migrate():
         ("user",         "workspace_id",                "TEXT",    "NULL"),
         ("workspaces",   "canvas_json",                 "TEXT",    "'{}'"),
         ("workspaces",   "tenant_id",                   "TEXT",    "'default'"),
+        ("workspaces",   "settings_json",               "TEXT",    "'{}'"),
         ("tool_accounts","tenant_id",                   "TEXT",    "'default'"),
         ("user_context", "workspace_id",                "TEXT",    "NULL"),
         ("user_context", "tenant_id",                   "TEXT",    "'default'"),

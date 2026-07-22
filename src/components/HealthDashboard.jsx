@@ -181,6 +181,19 @@ export default function HealthDashboard() {
 
   useEffect(() => {
     if (role !== 'Admin') return undefined
+    const onWorkspace = () => {
+      void fetchHealthRef.current()
+    }
+    window.addEventListener('active-workspace-changed', onWorkspace)
+    window.addEventListener('context-changed', onWorkspace)
+    return () => {
+      window.removeEventListener('active-workspace-changed', onWorkspace)
+      window.removeEventListener('context-changed', onWorkspace)
+    }
+  }, [role])
+
+  useEffect(() => {
+    if (role !== 'Admin') return undefined
     const id = window.setInterval(() => {
       setAutoRefreshTimer((c) => {
         if (c <= 1) {

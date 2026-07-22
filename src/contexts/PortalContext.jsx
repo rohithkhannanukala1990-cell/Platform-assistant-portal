@@ -88,8 +88,18 @@ export function PortalProvider({ children }) {
         } catch {
           /* noop */
         }
-        setPortalContextHeaders({ activeWorkspaceId: null })
+        setPortalContextHeaders({ activeWorkspaceId: null, activeTenantId: null })
         window.dispatchEvent(new CustomEvent('active-workspace-changed', { detail: { workspace: null } }))
+        window.dispatchEvent(
+          new CustomEvent('context-changed', {
+            detail: {
+              workspace: null,
+              workspace_id: null,
+              tenant_id: null,
+              source: 'portal-workspace-clear',
+            },
+          })
+        )
         return
       }
 
@@ -120,8 +130,23 @@ export function PortalProvider({ children }) {
       } catch {
         /* noop */
       }
-      setPortalContextHeaders({ activeWorkspaceId: workspace.id })
+      setPortalContextHeaders({
+        activeWorkspaceId: workspace.id,
+        activeTenantId: workspace.tenant_id || 'default',
+      })
+      // TODO(S2-P2.2): On selection, update global WorkspaceContext and trigger data reloads
       window.dispatchEvent(new CustomEvent('active-workspace-changed', { detail: { workspace } }))
+      window.dispatchEvent(
+        new CustomEvent('context-changed', {
+          detail: {
+            workspace,
+            workspace_id: workspace.id,
+            tenant_id: workspace.tenant_id || null,
+            environment: wenv,
+            source: 'portal-workspace-switch',
+          },
+        })
+      )
     },
     [authFetch, setEnvironment]
   )
@@ -143,7 +168,7 @@ export function PortalProvider({ children }) {
     if (!isAuthenticated) {
       setActiveWorkspaceState(null)
       setPinnedWorkspaces([])
-      setPortalContextHeaders({ activeWorkspaceId: null })
+      setPortalContextHeaders({ activeWorkspaceId: null, activeTenantId: null })
       setCurrentUser({ ...DEFAULT_PORTAL_USER })
       setPendingApprovals([])
       setPendingApprovalCount(0)
@@ -178,14 +203,17 @@ export function PortalProvider({ children }) {
           if (wr.ok && !cancelled) {
             const ws = await wr.json()
             setActiveWorkspaceState(ws)
-            setPortalContextHeaders({ activeWorkspaceId: ws.id })
+            setPortalContextHeaders({
+              activeWorkspaceId: ws.id,
+              activeTenantId: ws.tenant_id || 'default',
+            })
           } else {
             try {
               localStorage.removeItem(LS_ACTIVE_WORKSPACE)
             } catch {
               /* noop */
             }
-            setPortalContextHeaders({ activeWorkspaceId: null })
+            setPortalContextHeaders({ activeWorkspaceId: null, activeTenantId: null })
           }
         } catch {
           try {
@@ -193,7 +221,7 @@ export function PortalProvider({ children }) {
           } catch {
             /* noop */
           }
-          setPortalContextHeaders({ activeWorkspaceId: null })
+          setPortalContextHeaders({ activeWorkspaceId: null, activeTenantId: null })
         }
       }
     }
@@ -210,6 +238,11 @@ export function PortalProvider({ children }) {
     const t = setInterval(() => void refreshApprovals(), 60000)
     return () => clearInterval(t)
   }, [isAuthenticated, refreshApprovals])
+
+  // Keep environment header in sync for authFetch consumers.
+  useEffect(() => {
+    setPortalContextHeaders({ activeEnvironment: currentEnvironment || 'development' })
+  }, [currentEnvironment])
 
   const refetchPinnedWorkspaces = useCallback(async () => {
     try {
