@@ -140,7 +140,10 @@ export function ToastProvider({ children }) {
     }
   }, [toast])
 
-  const value = useMemo(() => ({ toast }), [toast])
+  const value = useMemo(() => ({
+    toast,
+    showToast: (message, type = 'info') => push(message, type),
+  }), [toast, push])
 
   return (
     <ToastContext.Provider value={value}>

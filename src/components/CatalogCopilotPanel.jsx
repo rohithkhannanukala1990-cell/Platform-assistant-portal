@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { Sparkles, AlertTriangle, ChevronRight, Loader2 } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Sparkles, AlertTriangle, ChevronRight, Loader2, Route, Play } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useToast } from './ToastNotification'
 import { API_BASE } from '../config/apiBase'
 
 const CATALOG_API = `${API_BASE}/api/catalog`
@@ -20,12 +21,54 @@ function healthBadgeClass(status) {
   return 'bg-red-500/15 text-red-300 border-red-500/20'
 }
 
+function riskBadgeClass(level) {
+  const l = (level || 'low').toLowerCase()
+  if (l === 'high') return 'bg-red-500/15 text-red-300 border-red-500/25'
+  if (l === 'medium') return 'bg-amber-500/15 text-amber-300 border-amber-500/25'
+  return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25'
+}
+
+function GoldenPathCard({ path, onStart, startingId }) {
+  const busy = startingId === path.id
+  return (
+    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3 flex flex-col gap-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white truncate">{path.name}</p>
+          {path.estimated_duration && (
+            <p className="text-[11px] text-slate-500 mt-0.5">⏱ {path.estimated_duration}</p>
+          )}
+        </div>
+        <span
+          className={`shrink-0 text-[10px] px-2 py-0.5 rounded-md border font-semibold uppercase ${riskBadgeClass(path.risk_level)}`}
+        >
+          {path.risk_level || 'low'}
+        </span>
+      </div>
+      {path.reason_for_recommendation && (
+        <p className="text-xs text-slate-400 leading-relaxed">{path.reason_for_recommendation}</p>
+      )}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onStart(path)}
+        className="mt-1 inline-flex items-center justify-center gap-1.5 self-start px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold disabled:opacity-50"
+      >
+        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+        Start
+      </button>
+    </div>
+  )
+}
+
 export default function CatalogCopilotPanel({
   entity,
   entityActions = [],
   goldenPaths = [],
 }) {
   const { authFetch } = useAuth()
+  const { toast } = useToast()
+  const navigate = useNavigate()
   const [question, setQuestion] = useState('')
   const [loading, setLoading] = useState(false)
   const [response, setResponse] = useState(null)
@@ -33,6 +76,11 @@ export default function CatalogCopilotPanel({
   const [entities, setEntities] = useState([])
   const [entitiesLoading, setEntitiesLoading] = useState(true)
   const [entitiesError, setEntitiesError] = useState(null)
+  // TODO(S1-P1.2): Render AI-recommended golden paths from the AI response:
+  // - name, reason_for_recommendation, estimated_duration, risk_level
+  const [recommendedPaths, setRecommendedPaths] = useState([])
+  const [pathsLoading, setPathsLoading] = useState(false)
+  const [startingId, setStartingId] = useState(null)
 
   const fetchEntities = useCallback(async () => {
     setEntitiesLoading(true)
@@ -50,9 +98,62 @@ export default function CatalogCopilotPanel({
     }
   }, [authFetch])
 
+  const loadRecommendedPaths = useCallback(async () => {
+    if (!entity?.id) {
+      setRecommendedPaths([])
+      return
+    }
+    setPathsLoading(true)
+    try {
+      const res = await authFetch(
+        `/api/golden-paths/applicable?entity_id=${encodeURIComponent(entity.id)}`
+      )
+      if (!res.ok) {
+        setRecommendedPaths([])
+        return
+      }
+      const data = await res.json()
+      const items = Array.isArray(data) ? data : (data.items || [])
+      setRecommendedPaths(items)
+    } catch {
+      setRecommendedPaths([])
+    } finally {
+      setPathsLoading(false)
+    }
+  }, [authFetch, entity?.id])
+
   useEffect(() => {
     void fetchEntities()
   }, [fetchEntities])
+
+  useEffect(() => {
+    void loadRecommendedPaths()
+  }, [loadRecommendedPaths])
+
+  const startPath = useCallback(
+    async (path) => {
+      if (!path?.id || !entity?.id) return
+      setStartingId(path.id)
+      try {
+        const res = await authFetch(`/api/golden-paths/${encodeURIComponent(path.id)}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entity_id: entity.id,
+            inputs: { entity_id: entity.id, entity_name: entity.name },
+          }),
+        })
+        if (!res.ok) throw new Error(await res.text())
+        toast.success(`Started “${path.name}”`)
+        navigate('/agents', { state: { goldenPathRun: await res.json() } })
+      } catch (e) {
+        toast.error(e.message || 'Failed to start golden path')
+      } finally {
+        setStartingId(null)
+      }
+    },
+    [authFetch, entity, navigate, toast]
+  )
 
   const submit = useCallback(
     async (q) => {
@@ -62,17 +163,38 @@ export default function CatalogCopilotPanel({
       setError(null)
       setResponse(null)
       try {
-        const res = await authFetch(COPILOT_API, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            question: text,
-            entity_id: entity?.id ?? null,
-            team: entity?.owner_team ?? null,
+        const [copilotRes, aiRes] = await Promise.all([
+          authFetch(COPILOT_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question: text,
+              entity_id: entity?.id ?? null,
+              team: entity?.owner_team ?? null,
+            }),
           }),
-        })
-        if (!res.ok) throw new Error(`Error ${res.status}`)
-        setResponse(await res.json())
+          entity?.name
+            ? authFetch('/api/ai/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  message: `For catalog entity "${entity.name}" (${entity.kind}): ${text}`,
+                  environment: 'development',
+                }),
+              })
+            : Promise.resolve(null),
+        ])
+
+        if (!copilotRes.ok) throw new Error(`Error ${copilotRes.status}`)
+        const copilotData = await copilotRes.json()
+        setResponse(copilotData)
+
+        if (aiRes?.ok) {
+          const aiData = await aiRes.json()
+          if (Array.isArray(aiData.golden_paths) && aiData.golden_paths.length > 0) {
+            setRecommendedPaths(aiData.golden_paths)
+          }
+        }
       } catch (e) {
         setError(e.message || 'AI unavailable. Please try again.')
       } finally {
@@ -164,6 +286,30 @@ export default function CatalogCopilotPanel({
               {entity.lifecycle && ` · ${entity.lifecycle}`}
             </p>
           </div>
+        </div>
+      )}
+
+      {(pathsLoading || recommendedPaths.length > 0) && (
+        <div className="flex flex-col gap-2">
+          <p className="text-[10px] text-slate-600 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+            <Route className="w-3 h-3" /> Recommended golden paths
+          </p>
+          {pathsLoading && recommendedPaths.length === 0 ? (
+            <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading recommendations…
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {recommendedPaths.map((path) => (
+                <GoldenPathCard
+                  key={path.id || path.key}
+                  path={path}
+                  onStart={startPath}
+                  startingId={startingId}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 

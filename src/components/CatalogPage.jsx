@@ -17,11 +17,12 @@ import {
   History,
 } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { RunActionModal, LogsDrawer } from './entityActionsShared'
 import CatalogCopilotPanel from './CatalogCopilotPanel'
 import useCatalogSearch from '../hooks/useCatalogSearch'
+import { useToast } from './ToastNotification'
 
 const KIND_TABS = ['All', 'Service', 'API', 'Library', 'Website']
 
@@ -81,7 +82,9 @@ function tagsToDisplay(tags) {
 
 export default function CatalogPage() {
   const location = useLocation()
+  const navigate = useNavigate()
   const { authFetch, token } = useAuth()
+  const { toast } = useToast()
 
   const [entities, setEntities] = useState([])
   const [loading, setLoading] = useState(true)
@@ -101,6 +104,10 @@ export default function CatalogPage() {
   const [entityActions, setEntityActions] = useState([])
   const [copilotActions, setCopilotActions] = useState([])
   const [goldenPaths, setGoldenPaths] = useState([])
+  // TODO(S1-P1.2): Link catalog entities to golden paths
+  const [applicablePaths, setApplicablePaths] = useState([])
+  const [applicableLoading, setApplicableLoading] = useState(false)
+  const [startingPathId, setStartingPathId] = useState(null)
   const [actionsLoading, setActionsLoading] = useState(false)
   const [actionRuns, setActionRuns] = useState([])
   const [runsLoading, setRunsLoading] = useState(false)
@@ -148,10 +155,12 @@ export default function CatalogPage() {
   useEffect(() => {
     if (!selectedEntity?.id) {
       setScorecard(null)
+      setApplicablePaths([])
       return
     }
     void loadScorecard(selectedEntity.id)
-  }, [selectedEntity?.id, loadScorecard])
+    void loadApplicablePaths(selectedEntity.id)
+  }, [selectedEntity?.id, loadScorecard, loadApplicablePaths])
 
   const loadEntities = useCallback(async () => {
     setLoading(true)
@@ -225,6 +234,61 @@ export default function CatalogPage() {
       }
     },
     [authFetch]
+  )
+
+  const loadApplicablePaths = useCallback(
+    async (entityId) => {
+      if (!entityId) {
+        setApplicablePaths([])
+        return
+      }
+      setApplicableLoading(true)
+      try {
+        const res = await authFetch(
+          `/api/golden-paths/applicable?entity_id=${encodeURIComponent(entityId)}`
+        )
+        if (!res.ok) {
+          setApplicablePaths([])
+          return
+        }
+        const data = await res.json()
+        setApplicablePaths(Array.isArray(data) ? data : data.items || [])
+      } catch {
+        setApplicablePaths([])
+      } finally {
+        setApplicableLoading(false)
+      }
+    },
+    [authFetch]
+  )
+
+  const startGoldenPath = useCallback(
+    async (path) => {
+      if (!path?.id || !selectedEntity?.id) return
+      setStartingPathId(path.id)
+      try {
+        const res = await authFetch(`/api/golden-paths/${encodeURIComponent(path.id)}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entity_id: selectedEntity.id,
+            inputs: {
+              entity_id: selectedEntity.id,
+              entity_name: selectedEntity.name,
+            },
+          }),
+        })
+        if (!res.ok) throw new Error(await res.text())
+        const run = await res.json()
+        toast.success(`Started “${path.name}”`)
+        navigate('/agents', { state: { goldenPathRun: run, focusHistory: true } })
+      } catch (e) {
+        toast.error(e.message || 'Failed to start golden path')
+      } finally {
+        setStartingPathId(null)
+      }
+    },
+    [authFetch, selectedEntity, navigate, toast]
   )
 
   const loadCopilotSupport = useCallback(async () => {
@@ -575,6 +639,57 @@ export default function CatalogPage() {
                     <p className="text-slate-300 whitespace-pre-wrap">{selectedEntity.description || '—'}</p>
                   </div>
                   <DetailRow label="Created" value={selectedEntity.created_at ? new Date(selectedEntity.created_at).toLocaleString() : '—'} />
+
+                  <div className="pt-2 border-t border-border">
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-violet-400" />
+                      Applicable golden paths
+                    </p>
+                    {applicableLoading ? (
+                      <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+                      </div>
+                    ) : applicablePaths.length === 0 ? (
+                      <p className="text-xs text-slate-500">No golden paths match this entity yet.</p>
+                    ) : (
+                      <ul className="flex flex-col gap-2">
+                        {applicablePaths.map((path) => (
+                          <li
+                            key={path.id || path.key}
+                            className="rounded-lg border border-violet-500/20 bg-violet-500/5 px-3 py-2.5"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-white truncate">{path.name}</p>
+                                {path.reason_for_recommendation && (
+                                  <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                                    {path.reason_for_recommendation}
+                                  </p>
+                                )}
+                                <p className="text-[10px] text-slate-500 mt-1">
+                                  {path.estimated_duration || '—'}
+                                  {path.risk_level ? ` · risk: ${path.risk_level}` : ''}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={startingPathId === path.id}
+                                onClick={() => void startGoldenPath(path)}
+                                className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-violet-600 hover:bg-violet-500 text-white text-[11px] font-semibold disabled:opacity-50"
+                              >
+                                {startingPathId === path.id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <History className="w-3 h-3" />
+                                )}
+                                Start
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               )}
 

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -808,6 +808,7 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
             "actions_json": actions_json,
             "pending_executions": pending_executions,
             "errors": response_errors,
+            "golden_paths": platform_context.get("golden_paths") or [],
             "context": {
                 "workspace_id": conv.workspace_id,
                 "environment": conv.environment,
@@ -889,6 +890,57 @@ def delete_conversation(conversation_id: str, current_user: User = Depends(get_c
     return {"deleted": True}
 
 
+def _execution_with_context(session: Session, e: AIToolExecution) -> dict[str, Any]:
+    item = _execution_to_dict(e)
+    conv = session.get(AIConversation, e.conversation_id)
+    item["conversation_context"] = (
+        {
+            "id": conv.id,
+            "user_id": conv.user_id,
+            "title": conv.title,
+            "workspace_id": conv.workspace_id,
+            "environment": conv.environment,
+        }
+        if conv
+        else None
+    )
+    params = item.get("parameters") or {}
+    item["environment"] = (
+        (params.get("environment") if isinstance(params, dict) else None)
+        or (conv.environment if conv else None)
+        or "—"
+    )
+    return item
+
+
+# TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints
+@router.get("/executions")
+def list_executions(
+    status: Optional[str] = Query(None),
+    workspace_id: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    _admin: User = Depends(require_admin),
+    _perm: None = Depends(require_permission("ai_tools", "execute")),
+):
+    """List AI tool executions with optional status and workspace filters."""
+    with Session(engine) as session:
+        q = select(AIToolExecution).order_by(AIToolExecution.created_at.desc())
+        if status:
+            q = q.where(AIToolExecution.status == status.strip().lower())
+        rows = session.exec(q.limit(limit * 3 if workspace_id else limit)).all()
+        out = []
+        for e in rows:
+            item = _execution_with_context(session, e)
+            if workspace_id:
+                ctx = item.get("conversation_context") or {}
+                if ctx.get("workspace_id") != workspace_id:
+                    continue
+            out.append(item)
+            if len(out) >= limit:
+                break
+        return out
+
+
 # TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints
 @router.get("/executions/pending")
 def list_pending_executions(
@@ -901,23 +953,7 @@ def list_pending_executions(
             .where(AIToolExecution.status == "pending_approval")
             .order_by(AIToolExecution.created_at.desc())
         ).all()
-        out = []
-        for e in rows:
-            item = _execution_to_dict(e)
-            conv = session.get(AIConversation, e.conversation_id)
-            item["conversation_context"] = (
-                {
-                    "id": conv.id,
-                    "user_id": conv.user_id,
-                    "title": conv.title,
-                    "workspace_id": conv.workspace_id,
-                    "environment": conv.environment,
-                }
-                if conv
-                else None
-            )
-            out.append(item)
-        return out
+        return [_execution_with_context(session, e) for e in rows]
 
 
 # TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints

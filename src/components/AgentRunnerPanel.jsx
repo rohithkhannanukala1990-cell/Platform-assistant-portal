@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   Bot, CheckCircle2, Loader2, Play, RotateCcw, XCircle,
 } from 'lucide-react'
@@ -174,6 +175,7 @@ function AgentRunCard({ card, onApprove, onReject, busy }) {
 }
 
 export default function AgentRunnerPanel() {
+  const location = useLocation()
   const { authFetch, token } = useAuth()
   const { toDict, isProduction } = usePlatformContext()
   const { toast } = useToast()
@@ -185,6 +187,12 @@ export default function AgentRunnerPanel() {
   const [submitting, setSubmitting] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
   const wsRef = useRef(null)
+
+  useEffect(() => {
+    if (location.state?.focusHistory || location.state?.goldenPathRun) {
+      setActiveTab('history')
+    }
+  }, [location.state])
 
   const envLabel = isProduction() ? '🔴 PRODUCTION' : '🟡 STAGING'
 

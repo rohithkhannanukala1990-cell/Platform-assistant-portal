@@ -6,9 +6,9 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 
 from ..agents import get_agent, list_agents, AgentNotFound
 from ..agents.base import AgentResult
@@ -90,6 +90,38 @@ def list_approvals(
             q = q.where(AgentRun.workspace_id == workspace_id)
         rows = session.exec(q.order_by(AgentRun.created_at.desc())).all()
     return [_run_to_dict(r) for r in rows]
+
+
+@router.get("/runs")
+def list_runs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None),
+    workspace_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    """Paginated agent run history with optional status and workspace filters."""
+    with Session(engine) as session:
+        q = select(AgentRun)
+        count_q = select(func.count()).select_from(AgentRun)
+        if status:
+            q = q.where(AgentRun.status == status.strip().lower())
+            count_q = count_q.where(AgentRun.status == status.strip().lower())
+        if workspace_id:
+            q = q.where(AgentRun.workspace_id == workspace_id)
+            count_q = count_q.where(AgentRun.workspace_id == workspace_id)
+        total = int(session.exec(count_q).one() or 0)
+        rows = session.exec(
+            q.order_by(AgentRun.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+        return {
+            "items": [_run_to_dict(r) for r in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
 
 @router.get("/{agent_name}")

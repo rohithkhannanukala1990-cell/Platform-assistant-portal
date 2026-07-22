@@ -89,6 +89,8 @@ export default function AIAssistant() {
   const [expandedParamsId, setExpandedParamsId] = useState(null)
   const [rejectingId, setRejectingId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
+  // Inline, non-blocking alerts from the latest AI response `errors` field.
+  const [responseErrors, setResponseErrors] = useState([])
 
   const messagesEndRef = useRef(null)
   const modelMenuRef = useRef(null)
@@ -226,10 +228,15 @@ export default function AIAssistant() {
         if (!res.ok) throw new Error(await res.text())
         const data = await res.json()
         setActiveConversation(data.conversation?.id || id)
+        // TODO(S1-P1.2): Render AI messages from the `messages` array:
+        // - Group by role ("user", "assistant")
+        // - Show timestamps
+        // - Style assistant vs user bubbles differently
         const raw = (data.messages || []).map((m) => ({
           id: m.id,
           role: m.role,
           content: m.content,
+          created_at: m.created_at || null,
         }))
         setMessages(mergeMessagesWithPending(raw, data.pending_executions))
       } catch (e) {
@@ -243,6 +250,7 @@ export default function AIAssistant() {
     setActiveConversation(null)
     setMessages([])
     setInputValue('')
+    setResponseErrors([])
     setSidebarOpen(true)
   }, [])
 
@@ -270,8 +278,21 @@ export default function AIAssistant() {
   const sendMessage = useCallback(async () => {
     const text = inputValue.trim()
     if (!text || isLoading) return
+    // TODO(S1-P1.2): Show a "typing..." indicator while awaiting backend response
     setIsLoading(true)
     setInputValue('')
+    setResponseErrors([])
+
+    const optimisticId = `local-user-${Date.now()}`
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: optimisticId,
+        role: 'user',
+        content: text,
+        created_at: new Date().toISOString(),
+      },
+    ])
 
     try {
       const res = await authFetch('/api/ai/chat', {
@@ -289,11 +310,24 @@ export default function AIAssistant() {
       const data = await res.json()
       const cid = data.conversation_id
       setActiveConversation(cid)
-      await openConversation(cid)
+      setResponseErrors(Array.isArray(data.errors) ? data.errors : [])
+      // Prefer structured `messages` from Phase 1.1 when present.
+      if (Array.isArray(data.messages) && data.messages.length > 0) {
+        const raw = data.messages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          created_at: m.created_at || null,
+        }))
+        setMessages(mergeMessagesWithPending(raw, data.pending_executions))
+      } else {
+        await openConversation(cid)
+      }
       await loadConversations()
       await loadPending()
       await refreshApprovals()
     } catch (e) {
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
       setInputValue(text)
       showToast(e.message || 'Chat failed', 'error')
     } finally {
@@ -308,6 +342,7 @@ export default function AIAssistant() {
     currentEnvironment,
     selectedModel,
     openConversation,
+    mergeMessagesWithPending,
     loadConversations,
     loadPending,
     refreshApprovals,
@@ -530,6 +565,29 @@ export default function AIAssistant() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+            {responseErrors.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {responseErrors.map((err, i) => (
+                  <span
+                    key={`${err.code || 'err'}-${i}`}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-amber-500/10 border border-amber-500/30 text-amber-200"
+                  >
+                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                    {err.message || err.code || 'AI warning'}
+                    <button
+                      type="button"
+                      aria-label="Dismiss"
+                      onClick={() =>
+                        setResponseErrors((prev) => prev.filter((_, idx) => idx !== i))
+                      }
+                      className="ml-0.5 text-amber-400/70 hover:text-amber-200"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             {messages.length === 0 && !isLoading ? (
               <div className="h-full flex flex-col items-center justify-center text-slate-500 text-sm py-12">
                 <Bot className="w-12 h-12 mb-3 opacity-40" />
@@ -553,69 +611,98 @@ export default function AIAssistant() {
                     )}
                   </div>
                   <div
-                    className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                      m.role === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-800/90 border border-border text-slate-100'
+                    className={`max-w-[85%] flex flex-col gap-1 ${
+                      m.role === 'user' ? 'items-end' : 'items-start'
                     }`}
                   >
-                    {m.role === 'user' ? (
-                      <p className="text-sm whitespace-pre-wrap break-words">{m.content}</p>
-                    ) : (
-                      <AssistantMarkdown text={m.content} />
-                    )}
-                    {m.role === 'assistant' && m.pendingExecution && isAdmin && (
-                      <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/30 p-3 space-y-2">
-                        <div className="flex items-center gap-2 text-amber-200 text-xs font-semibold">
-                          <AlertTriangle className="w-4 h-4" />
-                          Action requires approval
-                        </div>
-                        <p className="text-xs text-slate-300">
-                          Tool: <span className="font-mono">{m.pendingExecution.tool_id}</span> | Action:{' '}
-                          <span className="font-mono">{m.pendingExecution.action}</span>
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void approveExec(m.pendingExecution.id)}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
-                          >
-                            <Check className="w-3.5 h-3.5" /> Approve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRejectingId(m.pendingExecution.id)
-                              setRejectReason('')
-                            }}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-900/60 hover:bg-red-800 text-red-100 text-xs font-semibold"
-                          >
-                            <X className="w-3.5 h-3.5" /> Reject
-                          </button>
-                        </div>
-                        {rejectingId === m.pendingExecution.id && (
-                          <div className="flex flex-col gap-2 pt-1">
-                            <input
-                              value={rejectReason}
-                              onChange={(e) => setRejectReason(e.target.value)}
-                              placeholder="Reason (optional)"
-                              className="text-xs px-2 py-1 rounded bg-slate-900 border border-border text-white"
-                            />
+                    <div
+                      className={`rounded-2xl px-4 py-3 ${
+                        m.role === 'user'
+                          ? 'bg-blue-600 text-white rounded-br-md'
+                          : 'bg-slate-800/90 border border-border text-slate-100 rounded-bl-md'
+                      }`}
+                    >
+                      {m.role === 'user' ? (
+                        <p className="text-sm whitespace-pre-wrap break-words">{m.content}</p>
+                      ) : (
+                        <AssistantMarkdown text={m.content} />
+                      )}
+                      {m.role === 'assistant' && m.pendingExecution && isAdmin && (
+                        <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/30 p-3 space-y-2">
+                          <div className="flex items-center gap-2 text-amber-200 text-xs font-semibold">
+                            <AlertTriangle className="w-4 h-4" />
+                            Action requires approval
+                            {m.pendingExecution.requires_hitl && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px] uppercase">
+                                HITL
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-300">
+                            Tool: <span className="font-mono">{m.pendingExecution.tool_id}</span> | Action:{' '}
+                            <span className="font-mono">{m.pendingExecution.action}</span>
+                            {m.pendingExecution.status && (
+                              <>
+                                {' '}
+                                | Status:{' '}
+                                <span className="font-mono">{m.pendingExecution.status}</span>
+                              </>
+                            )}
+                          </p>
+                          <div className="flex gap-2">
                             <button
                               type="button"
-                              onClick={() => void rejectExec(m.pendingExecution.id)}
-                              className="self-start text-xs text-red-300 underline"
+                              onClick={() => void approveExec(m.pendingExecution.id)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
                             >
-                              Confirm reject
+                              <Check className="w-3.5 h-3.5" /> Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRejectingId(m.pendingExecution.id)
+                                setRejectReason('')
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-900/60 hover:bg-red-800 text-red-100 text-xs font-semibold"
+                            >
+                              <X className="w-3.5 h-3.5" /> Reject
                             </button>
                           </div>
-                        )}
-                      </div>
+                          {rejectingId === m.pendingExecution.id && (
+                            <div className="flex flex-col gap-2 pt-1">
+                              <input
+                                value={rejectReason}
+                                onChange={(e) => setRejectReason(e.target.value)}
+                                placeholder="Reason (optional)"
+                                className="text-xs px-2 py-1 rounded bg-slate-900 border border-border text-white"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void rejectExec(m.pendingExecution.id)}
+                                className="self-start text-xs text-red-300 underline"
+                              >
+                                Confirm reject
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {m.created_at && (
+                      <span className="text-[10px] text-slate-500 px-1">
+                        {formatRelativeTime(m.created_at)}
+                        <span className="mx-1 opacity-40">·</span>
+                        {new Date(m.created_at).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
                     )}
                   </div>
                 </div>
               ))
             )}
+            {/* TODO(S1-P1.2): Show a "typing..." indicator while awaiting backend response */}
             {isLoading && (
               <div className="flex items-center gap-2 text-slate-500 text-sm pl-11">
                 <span className="inline-flex gap-1">
@@ -629,7 +716,7 @@ export default function AIAssistant() {
                     style={{ animationDelay: '0.3s' }}
                   />
                 </span>
-                AI is thinking...
+                typing...
               </div>
             )}
             <div ref={messagesEndRef} />

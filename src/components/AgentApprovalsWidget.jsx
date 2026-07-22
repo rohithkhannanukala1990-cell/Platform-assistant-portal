@@ -106,8 +106,11 @@ function AIHitlExecutionCard({ ex, onRemoved, authFetch, refreshApprovals, showT
   const [showReject, setShowReject] = useState(false)
   const [reason, setReason] = useState('')
   const ctx = ex.conversation_context
-  const env = ctx?.environment || '—'
+  // TODO(S1-P1.2): Display `pending_executions` with action, environment, requires_hitl, and status
+  const env = ex.environment || ctx?.environment || '—'
   const prod = String(env).toLowerCase() === 'production'
+  const status = ex.status || 'pending_approval'
+  const requiresHitl = ex.requires_hitl !== false
 
   async function approve() {
     setBusy(true)
@@ -161,7 +164,7 @@ function AIHitlExecutionCard({ ex, onRemoved, authFetch, refreshApprovals, showT
             <p className="text-xs font-semibold text-white mt-0.5">
               {ex.tool_id} → {ex.action}
             </p>
-            <div className="flex flex-wrap gap-2 mt-1">
+            <div className="flex flex-wrap gap-2 mt-1.5">
               <span
                 className={`text-[10px] px-2 py-0.5 rounded-md border font-semibold uppercase ${
                   prod
@@ -170,6 +173,14 @@ function AIHitlExecutionCard({ ex, onRemoved, authFetch, refreshApprovals, showT
                 }`}
               >
                 {env}
+              </span>
+              {requiresHitl && (
+                <span className="text-[10px] px-2 py-0.5 rounded-md border border-amber-500/40 text-amber-200 bg-amber-950/40 font-semibold uppercase">
+                  requires HITL
+                </span>
+              )}
+              <span className="text-[10px] px-2 py-0.5 rounded-md border border-violet-500/30 text-violet-200 bg-violet-950/30 font-mono">
+                {status}
               </span>
               {ctx?.title && (
                 <span className="text-[10px] text-slate-500 truncate max-w-[200px]" title={ctx.title}>
