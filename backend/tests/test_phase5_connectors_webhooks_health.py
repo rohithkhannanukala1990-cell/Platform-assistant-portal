@@ -108,9 +108,71 @@ def test_require_valid_signature_allows_missing_secret_in_dev(monkeypatch):
     require_valid_signature("github", b"{}", {})
 
 
+def test_github_ping_action_uses_rate_limit():
+    connector = GitHubConnector({"tool_id": "github", "token": "t"})
+
+    class FakeResp:
+        status_code = 200
+        text = "{}"
+
+        def json(self):
+            return {"resources": {"core": {"remaining": 5000}}}
+
+    fake_client = MagicMock()
+    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client.__aexit__ = AsyncMock(return_value=None)
+    fake_client.get = AsyncMock(return_value=FakeResp())
+    with patch(
+        "backend.connectors.github_connector.httpx.AsyncClient",
+        return_value=fake_client,
+    ):
+        import asyncio
+
+        result = asyncio.run(connector.execute_action("ping", {}))
+
+    assert result["ok"] is True
+    assert result["tool"] == "github"
+    assert result["action"] == "ping"
+    assert "resources" in (result.get("result") or {})
+    fake_client.get.assert_awaited()
+    called_url = fake_client.get.await_args.args[0]
+    assert called_url.endswith("/rate_limit")
+
+
+def test_github_probe_uses_tool_accounts(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    async def fake_execute(action, params):
+        assert action == "ping"
+        return {"ok": True, "tool": "github", "action": action, "result": {"ok": True}}
+
+    with patch(
+        "backend.connectors.github_connector.GitHubConnector.execute_action",
+        new=AsyncMock(side_effect=fake_execute),
+    ):
+        from backend.health import _sync_github_probe
+
+        result = _sync_github_probe(
+            [
+                {
+                    "tool_id": "github",
+                    "account_name": "prod-gh",
+                    "credentials_vault_ref": "ghp_test",
+                    "status": "connected",
+                }
+            ]
+        )
+
+    assert result["status"] == "healthy"
+    assert result["configured"] is True
+    assert result["account_name"] == "prod-gh"
+    assert result.get("latency_ms") is not None
+
+
 def test_tool_accounts_probe_includes_connector_statuses():
-    summary = _sync_tool_accounts_probe()
+    summary = _sync_tool_accounts_probe(tool_accounts=[])
     assert summary["total"] == 5
+    assert summary["tool_account_count"] == 0
     assert set(summary["connectors"]) == {
         "github",
         "jira",
@@ -122,6 +184,7 @@ def test_tool_accounts_probe_includes_connector_statuses():
         assert "status" in row
         assert "message" in row
         assert "configured" in row
+        assert "latency_ms" in row
 
 
 def test_platform_context_dev_helpers(monkeypatch):

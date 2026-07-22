@@ -280,11 +280,17 @@ async def log_requests(request: Request, call_next):
 # TODO: Add request_id to each request for correlation across logs
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
+    from .observability.logger import clear_request_context, set_request_context
+
     request_id = str(uuid.uuid4())
     request.state.request_id = request_id
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    return response
+    set_request_context(request_id=request_id)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        clear_request_context()
 
 
 @app.middleware("http")

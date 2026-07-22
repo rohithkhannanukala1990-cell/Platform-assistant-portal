@@ -254,11 +254,32 @@ class GitHubConnector(_BaseGitHub):
             if action == "get_latest_tag":
                 result = await self.get_latest_tag(repo)
                 return {"ok": True, "tool": "github", "action": action, "result": result}
-            if action == "test_connection":
+            # TODO(S3-P3.1): Implement a lightweight 'ping' action for use by health probes
+            if action in ("ping", "test_connection"):
+                # Prefer /rate_limit — cheap auth check without mutating state.
                 data = await self._get("/rate_limit")
-                return {"ok": True, "tool": "github", "action": action, "result": data}
+                return {
+                    "ok": True,
+                    "tool": "github",
+                    "action": action,
+                    "result": data,
+                }
         except GitHubAPIError as exc:
+            # TODO(S3-P3.1): Increment health and connector metrics during probe runs and errors
             _record_connector_error(exc.error_type)
+            try:
+                from ..observability.logger import logger
+
+                logger.warning(
+                    "GitHub connector action failed",
+                    extra={
+                        "connector": "github",
+                        "error_type": exc.error_type,
+                        "action": action,
+                    },
+                )
+            except Exception:
+                pass
             return {
                 "ok": False,
                 "tool": "github",
@@ -267,6 +288,19 @@ class GitHubConnector(_BaseGitHub):
             }
         except Exception as exc:
             _record_connector_error("network_error")
+            try:
+                from ..observability.logger import logger
+
+                logger.warning(
+                    "GitHub connector action failed",
+                    extra={
+                        "connector": "github",
+                        "error_type": "network_error",
+                        "action": action,
+                    },
+                )
+            except Exception:
+                pass
             return {
                 "ok": False,
                 "tool": "github",

@@ -110,6 +110,13 @@ class WorkspaceIsolationMiddleware(BaseHTTPMiddleware):
         request.state.workspace_id = workspace_id
         request.state.tenant_id = tenant_id
 
+        try:
+            from backend.observability.logger import set_request_context
+
+            set_request_context(workspace_id=workspace_id)
+        except Exception:
+            pass
+
         # Optionally reject authenticated API calls without a workspace outside demos.
         if (
             _enforce_workspace_required()

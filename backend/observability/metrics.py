@@ -60,7 +60,7 @@ HTTP_REQUEST_DURATION_SECONDS = Histogram(
     "HTTP request duration in seconds",
     ["method", "status_code"],
 )
-# TODO: Track connector errors and health probe performance
+# TODO(S3-P3.1): Add metrics for health probes and connector errors
 CONNECTOR_ERRORS_TOTAL = Counter(
     "aiops_connector_errors_total",
     "Total connector errors by type",
@@ -71,4 +71,23 @@ HEALTH_PROBE_DURATION_SECONDS = Histogram(
     "Duration of health probes by name",
     ["probe_name"],
 )
+
+
+def record_connector_error(connector: str, error_type: str) -> None:
+    try:
+        CONNECTOR_ERRORS_TOTAL.labels(
+            connector=connector or "unknown",
+            error_type=error_type or "unknown",
+        ).inc()
+    except Exception:
+        pass
+
+
+def observe_health_probe(probe_name: str, duration_seconds: float) -> None:
+    try:
+        HEALTH_PROBE_DURATION_SECONDS.labels(
+            probe_name=probe_name or "unknown",
+        ).observe(max(0.0, float(duration_seconds)))
+    except Exception:
+        pass
 
