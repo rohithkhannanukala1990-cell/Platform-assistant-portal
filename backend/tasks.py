@@ -145,12 +145,13 @@ def monitor_cicd_pipelines(self):
     """
     import random as _rand
     from .database import save_incident, create_notification
-    from .main import _hitl_evaluate, _CICD_MONITOR_SCENARIOS
+    from .services.demo_fixtures import CICD_MONITOR_SCENARIOS
+    from .services.incidents_service import hitl_evaluate as _hitl_evaluate
 
     logger.info("[celery] monitor_cicd_pipelines: starting scan")
 
     try:
-        scenario = _rand.choice(_CICD_MONITOR_SCENARIOS)
+        scenario = _rand.choice(CICD_MONITOR_SCENARIOS)
         logger.info("[celery] monitor_cicd_pipelines: detected failure stage=%s owner=%s",
                     scenario["stage"], scenario["owner_role"])
 
