@@ -40,7 +40,7 @@ def test_02_health_has_required_fields(client):
 
 
 def test_03_post_triage_returns_200(client, admin_token):
-    with patch("backend.main._run_triage", new_callable=AsyncMock) as mock_triage:
+    with patch("backend.services.incidents_service.run_triage", new_callable=AsyncMock) as mock_triage:
         mock_triage.return_value = _FAKE_TRIAGE_RESULT
         response = client.post(
             "/api/triage",
@@ -90,7 +90,7 @@ def test_08_get_incidents_approvals_returns_list(client, admin_token):
 
 
 def test_09_post_triage_rate_limit_or_success(client, admin_token):
-    with patch("backend.main._run_triage", new_callable=AsyncMock) as mock_triage:
+    with patch("backend.services.incidents_service.run_triage", new_callable=AsyncMock) as mock_triage:
         mock_triage.return_value = _FAKE_TRIAGE_RESULT
         response = client.post(
             "/api/triage",
