@@ -202,9 +202,14 @@ app.include_router(dashboard_router)
 # from .middleware.rbac_middleware import require_permission
 
 app.add_middleware(WorkspaceIsolationMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+
+
+def _cors_allow_origins() -> list[str]:
+    raw = (os.getenv("ALLOWED_ORIGINS") or os.getenv("FRONTEND_URL") or "").strip()
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    if origins:
+        return origins
+    return [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
@@ -212,9 +217,14 @@ app.add_middleware(
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://frontend:5173",
-    ],
+    ]
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_allow_origins(),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -1222,30 +1232,44 @@ def _map_to_cloud_event(payload: dict, source: str) -> tuple[str, str, str]:
 
 
 class InboundWebhookRequest(BaseModel):
-    source:     str
-    payload:    dict = {}
+    """Docs / OpenAPI shape only — inbound gateway verifies HMAC over raw request bytes."""
+
+    source: str
+    payload: dict = {}
     event_type: str | None = None
 
 
 @app.post("/api/webhooks/inbound", status_code=202)
 @limiter.limit("5/minute")
-async def inbound_webhook_gateway(request: Request, inbound: InboundWebhookRequest):
+async def inbound_webhook_gateway(request: Request):
     """
     Queue-first webhook gateway.
     Accepts any source+payload, returns 202 immediately,
     dispatches a Celery task for normalization + AI triage.
+    HMAC is verified against the raw request body (not str(payload)).
     """
-    import json as _json, uuid
-    source = inbound.source.strip().lower()
-    raw_body = str(inbound.payload).encode()
-    require_valid_signature(source, raw_body, dict(request.headers))
+    import json as _json
+    import uuid
+
+    raw_body = await request.body()
+    try:
+        data = _json.loads(raw_body.decode("utf-8") or "{}")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="JSON body must be an object")
+
+    source = str(data.get("source") or "").strip().lower()
     if not source:
         raise HTTPException(status_code=400, detail="source cannot be empty.")
 
-    payload    = inbound.payload or {}
-    event_type = inbound.event_type or _map_to_cloud_event(payload, source)[0]
+    require_valid_signature(source, raw_body, dict(request.headers))
+
+    payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+    event_type = data.get("event_type") or _map_to_cloud_event(payload, source)[0]
     owner_role = _route_owner(source)
-    ce_id      = str(uuid.uuid4())
+    ce_id = str(uuid.uuid4())
 
     ev = save_webhook_event({
         "source":         source,
@@ -2074,7 +2098,6 @@ def _account_to_dict(session: Session, a: ToolAccount) -> dict:
     }
 
 
-CONTEXT_PLACEHOLDER_USER_ID = "admin"
 _CONTEXT_MATRIX_ENVS = (
     "local",
     "development",
@@ -2089,11 +2112,41 @@ def _norm_env_key(s: str | None) -> str:
     return (s or "").strip().lower()
 
 
-def _ensure_user_context_row(session: Session) -> UserContext:
-    uid = CONTEXT_PLACEHOLDER_USER_ID
+def _context_user_key(user: User) -> str:
+    """Stable primary key for UserContext rows."""
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if getattr(user, "id", None) is not None:
+        return str(user.id)
+    return str(user.username)
+
+
+def _ensure_user_context_row(session: Session, user: User) -> UserContext:
+    uid = _context_user_key(user)
     row = session.get(UserContext, uid)
     if row:
         return row
+    # Migrate legacy demo row keyed as "admin" for the admin user only
+    if getattr(user, "username", None) == "admin":
+        legacy = session.get(UserContext, "admin")
+        if legacy is not None and legacy.user_id != uid:
+            env = legacy.active_environment
+            accounts = legacy.active_accounts
+            pinned = legacy.pinned_accounts
+            switched = legacy.last_switched_at
+            session.delete(legacy)
+            session.commit()
+            row = UserContext(
+                user_id=uid,
+                active_environment=env,
+                active_accounts=accounts,
+                pinned_accounts=pinned,
+                last_switched_at=switched,
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return row
     row = UserContext(
         user_id=uid,
         active_environment="development",
@@ -3018,7 +3071,7 @@ def api_import_history(current_user: User = Depends(get_current_user)):
 @app.get("/api/context")
 def api_context_get(current_user: User = Depends(get_current_user)):
     with Session(db_engine) as session:
-        row = _ensure_user_context_row(session)
+        row = _ensure_user_context_row(session, current_user)
         return _context_payload(session, row)
 
 
@@ -3030,7 +3083,7 @@ async def api_context_put(
     from .ws_portal import broadcast_json
 
     with Session(db_engine) as session:
-        row = _ensure_user_context_row(session)
+        row = _ensure_user_context_row(session, current_user)
         if body.active_environment is not None:
             row.active_environment = _norm_env_key(body.active_environment) or "development"
         if body.active_accounts is not None:
@@ -3046,7 +3099,7 @@ async def api_context_put(
     await broadcast_json(
         {
             "type": "context-changed",
-            "user_id": CONTEXT_PLACEHOLDER_USER_ID,
+            "user_id": _context_user_key(current_user),
             "context": payload,
         }
     )
@@ -3064,7 +3117,7 @@ async def api_context_pin(
     if not aid:
         raise HTTPException(status_code=400, detail="account_id is required")
     with Session(db_engine) as session:
-        row = _ensure_user_context_row(session)
+        row = _ensure_user_context_row(session, current_user)
         try:
             pins = json.loads(row.pinned_accounts or "[]")
         except (json.JSONDecodeError, TypeError, ValueError):
@@ -3086,7 +3139,7 @@ async def api_context_pin(
     await broadcast_json(
         {
             "type": "context-changed",
-            "user_id": CONTEXT_PLACEHOLDER_USER_ID,
+            "user_id": _context_user_key(current_user),
             "context": full,
         }
     )
@@ -3107,7 +3160,7 @@ async def api_access_requests_create(
     if not acc_id:
         raise HTTPException(status_code=400, detail="account_id is required")
     rid = str(uuid.uuid4())
-    uid = CONTEXT_PLACEHOLDER_USER_ID
+    uid = _context_user_key(current_user)
     with Session(db_engine) as session:
         acc = session.get(ToolAccount, acc_id)
         if not acc or acc.is_active != 1:
@@ -3135,7 +3188,7 @@ async def api_access_requests_create(
 
 
 @app.get("/api/access-requests")
-def api_access_requests_list(_admin: User = Depends(require_admin)):
+def api_access_requests_list(current_user: User = Depends(require_admin)):
     with Session(db_engine) as session:
         rows = session.exec(
             select(AccessRequest)
@@ -3150,10 +3203,11 @@ async def api_access_requests_review(
     request_id: str,
     body: AccessRequestReviewBody,
     request: Request,
-    admin: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     from .ws_portal import broadcast_json
 
+    admin = current_user
     with Session(db_engine) as session:
         row = session.get(AccessRequest, request_id)
         if not row:
@@ -3449,6 +3503,12 @@ ANOMALY_INCIDENT = {
 @limiter.limit("5/minute")
 async def scan_anomalies(request: Request, current_user: User = Depends(get_current_user)):
     """Simulate a background log scan and create a predictive WARNING incident."""
+    if not _demo_data_enabled():
+        return {
+            "status": "no_data",
+            "message": "Anomaly scanner requires demo mode or a real log source.",
+        }
+
     await asyncio.sleep(3)
 
     record = save_incident(ANOMALY_INCIDENT)
@@ -3473,6 +3533,17 @@ async def scan_anomalies(request: Request, current_user: User = Depends(get_curr
 
 
 # ── CI/CD Active Monitoring & DORA Metrics ────────────────────────────────────
+
+def _demo_data_enabled() -> bool:
+    flag = (os.getenv("ENABLE_DEMO_DATA") or "").strip().lower()
+    if flag in {"1", "true", "yes", "on"}:
+        return True
+    if flag in {"0", "false", "no", "off"}:
+        return False
+    from .context import PlatformContext
+
+    return PlatformContext.is_dev_environment()
+
 
 _CICD_ACTIVE_RUNS = [
     {
@@ -3624,12 +3695,27 @@ _CICD_MONITOR_SCENARIOS = [
 @app.get("/api/cicd/active-runs")
 def get_cicd_active_runs(current_user: User = Depends(get_current_user)):
     """Return list of currently executing CI/CD pipeline runs."""
+    if not _demo_data_enabled():
+        return {
+            "status": "no_data",
+            "runs": [],
+            "message": "Connect a GitHub or GitLab CI account to populate active runs.",
+        }
     return _CICD_ACTIVE_RUNS
 
 
 @app.get("/api/cicd/dora-metrics")
 def get_dora_metrics(current_user: User = Depends(get_current_user)):
     """Return DORA metrics for the organisation."""
+    if not _demo_data_enabled():
+        return {
+            "status": "no_data",
+            "message": "Connect CI/CD tools to compute real DORA metrics.",
+            "deployment_frequency": None,
+            "lead_time_for_changes": None,
+            "change_failure_rate": None,
+            "time_to_restore": None,
+        }
     return _DORA_METRICS
 
 
@@ -3648,6 +3734,9 @@ async def trigger_cicd_monitor(request: Request, current_user: User = Depends(ge
 
 async def _cicd_monitor_fallback():
     """In-process fallback for monitor when Redis/Celery is unavailable."""
+    if not _demo_data_enabled():
+        logger.info("CI/CD monitor fallback skipped — demo data disabled")
+        return
     import random as _rand
     await asyncio.sleep(2)
     scenario = _rand.choice(_CICD_MONITOR_SCENARIOS)

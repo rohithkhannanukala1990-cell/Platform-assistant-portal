@@ -264,7 +264,7 @@ def test_25_api_context_get_put_pin(client, admin_token):
     g = client.get("/api/context", headers=h)
     assert g.status_code == 200
     body = g.json()
-    assert body["user_id"] == "admin"
+    assert str(body["user_id"]).isdigit()
     assert body["active_environment"] == "development"
     assert isinstance(body["active_accounts"], dict)
     assert isinstance(body["pinned_accounts"], list)
