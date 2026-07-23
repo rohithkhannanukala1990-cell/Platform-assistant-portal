@@ -1,0 +1,36 @@
+"""Database package — core engine, models, and repositories."""
+from backend.db.core import (
+    DATABASE_URL,
+    DEFAULT_SETTINGS,
+    _column_exists,
+    _import_models,
+    _is_postgres,
+    _is_sqlite,
+    _migrate,
+    _seed_rbac,
+    _seed_settings,
+    _seed_templates,
+    _seed_tools,
+    _seed_workspaces,
+    create_db_and_tables,
+    engine,
+    get_db,
+)
+
+__all__ = [
+    "DATABASE_URL",
+    "DEFAULT_SETTINGS",
+    "engine",
+    "get_db",
+    "create_db_and_tables",
+    "_is_postgres",
+    "_is_sqlite",
+    "_import_models",
+    "_migrate",
+    "_column_exists",
+    "_seed_tools",
+    "_seed_workspaces",
+    "_seed_templates",
+    "_seed_rbac",
+    "_seed_settings",
+]
