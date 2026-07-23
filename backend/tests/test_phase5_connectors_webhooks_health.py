@@ -208,3 +208,58 @@ def test_health_full_includes_connectors(client, admin_token):
     assert "github" in data["connectors"]
     assert "tools" in data
     assert "connectors" in data["tools"]
+    assert "recommendations" in data
+    assert isinstance(data["recommendations"], list)
+    assert "performance" in data
+    assert "slow_queries" in data["performance"]
+    assert "dependencies" in data
+    assert "vulnerabilities" in data["dependencies"]
+
+
+def test_build_tuning_recommendations_from_probes():
+    from backend.health import build_tuning_recommendations
+
+    recs = build_tuning_recommendations(
+        {
+            "performance": {
+                "available": True,
+                "slow_queries": [
+                    {
+                        "query": "SELECT * FROM big_table WHERE id = $1",
+                        "mean_exec_time": 1200.0,
+                        "calls": 40,
+                        "total_exec_time": 48000.0,
+                    }
+                ],
+            },
+            "dependencies": {
+                "vulnerability_count": 1,
+                "vulnerabilities": [
+                    {
+                        "package": "demo",
+                        "version": "0.1",
+                        "vulnerability_id": "PYSEC-1",
+                        "severity": "high",
+                    }
+                ],
+            },
+            "tools": {"degraded": ["github"]},
+            "database": {"latency_ms": 10},
+            "redis": {"status": "healthy"},
+        }
+    )
+    cats = {r["category"] for r in recs}
+    assert "performance" in cats
+    assert "dependencies" in cats
+    assert "connectors" in cats
+
+
+def test_dashboard_health_recommendations(client, admin_token):
+    response = client.get(
+        "/api/dashboard/health-recommendations",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert "recommendations" in data
+    assert isinstance(data["recommendations"], list)

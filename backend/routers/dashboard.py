@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from ..auth import User, get_current_user
+from ..auth import User, get_current_user, require_role
 from ..database import Incident, get_db
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -35,6 +36,22 @@ class DashboardSummary(BaseModel):
     open_incidents: int
     dora: DoraMetrics
     mock: bool = False
+
+
+class TuningRecommendation(BaseModel):
+    id: str
+    category: str
+    severity: str
+    title: str
+    detail: str | None = None
+    action: str | None = None
+    evidence: str | None = None
+
+
+class HealthRecommendationsResponse(BaseModel):
+    recommendations: list[TuningRecommendation] = Field(default_factory=list)
+    checked_at: str | None = None
+    status: str | None = None
 
 
 def _mock_summary() -> DashboardSummary:
@@ -119,3 +136,34 @@ def dashboard_summary(
         )
     except Exception:
         return _mock_summary()
+
+
+# TODO(S3-P3.2): Provide basic metrics-based recommendations
+@router.get(
+    "/health-recommendations",
+    response_model=HealthRecommendationsResponse,
+)
+async def health_recommendations(
+    _user: User = Depends(require_role("Admin", "User")),
+):
+    """Return tuning recommendations derived from the latest health probes."""
+    from ..health import build_tuning_recommendations, health_checker
+
+    full: dict[str, Any] = await health_checker.check_all()
+    recs = full.get("recommendations") or build_tuning_recommendations(full)
+    overall = "healthy"
+    for key, val in full.items():
+        if key == "recommendations" or not isinstance(val, dict):
+            continue
+        st = val.get("status")
+        if st == "critical":
+            overall = "critical"
+        elif st == "warning" and overall != "critical":
+            overall = "warning"
+    return HealthRecommendationsResponse(
+        recommendations=[
+            TuningRecommendation(**r) for r in recs if isinstance(r, dict)
+        ],
+        checked_at=full.get("checked_at"),
+        status=overall,
+    )

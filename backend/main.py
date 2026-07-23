@@ -33,7 +33,7 @@ from google import genai
 from sqlmodel import Session, select
 from sqlalchemy import text as sa_text
 from .database import engine as db_engine
-from .auth import auth_router, get_current_user, write_audit, User, require_admin
+from .auth import auth_router, get_current_user, write_audit, User, require_admin, require_role
 from .auth import seed_default_admin, seed_default_llm_config
 from .connectors.registry import get_auth_types, get_connector, get_required_fields
 from .command_validator import CommandValidator
@@ -1892,14 +1892,14 @@ app.include_router(ws_portal_router)
 
 
 @app.get("/api/health/full")
-async def api_health_full(_admin: User = Depends(require_admin)):
+async def api_health_full(_user: User = Depends(require_role("Admin", "User"))):
     from .health import health_checker
 
     return await health_checker.check_all()
 
 
 @app.get("/api/health/alerts")
-def api_health_alerts(_admin: User = Depends(require_admin)):
+def api_health_alerts(_user: User = Depends(require_role("Admin", "User"))):
     with Session(db_engine) as session:
         rows = session.exec(
             select(HealthAlert)

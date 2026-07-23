@@ -55,7 +55,7 @@ export default function Layout({ user, onLogout }) {
   }, [paletteOpen])
 
   useEffect(() => {
-    if (role !== 'Admin') return undefined
+    if (role !== 'Admin' && role !== 'User') return undefined
     let ws
     try {
       ws = new WebSocket(buildPortalWsUrl())
@@ -87,7 +87,7 @@ export default function Layout({ user, onLogout }) {
     <div className="flex h-screen bg-neutral-950 text-white overflow-hidden">
       <Sidebar user={user} onLogout={onLogout} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-col flex-1 overflow-hidden">
-        {criticalHealthBanner && role === 'Admin' && (
+        {criticalHealthBanner && (role === 'Admin' || role === 'User') && (
           <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-red-950/80 border-b border-red-700/50 text-red-100 text-sm">
             <span>🚨 Critical system alert: {criticalHealthBanner}</span>
             <div className="flex items-center gap-2">
@@ -109,7 +109,7 @@ export default function Layout({ user, onLogout }) {
             </div>
           </div>
         )}
-        {healthWsToast && role === 'Admin' && (
+        {healthWsToast && (role === 'Admin' || role === 'User') && (
           <div className="fixed bottom-6 left-6 z-[60] max-w-sm px-4 py-3 rounded-lg border border-amber-500/40 bg-amber-950/90 text-amber-100 text-sm shadow-xl">
             ⚠️ {healthWsToast}
           </div>

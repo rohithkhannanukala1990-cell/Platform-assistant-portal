@@ -338,7 +338,7 @@ function OpsPortalInner({ currentView, onViewChange, onBreadcrumb }) {
             />
           )}
           {currentView === 'integrations' && <IntegrationsPage />}
-          {currentView === 'health' && role === 'Admin' && (
+          {currentView === 'health' && (role === 'Admin' || role === 'User') && (
             <div>
               {healthEntry?.icon
                 ? (() => {

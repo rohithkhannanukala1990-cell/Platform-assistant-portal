@@ -7,6 +7,7 @@ import {
   RefreshCw,
   X,
   ChevronDown,
+  HeartPulse,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
@@ -202,11 +203,29 @@ export default function ScorecardsPage() {
   const [evaluateAllProgress, setEvaluateAllProgress] = useState(null)
   const [drawerEntity, setDrawerEntity] = useState(null)
   const [toast, setToast] = useState(null)
+  const [platformHealth, setPlatformHealth] = useState(null)
 
   const showToast = useCallback((message) => {
     setToast(message)
     window.setTimeout(() => setToast(null), 4000)
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await authFetch('/api/health/summary')
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setPlatformHealth(data)
+      } catch {
+        /* summary is best-effort */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [authFetch])
 
   const fetchScorecard = useCallback(
     async (entityId) => {
@@ -359,24 +378,47 @@ export default function ScorecardsPage() {
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">Entity quality scores across the catalog</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void evaluateAll()}
-          disabled={loading || !!evaluateAllProgress || entities.length === 0}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold disabled:opacity-50"
-        >
-          {evaluateAllProgress ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Evaluating {evaluateAllProgress.done} of {evaluateAllProgress.total}...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="w-4 h-4" />
-              Evaluate All
-            </>
+        <div className="flex flex-wrap items-center gap-2">
+          {platformHealth?.status && (
+            <Link
+              to="/health"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-700 bg-gray-800/80 text-xs font-medium text-slate-300 hover:text-white hover:border-gray-500"
+              title="Open system health dashboard"
+            >
+              <HeartPulse className="w-3.5 h-3.5 text-rose-400" />
+              Platform health
+              <span
+                className={`rounded-full px-2 py-0.5 capitalize ${
+                  platformHealth.status === 'critical'
+                    ? 'bg-red-500/20 text-red-300'
+                    : platformHealth.status === 'warning'
+                      ? 'bg-yellow-500/20 text-yellow-300'
+                      : 'bg-green-500/20 text-green-300'
+                }`}
+              >
+                {platformHealth.status}
+              </span>
+            </Link>
           )}
-        </button>
+          <button
+            type="button"
+            onClick={() => void evaluateAll()}
+            disabled={loading || !!evaluateAllProgress || entities.length === 0}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold disabled:opacity-50"
+          >
+            {evaluateAllProgress ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Evaluating {evaluateAllProgress.done} of {evaluateAllProgress.total}...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                Evaluate All
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {error && (

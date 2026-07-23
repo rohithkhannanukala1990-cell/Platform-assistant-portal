@@ -665,6 +665,7 @@ def _sync_slow_queries() -> dict[str, Any]:
                 "slow_query_count": 0,
                 "slow_queries": [],
                 "message": "pg_stat_statements not available (non-PostgreSQL database)",
+                "available": False,
             }
         try:
             with Session(engine) as session:
@@ -680,11 +681,13 @@ def _sync_slow_queries() -> dict[str, Any]:
                     )
                 )
                 rows = result.fetchall()
+            # TODO(S3-P3.2): Display slow queries from health's pg_stat_statements probe
             slow = [
                 {
                     "query": str(r[0])[:500],
                     "total_exec_time": float(r[1]),
                     "calls": int(r[2]),
+                    "mean_exec_time": float(r[3]),
                 }
                 for r in rows
             ]
@@ -693,16 +696,64 @@ def _sync_slow_queries() -> dict[str, Any]:
                 "slow_query_count": len(slow),
                 "slow_queries": slow,
                 "threshold_ms": 500,
+                "available": True,
+                "message": (
+                    f"{len(slow)} slow quer{'y' if len(slow) == 1 else 'ies'} above 500ms mean"
+                    if slow
+                    else "No slow queries above threshold"
+                ),
             }
         except Exception:
             return {
                 "status": "healthy",
                 "slow_query_count": 0,
                 "slow_queries": [],
+                "available": False,
                 "message": "pg_stat_statements not available",
             }
 
     return _timed_probe("performance", _run)
+
+
+def _normalize_pip_audit_vulnerabilities(data: Any) -> list[dict[str, Any]]:
+    """Flatten pip-audit JSON into package/version/id/severity rows."""
+    rows: list[dict[str, Any]] = []
+    if not isinstance(data, list):
+        return rows
+    for dep in data:
+        if not isinstance(dep, dict):
+            continue
+        package = dep.get("name") or dep.get("package") or "unknown"
+        version = dep.get("version") or dep.get("installed_version") or "—"
+        vulns = dep.get("vulns") or dep.get("vulnerabilities") or []
+        if not isinstance(vulns, list):
+            continue
+        for vuln in vulns:
+            if not isinstance(vuln, dict):
+                continue
+            aliases = vuln.get("aliases") or []
+            vuln_id = (
+                vuln.get("id")
+                or (aliases[0] if aliases else None)
+                or "unknown"
+            )
+            severity = (
+                vuln.get("severity")
+                or vuln.get("fix")
+                or ("high" if any(str(a).startswith("CVE-") for a in aliases) else "medium")
+            )
+            rows.append(
+                {
+                    "package": package,
+                    "version": version,
+                    "vulnerability_id": str(vuln_id),
+                    "severity": str(severity).lower(),
+                    "fix_versions": vuln.get("fix_versions") or [],
+                    "aliases": aliases,
+                    "description": (vuln.get("description") or "")[:300],
+                }
+            )
+    return rows
 
 
 def _sync_pip_audit() -> dict[str, Any]:
@@ -712,6 +763,8 @@ def _sync_pip_audit() -> dict[str, Any]:
             return {
                 "status": "healthy",
                 "vulnerability_count": 0,
+                "vulnerabilities": [],
+                "available": False,
                 "message": "requirements.txt not found for audit",
             }
         try:
@@ -734,23 +787,153 @@ def _sync_pip_audit() -> dict[str, Any]:
                 return {
                     "status": "healthy",
                     "vulnerability_count": 0,
+                    "vulnerabilities": [],
+                    "available": False,
                     "message": "pip-audit unavailable or failed",
                 }
             data = json.loads(proc.stdout or "[]")
-            vulns = len(data) if isinstance(data, list) else 0
+            # TODO(S3-P3.2): Display pip_audit results with package, version, id, severity
+            vulnerabilities = _normalize_pip_audit_vulnerabilities(data)
+            vulns = len(vulnerabilities)
             return {
                 "status": "warning" if vulns > 0 else "healthy",
                 "vulnerability_count": vulns,
+                "vulnerabilities": vulnerabilities[:50],
+                "available": True,
                 "message": f"{vulns} vulnerabilities reported by pip-audit",
             }
         except Exception as exc:
             return {
                 "status": "healthy",
                 "vulnerability_count": 0,
+                "vulnerabilities": [],
+                "available": False,
                 "message": f"Dependency check unavailable: {exc}",
             }
 
     return _timed_probe("dependencies", _run)
+
+
+# TODO(S3-P3.2): Provide basic metrics-based recommendations
+def build_tuning_recommendations(full: dict[str, Any]) -> list[dict[str, Any]]:
+    """Derive read-only tuning hints from a health check_all payload."""
+    recs: list[dict[str, Any]] = []
+    perf = full.get("performance") if isinstance(full.get("performance"), dict) else {}
+    deps = full.get("dependencies") if isinstance(full.get("dependencies"), dict) else {}
+    tools = full.get("tools") if isinstance(full.get("tools"), dict) else {}
+    db = full.get("database") if isinstance(full.get("database"), dict) else {}
+    redis = full.get("redis") if isinstance(full.get("redis"), dict) else {}
+
+    for row in perf.get("slow_queries") or []:
+        if not isinstance(row, dict):
+            continue
+        mean = row.get("mean_exec_time")
+        calls = row.get("calls")
+        preview = (row.get("query") or "").strip().replace("\n", " ")[:140]
+        mean_label = f"{mean:.0f}ms mean" if isinstance(mean, (int, float)) else "high latency"
+        calls_label = f"{calls} calls" if calls is not None else "repeated execution"
+        recs.append(
+            {
+                "id": f"slow-query-{len(recs)}",
+                "category": "performance",
+                "severity": "warning",
+                "title": "Reduce heavy query load",
+                "detail": (
+                    f"Query averaging {mean_label} across {calls_label}. "
+                    "Consider adding a supporting index, limiting SELECT columns, "
+                    "or caching the result."
+                ),
+                "action": "Review EXPLAIN ANALYZE and add an index on the hottest filter/join columns.",
+                "evidence": preview or None,
+            }
+        )
+
+    if perf.get("available") is False and (perf.get("message") or ""):
+        recs.append(
+            {
+                "id": "perf-unavailable",
+                "category": "performance",
+                "severity": "info",
+                "title": "Enable slow-query instrumentation",
+                "detail": perf.get("message"),
+                "action": "On Postgres, enable pg_stat_statements to surface slow queries here.",
+                "evidence": None,
+            }
+        )
+
+    vulns = deps.get("vulnerabilities") or []
+    if isinstance(vulns, list) and vulns:
+        top = vulns[0] if isinstance(vulns[0], dict) else {}
+        pkg = top.get("package") or "a dependency"
+        recs.append(
+            {
+                "id": "deps-vulns",
+                "category": "dependencies",
+                "severity": "warning",
+                "title": "Patch vulnerable dependencies",
+                "detail": (
+                    f"{deps.get('vulnerability_count') or len(vulns)} known issue(s); "
+                    f"start with {pkg}."
+                ),
+                "action": "Upgrade pinned packages in requirements.txt to fix versions from pip-audit.",
+                "evidence": top.get("vulnerability_id"),
+            }
+        )
+
+    degraded = tools.get("degraded") if isinstance(tools.get("degraded"), list) else []
+    for name in degraded[:5]:
+        recs.append(
+            {
+                "id": f"connector-{name}",
+                "category": "connectors",
+                "severity": "warning",
+                "title": f"Repair {name} connector",
+                "detail": f"The {name} probe is degraded for this workspace.",
+                "action": "Verify credentials in Integrations / tool accounts and re-test the connection.",
+                "evidence": name,
+            }
+        )
+
+    db_latency = db.get("latency_ms")
+    if isinstance(db_latency, (int, float)) and db_latency > 200:
+        recs.append(
+            {
+                "id": "db-latency",
+                "category": "database",
+                "severity": "warning",
+                "title": "Investigate database latency",
+                "detail": f"Database ping is {db_latency}ms.",
+                "action": "Check connection pooling, network path to the DB, and lock contention.",
+                "evidence": f"{db_latency}ms",
+            }
+        )
+
+    if (redis.get("status") or "").lower() == "warning":
+        recs.append(
+            {
+                "id": "redis-warning",
+                "category": "redis",
+                "severity": "warning",
+                "title": "Restore Redis availability",
+                "detail": redis.get("message") or "Redis probe reported a warning.",
+                "action": "Confirm CELERY_BROKER_URL / REDIS_URL and broker connectivity.",
+                "evidence": None,
+            }
+        )
+
+    if not recs:
+        recs.append(
+            {
+                "id": "all-clear",
+                "category": "general",
+                "severity": "info",
+                "title": "No urgent tuning actions",
+                "detail": "Probes look healthy. Keep watching latency trends after deploys.",
+                "action": None,
+                "evidence": None,
+            }
+        )
+    return recs
 
 
 class HealthChecker:
@@ -777,7 +960,7 @@ class HealthChecker:
             else:
                 normalized.append(r)
         tools = normalized[2] if isinstance(normalized[2], dict) else {}
-        return {
+        payload = {
             "database": normalized[0],
             "redis": normalized[1],
             "tools": tools,
@@ -787,6 +970,8 @@ class HealthChecker:
             "dependencies": normalized[5],
             "checked_at": _utc_iso(),
         }
+        payload["recommendations"] = build_tuning_recommendations(payload)
+        return payload
 
     async def check_postgres(self) -> dict[str, Any]:
         return await asyncio.get_running_loop().run_in_executor(
@@ -814,7 +999,7 @@ class HealthChecker:
     async def check_dependency_health(self) -> dict[str, Any]:
         return await asyncio.get_running_loop().run_in_executor(None, _sync_pip_audit)
 
-    async def get_summary(self) -> dict[str, str]:
+    async def get_summary(self) -> dict[str, Any]:
         full = await self.check_all()
         overall = "healthy"
         for _key, val in full.items():
@@ -838,6 +1023,11 @@ class HealthChecker:
         return {
             "status": overall,
             "checked_at": _utc_iso(),
+            "recommendation_count": len(full.get("recommendations") or []),
+            "slow_query_count": (full.get("performance") or {}).get("slow_query_count", 0),
+            "vulnerability_count": (full.get("dependencies") or {}).get(
+                "vulnerability_count", 0
+            ),
         }
 
 
