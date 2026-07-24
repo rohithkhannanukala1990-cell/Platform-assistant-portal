@@ -1,4 +1,4 @@
-# Platform phases (0–14 + L1–L2)
+# Platform phases (0–15 + L1–L2)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -96,3 +96,11 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Queues documented (`celery`, `triage`, `notify`) in ARCHITECTURE.md
 - [x] Login lockout counters in Redis when available (in-process fallback)
 - [x] `docs/RUNBOOK_BACKUP.md` (pg_dump/restore, exclusions, secret-key warning)
+
+## Phase 15 — Observability + enterprise beta go/no-go
+- [x] Metrics: HTTP, LLM latency, connector errors, webhook failures, GitHub API, login failures, Celery queue depth
+- [x] Grafana dashboard JSON under `deploy/grafana` + compose provisioning
+- [x] Alert rule docs: API 5xx rate, webhook sig failures, Celery queue depth
+- [x] Production sample env (`.env.production.example`): demo off, isolation on, required secrets listed
+- [x] `docs/BETA_GONOGO.md` checklist
+- [x] Smoke: `scripts/beta_smoke.sh` + `pytest -m smoke`

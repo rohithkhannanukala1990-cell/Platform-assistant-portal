@@ -100,8 +100,15 @@ def _is_login_locked(username: str, ip: str) -> bool:
     return len(recent) >= _LOCKOUT_THRESHOLD
 
 
-def _record_login_failure(username: str, ip: str) -> None:
+def _record_login_failure(username: str, ip: str, *, reason: str = "invalid_credentials") -> None:
     import time
+
+    try:
+        from .observability.metrics import record_login_failure
+
+        record_login_failure(reason)
+    except Exception:
+        pass
 
     now = time.time()
     key = _login_fail_key(username, ip)
@@ -583,6 +590,12 @@ def login(
     user_agent = (request.headers.get("user-agent") or "")[:512]
 
     if _is_login_locked(username, ip):
+        try:
+            from .observability.metrics import record_login_failure
+
+            record_login_failure("lockout")
+        except Exception:
+            pass
         write_audit(
             actor=username or "unknown",
             actor_role="unknown",
@@ -642,7 +655,7 @@ def login(
         if not login_request.totp_code:
             raise HTTPException(status_code=401, detail="MFA code required")
         if not verify_mfa_code(user.mfa_secret, login_request.totp_code):
-            _record_login_failure(username, ip)
+            _record_login_failure(username, ip, reason="mfa_invalid")
             write_audit(
                 actor=user.username,
                 actor_role=normalize_role(user.role),

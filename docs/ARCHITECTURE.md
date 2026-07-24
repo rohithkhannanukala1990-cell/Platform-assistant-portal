@@ -91,6 +91,13 @@ Login lockout counters use Redis (`CELERY_BROKER_URL` / `REDIS_URL`) when availa
 
 Backup steps: see [`RUNBOOK_BACKUP.md`](./RUNBOOK_BACKUP.md).
 
+## Observability (Phase 15)
+
+- Prometheus scrapes backend `/metrics` (`prometheus/prometheus.yml`).
+- Grafana provisions datasources from `grafana/provisioning/` and dashboards from `deploy/grafana/dashboards/`.
+- Alert recipes: [`deploy/grafana/ALERT_RULES.md`](../deploy/grafana/ALERT_RULES.md).
+- Beta go/no-go: [`BETA_GONOGO.md`](./BETA_GONOGO.md); smoke via `scripts/beta_smoke.sh` or `pytest -m smoke`.
+
 ## Run docker-compose locally
 
 ```bash

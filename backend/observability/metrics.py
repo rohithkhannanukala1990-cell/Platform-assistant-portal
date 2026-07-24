@@ -1,4 +1,10 @@
-from prometheus_client import Counter, Histogram, Gauge, make_asgi_app
+from __future__ import annotations
+
+import os
+
+from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
+from prometheus_client.core import REGISTRY, GaugeMetricFamily
+from prometheus_client.registry import Collector
 
 INCIDENTS_TOTAL = Counter(
     "aiops_incidents_total",
@@ -100,6 +106,13 @@ GITHUB_API_REQUESTS_TOTAL = Counter(
     "GitHub API requests by operation and outcome status",
     ["operation", "status"],
 )
+LOGIN_FAILURES_TOTAL = Counter(
+    "login_failures_total",
+    "Failed login attempts (bad credentials, MFA, or lockout)",
+    ["reason"],
+)
+# Alias-friendly name used in alert docs (signature rejects = webhook failures).
+WEBHOOK_FAILURES_TOTAL = WEBHOOK_SIGNATURE_FAILURES_TOTAL
 
 
 def record_connector_error(connector: str, error_type: str) -> None:
@@ -170,4 +183,61 @@ def record_github_api_request(operation: str, status: str) -> None:
         ).inc()
     except Exception:
         pass
+
+
+def record_login_failure(reason: str = "invalid_credentials") -> None:
+    try:
+        LOGIN_FAILURES_TOTAL.labels(reason=reason or "unknown").inc()
+    except Exception:
+        pass
+
+
+def _redis_llen(queue: str) -> float:
+    url = (
+        (os.getenv("CELERY_BROKER_URL") or "").strip()
+        or (os.getenv("REDIS_URL") or "").strip()
+    )
+    if not url:
+        return 0.0
+    try:
+        import redis as redis_sync
+
+        client = redis_sync.Redis.from_url(
+            url, socket_connect_timeout=0.3, socket_timeout=0.3
+        )
+        return float(client.llen(queue) or 0)
+    except Exception:
+        return 0.0
+
+
+class _CeleryQueueDepthCollector(Collector):
+    """Scrape-time Redis LLEN for Celery queues (celery, triage, notify)."""
+
+    def collect(self):
+        metric = GaugeMetricFamily(
+            "celery_queue_depth",
+            "Approximate Celery broker queue depth (Redis LLEN)",
+            labels=["queue"],
+        )
+        for queue in ("celery", "triage", "notify"):
+            metric.add_metric([queue], _redis_llen(queue))
+        yield metric
+
+
+_CELERY_QUEUE_COLLECTOR_REGISTERED = False
+
+
+def _ensure_celery_queue_collector() -> None:
+    global _CELERY_QUEUE_COLLECTOR_REGISTERED
+    if _CELERY_QUEUE_COLLECTOR_REGISTERED:
+        return
+    try:
+        REGISTRY.register(_CeleryQueueDepthCollector())
+        _CELERY_QUEUE_COLLECTOR_REGISTERED = True
+    except ValueError:
+        # Already registered (reload / multiple imports)
+        _CELERY_QUEUE_COLLECTOR_REGISTERED = True
+
+
+_ensure_celery_queue_collector()
 

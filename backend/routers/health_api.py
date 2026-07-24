@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
 from ..auth import User, require_admin, require_role, write_audit
@@ -142,3 +143,26 @@ async def health_check():
         "version": "1.0.0",
         "service": "platform-assistant-portal",
     }
+
+
+@router.get("/ready")
+async def readiness_check():
+    """Liveness-adjacent readiness: process up + database reachable."""
+    from sqlalchemy import text as sa_text
+    from sqlmodel import Session
+
+    from ..database import engine
+
+    try:
+        with Session(engine) as session:
+            session.exec(sa_text("SELECT 1"))
+    except Exception as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "detail": "database_unavailable",
+                "error": str(exc)[:200],
+            },
+        )
+    return {"status": "ready", "service": "platform-assistant-portal"}
