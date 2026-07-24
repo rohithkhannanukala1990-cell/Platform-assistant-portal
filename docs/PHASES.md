@@ -1,4 +1,4 @@
-# Platform phases (0–11 + L1–L2)
+# Platform phases (0–12 + L1–L2)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -76,3 +76,10 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] No fake Slack/ServiceNow success when demo data disabled
 - [x] UI: `/incidents/:id` command center (timeline, plan, commands, Approve/Reject/Re-triage/Run agent)
 - [x] `POST .../run-agent` stamps PlatformContext from current user; results append to timeline
+
+## Phase 12 — K8s + PagerDuty connector parity
+- [x] `k8s_access` / `pagerduty_access`: scoped ToolAccount resolve + SecretBox decrypt (no global fallback)
+- [x] Read-only `/api/k8s/*` and `/api/pagerduty/*` (auth required; 400 when not connected)
+- [x] Agents (`infra_agent`, `incident_agent`, `auto_heal`) use `try_*_connector`; skip when disconnected
+- [x] Health probes: configured flag + optional ping via connectors
+- [x] UI: `/k8s` and `/pagerduty` panels with empty states

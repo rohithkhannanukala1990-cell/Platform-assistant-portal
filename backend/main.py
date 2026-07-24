@@ -39,6 +39,8 @@ from .routers.catalog import router as catalog_router
 from .routers.catalog_copilot import router as catalog_copilot_router
 from .routers.dashboard import router as dashboard_router
 from .routers.github_ops import router as github_ops_router
+from .routers.k8s_ops import router as k8s_ops_router
+from .routers.pagerduty_ops import router as pagerduty_ops_router
 from .routers.health_api import router as health_api_router
 from .routers.imports_api import router as imports_api_router
 from .routers.incidents import router as incidents_router
@@ -174,6 +176,8 @@ app.include_router(infra_cicd_router)
 app.include_router(health_api_router)
 app.include_router(platform_misc_router)
 app.include_router(github_ops_router)
+app.include_router(k8s_ops_router)
+app.include_router(pagerduty_ops_router)
 
 from .ws_portal import router as ws_portal_router
 

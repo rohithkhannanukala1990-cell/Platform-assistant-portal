@@ -118,6 +118,8 @@ const NAV_GROUPS = [
       { label: 'CI/CD Pipelines', path: '/cicd', icon: 'GitBranch' },
       { label: 'GitHub PRs', path: '/github/prs', icon: 'GitPullRequest' },
       { label: 'GitHub Actions', path: '/github/actions', icon: 'Activity' },
+      { label: 'Kubernetes', path: '/k8s', icon: 'Server' },
+      { label: 'PagerDuty', path: '/pagerduty', icon: 'Bell' },
       { label: 'Deployments', path: '/deployments', icon: 'Rocket' },
       { label: 'Live Pipelines', path: '/live-pipelines', icon: 'Activity' },
       { label: 'Schema Browser', path: '/schema-browser', icon: 'Database' },

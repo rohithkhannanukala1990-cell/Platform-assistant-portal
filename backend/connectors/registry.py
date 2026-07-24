@@ -297,6 +297,14 @@ def get_connector(tool_id: str, account: dict[str, Any]) -> BaseConnector:
         from .github_connector import GitHubConnector as RealGitHubConnector
 
         return RealGitHubConnector(account)
+    if tool_id == "kubernetes":
+        from .kubernetes_connector import KubernetesConnector as RealK8sConnector
+
+        return RealK8sConnector(account)
+    if tool_id == "pagerduty":
+        from .pagerduty_connector import PagerDutyConnector as RealPdConnector
+
+        return RealPdConnector(account)
     connector_class = CONNECTOR_CLASSES.get(tool_id, BaseConnector)
     return connector_class(account)
 

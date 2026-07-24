@@ -467,6 +467,7 @@ def _sync_kubernetes_probe(tool_accounts: list | None = None) -> dict[str, Any]:
         picked = _pick_account(accounts)
         kubeconfig = (
             ((picked or {}).get("credentials_vault_ref") or "").strip()
+            or ((picked or {}).get("kubeconfig") or "").strip()
             or os.getenv("KUBECONFIG", "").strip()
         )
         in_cluster = os.path.exists(
@@ -476,36 +477,47 @@ def _sync_kubernetes_probe(tool_accounts: list | None = None) -> dict[str, Any]:
             return {
                 "status": "healthy",
                 "latency_ms": None,
-                "message": "Kubernetes config not available",
+                "message": "Kubernetes not configured (no tool account or kubeconfig)",
                 "configured": False,
                 "accounts": len(accounts),
             }
-        try:
-            from kubernetes import client, config
 
+        account = picked or {"tool_id": "kubernetes"}
+        if kubeconfig and not (
+            account.get("credentials_vault_ref") or account.get("kubeconfig") or ""
+        ).strip():
+            account = {**account, "kubeconfig": kubeconfig, "tool_id": "kubernetes"}
+
+        async def _check() -> dict[str, Any]:
+            from .connectors.kubernetes_connector import KubernetesConnector
+
+            connector = KubernetesConnector(account)
             start = time.perf_counter()
-            if in_cluster and not kubeconfig:
-                config.load_incluster_config()
-            else:
-                config.load_kube_config(config_file=kubeconfig or None)
-            version = client.VersionApi().get_code()
+            result = await connector.execute_action("ping", {})
             latency_ms = round((time.perf_counter() - start) * 1000, 2)
+            if result.get("ok"):
+                version = (result.get("result") or {}).get("git_version")
+                return {
+                    "status": "healthy",
+                    "latency_ms": latency_ms,
+                    "configured": True,
+                    "accounts": len(accounts),
+                    "account_name": account.get("account_name"),
+                    "message": f"Kubernetes API {version or 'ok'}",
+                }
+            error = result.get("error") or (result.get("result") or {}).get("error") or {}
             return {
-                "status": "healthy",
+                "status": "warning",
                 "latency_ms": latency_ms,
                 "configured": True,
                 "accounts": len(accounts),
-                "account_name": (picked or {}).get("account_name"),
-                "message": f"Kubernetes API {getattr(version, 'git_version', 'ok')}",
+                "account_name": account.get("account_name"),
+                "message": (error.get("message") if isinstance(error, dict) else None)
+                or "Kubernetes probe failed",
+                "error": error if isinstance(error, dict) else {"type": "probe_failed", "message": str(error)},
             }
-        except Exception as exc:
-            return {
-                "status": "warning",
-                "configured": True,
-                "accounts": len(accounts),
-                "message": f"Kubernetes unreachable: {exc}",
-                "error": {"type": "network_error", "message": str(exc)},
-            }
+
+        return _async_probe_result(_check())
 
     return _finalize_connector_probe("kubernetes", _timed_probe("kubernetes", _run))
 
@@ -518,56 +530,49 @@ def _sync_pagerduty_probe(tool_accounts: list | None = None) -> dict[str, Any]:
             ((picked or {}).get("api_key") or (picked or {}).get("token") or "").strip()
             or os.getenv("PAGERDUTY_API_KEY", "").strip()
         )
-        if not key:
+        if not picked and not key:
             return {
                 "status": "healthy",
                 "latency_ms": None,
-                "message": "PagerDuty API key not configured",
+                "message": "PagerDuty not configured (no tool account or PAGERDUTY_API_KEY)",
                 "configured": False,
                 "accounts": len(accounts),
             }
-        try:
-            import httpx
 
+        account = picked or {"tool_id": "pagerduty"}
+        if key and not (account.get("api_key") or account.get("token") or "").strip():
+            account = {**account, "api_key": key, "tool_id": "pagerduty"}
+
+        async def _check() -> dict[str, Any]:
+            from .connectors.pagerduty_connector import PagerDutyConnector
+
+            connector = PagerDutyConnector(account)
             start = time.perf_counter()
-            with httpx.Client(timeout=_PROBE_HTTP_TIMEOUT) as client:
-                resp = client.get(
-                    "https://api.pagerduty.com/abilities",
-                    headers={
-                        "Authorization": f"Token token={key}",
-                        "Accept": "application/vnd.pagerduty+json;version=2",
-                    },
-                )
+            result = await connector.execute_action("ping", {})
             latency_ms = round((time.perf_counter() - start) * 1000, 2)
-            if resp.status_code < 400:
+            if result.get("ok"):
                 return {
                     "status": "healthy",
                     "latency_ms": latency_ms,
                     "configured": True,
                     "accounts": len(accounts),
-                    "account_name": (picked or {}).get("account_name"),
+                    "account_name": account.get("account_name"),
                     "message": "PagerDuty API reachable",
                 }
-            status = "critical" if resp.status_code in (401, 403) else "warning"
+            error = result.get("error") or (result.get("result") or {}).get("error") or {}
+            err_type = error.get("type") if isinstance(error, dict) else None
             return {
-                "status": status,
+                "status": "critical" if err_type == "auth_failed" else "warning",
                 "latency_ms": latency_ms,
                 "configured": True,
                 "accounts": len(accounts),
-                "message": f"PagerDuty HTTP {resp.status_code}",
-                "error": {
-                    "type": "auth_failed" if status == "critical" else "probe_failed",
-                    "message": f"HTTP {resp.status_code}",
-                },
+                "account_name": account.get("account_name"),
+                "message": (error.get("message") if isinstance(error, dict) else None)
+                or "PagerDuty probe failed",
+                "error": error if isinstance(error, dict) else {"type": "probe_failed", "message": str(error)},
             }
-        except Exception as exc:
-            return {
-                "status": "warning",
-                "configured": True,
-                "accounts": len(accounts),
-                "message": f"PagerDuty unreachable: {exc}",
-                "error": {"type": "network_error", "message": str(exc)},
-            }
+
+        return _async_probe_result(_check())
 
     return _finalize_connector_probe("pagerduty", _timed_probe("pagerduty", _run))
 

@@ -6,14 +6,11 @@ import re
 
 from sqlmodel import Session
 
-from ..connectors.pagerduty_connector import PagerDutyConnector
 from ..context import PlatformContext
+from ..services.pagerduty_access import try_pagerduty_connector_from_context
 from .base import BaseAgent
 
-_ACCOUNT: dict = {}
 
-
-# TODO: Map natural language task to a structured incident action (e.g. acknowledge, resolve, list) plus parameters
 def _detect_action(task: str, params: dict) -> str:
     text = (params.get("task") or params.get("message") or task or "").lower()
     if re.search(r"\blist|open|show\b", text):
@@ -36,7 +33,20 @@ class IncidentAgent(BaseAgent):
     async def run(self, params: dict, context: PlatformContext, db: Session):
         task = str(params.get("task") or params.get("message") or "")
         action = _detect_action(task, params)
-        pd = PagerDutyConnector(_ACCOUNT)
+        pd = try_pagerduty_connector_from_context(context, db=db)
+        if pd is None:
+            return self._build_result(
+                context,
+                status="skipped",
+                summary="PagerDuty not connected. Connect a PagerDuty account in Tool Registry.",
+                details={
+                    "incidents": [],
+                    "action_taken": action,
+                    "count": 0,
+                    "reason": "pagerduty_not_configured",
+                },
+            )
+
         incidents: list = []
         action_taken = action
 
@@ -54,7 +64,6 @@ class IncidentAgent(BaseAgent):
                     action_taken = "created"
             elif action in ("acknowledge", "resolve"):
                 incident_id = params.get("incident_id") or _extract_incident_id(task)
-                # TODO: Use PlatformContext.is_production() to mark acknowledge/resolve actions as hitl_required in production
                 if context.is_production() and incident_id:
                     return self._build_result(
                         context,
@@ -97,7 +106,6 @@ class IncidentAgent(BaseAgent):
         )
 
 
-# TODO: Extract incident identifier reliably from text for use in structured actions
 def _extract_incident_id(text: str) -> str | None:
     m = re.search(r"(?:incident[_\s-]*)?([A-Z0-9]{7,})", text, re.I)
     return m.group(1) if m else None

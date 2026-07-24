@@ -36,6 +36,8 @@ const ALL_COMMANDS = [
   { label: 'CI/CD Pipelines', path: '/cicd', category: 'DevTools' },
   { label: 'GitHub PRs', path: '/github/prs', category: 'DevTools' },
   { label: 'GitHub Actions', path: '/github/actions', category: 'DevTools' },
+  { label: 'Kubernetes', path: '/k8s', category: 'DevTools' },
+  { label: 'PagerDuty', path: '/pagerduty', category: 'Ops' },
   { label: 'Live Pipelines', path: '/live-pipelines', category: 'DevTools' },
   { label: 'Deployments', path: '/deployments', category: 'DevTools' },
   { label: 'Schema Browser', path: '/schema-browser', category: 'DevTools' },

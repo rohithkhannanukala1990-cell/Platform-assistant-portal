@@ -6,11 +6,9 @@ import re
 
 from sqlmodel import Session
 
-from ..connectors.kubernetes_connector import KubernetesConnector
 from ..context import PlatformContext
+from ..services.k8s_access import try_k8s_connector_from_context
 from .base import BaseAgent
-
-_ACCOUNT: dict = {}
 
 
 class AutoHealAgent(BaseAgent):
@@ -24,7 +22,20 @@ class AutoHealAgent(BaseAgent):
         service_name = params.get("service_name") or "platform"
         namespace = params.get("namespace") or "default"
         pod_name = params.get("pod_name") or _extract_pod(task)
-        k8s = KubernetesConnector(_ACCOUNT)
+        k8s = try_k8s_connector_from_context(context, db=db)
+        if k8s is None:
+            return self._build_result(
+                context,
+                status="skipped",
+                summary="Kubernetes not connected. Connect a Kubernetes account in Tool Registry.",
+                details={
+                    "pods_affected": [],
+                    "actions": [],
+                    "service_name": service_name,
+                    "namespace": namespace,
+                    "reason": "kubernetes_not_configured",
+                },
+            )
 
         pods_affected: list[str] = []
         actions: list[dict] = []

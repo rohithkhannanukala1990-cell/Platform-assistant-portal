@@ -7,8 +7,8 @@ import re
 from sqlmodel import Session
 
 from ..connectors.aws_connector import AWSConnector
-from ..connectors.kubernetes_connector import KubernetesConnector
 from ..context import PlatformContext
+from ..services.k8s_access import try_k8s_connector_from_context
 from .base import BaseAgent
 
 _ACCOUNT: dict = {}
@@ -26,8 +26,29 @@ class InfraAgent(BaseAgent):
         region = params.get("region")
         env = (context.environment or "development").lower()
 
+        wants_k8s = bool(
+            re.search(r"\bpod|pods|node|nodes|scale|k8s|kubernetes\b", task)
+            or not re.search(r"\bec2|instance|aws\b", task)
+        )
+        wants_aws = bool(re.search(r"\bec2|instance|aws\b", task) or not wants_k8s)
+
+        k8s = try_k8s_connector_from_context(context, db=db) if wants_k8s else None
+        if wants_k8s and k8s is None and not re.search(r"\bec2|instance|aws\b", task):
+            return self._build_result(
+                context,
+                status="skipped",
+                summary="Kubernetes not connected. Connect a Kubernetes account in Tool Registry.",
+                details={
+                    "resource_type": "pods",
+                    "count": 0,
+                    "items": [],
+                    "environment": env,
+                    "reason": "kubernetes_not_configured",
+                },
+            )
+
         resource_type = "mixed"
-        items: list = []
+        items: list | dict = []
 
         try:
             if re.search(r"\bec2|instance|aws\b", task):
@@ -35,15 +56,17 @@ class InfraAgent(BaseAgent):
                 items = await AWSConnector(_ACCOUNT).list_instances(region)
             elif re.search(r"\bpod|pods\b", task):
                 resource_type = "pods"
-                items = await KubernetesConnector(_ACCOUNT).list_pods(namespace)
+                items = await k8s.list_pods(namespace) if k8s else []
             elif re.search(r"\bnode|nodes|scale\b", task):
                 resource_type = "nodes"
-                items = await KubernetesConnector(_ACCOUNT).list_nodes()
+                items = await k8s.list_nodes() if k8s else []
             else:
-                aws_items = await AWSConnector(_ACCOUNT).list_instances(region)
-                k8s_pods = await KubernetesConnector(_ACCOUNT).list_pods(namespace)
+                aws_items = await AWSConnector(_ACCOUNT).list_instances(region) if wants_aws else []
+                k8s_pods = await k8s.list_pods(namespace) if k8s else []
                 resource_type = "mixed"
                 items = {"ec2_instances": aws_items, "pods": k8s_pods}
+                if k8s is None:
+                    items["kubernetes_status"] = "not_configured"
         except Exception:
             items = []
 
