@@ -18,6 +18,7 @@ import {
   Check,
 } from 'lucide-react'
 import { API_BASE } from '../config/apiBase'
+import LLMProvidersPanel from './LLMProvidersPanel'
 
 const API = `${API_BASE}/api/settings`
 
@@ -68,7 +69,7 @@ export default function SettingsModal({ onClose, embedded = false }) {
   }
 
   const panel = (
-      <div className="flex flex-col w-full max-w-lg bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden animate-fade-in">
+      <div className="flex flex-col w-full max-w-xl bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden animate-fade-in">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-sidebar">
@@ -93,6 +94,9 @@ export default function SettingsModal({ onClose, embedded = false }) {
               {error}
             </div>
           )}
+
+          {/* LLM providers */}
+          <LLMProvidersPanel />
 
           {/* Slack */}
           <Section title="Slack Integration" icon={Webhook} iconColor="text-violet-400">

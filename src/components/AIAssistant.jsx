@@ -105,9 +105,18 @@ export default function AIAssistant() {
 
   const loadModels = useCallback(async () => {
     try {
-      const res = await authFetch('/api/ai/models')
+      const res = await authFetch('/api/llm/status')
       if (!res.ok) return
-      setAvailableModels(await res.json())
+      const data = await res.json()
+      const models = Array.isArray(data.models) ? data.models : []
+      setAvailableModels(models)
+      const def = (data.default_model || '').trim()
+      if (def) {
+        setSelectedModel((prev) => {
+          if (models.some((m) => m.id === prev)) return prev
+          return def
+        })
+      }
     } catch {
       setAvailableModels([])
     }

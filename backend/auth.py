@@ -125,11 +125,15 @@ class LLMProviderConfig(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     provider: str = Field(default="openai")
     model_name: str = Field(default="gpt-4o-mini")
+    base_url: Optional[str] = Field(default=None)
+    api_key_vault_ref: Optional[str] = Field(default=None)
     fallback_provider: str = Field(default="openai")
     fallback_model: str = Field(default="gpt-4o-mini")
     monthly_token_budget: int = Field(default=1_000_000)
     tokens_used_this_month: int = Field(default=0)
     is_active: bool = Field(default=True)
+    priority: int = Field(default=100)
+    metadata_json: str = Field(default="{}")
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_by: str = Field(default="system")
 
@@ -411,11 +415,15 @@ def seed_default_llm_config() -> None:
             LLMProviderConfig(
                 provider="openai",
                 model_name="gpt-4o-mini",
+                base_url="https://api.openai.com/v1",
+                api_key_vault_ref=None,
                 fallback_provider="openai",
                 fallback_model="gpt-4o-mini",
                 monthly_token_budget=1_000_000,
                 tokens_used_this_month=0,
                 is_active=True,
+                priority=100,
+                metadata_json="{}",
                 updated_at=datetime.now(timezone.utc),
                 updated_by="system",
             )
@@ -615,7 +623,10 @@ def get_llm_config(admin: User = Depends(require_admin)):
         ).first()
         if not cfg:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active LLM config")
-        return cfg.model_dump()
+        data = cfg.model_dump()
+        data.pop("api_key_vault_ref", None)
+        data["has_api_key"] = bool((cfg.api_key_vault_ref or "").strip())
+        return data
 
 
 @auth_router.put("/llm-config")
@@ -665,5 +676,8 @@ def update_llm_config(
         detail="Updated LLM provider configuration",
         ip_address=(request.client.host if request.client else ""),
     )
-    return cfg.model_dump()
+    data = cfg.model_dump()
+    data.pop("api_key_vault_ref", None)
+    data["has_api_key"] = bool((cfg.api_key_vault_ref or "").strip())
+    return data
 

@@ -527,6 +527,10 @@ def _migrate():
         ("agent_runs", "tenant_id", "TEXT", "'default'"),
         ("agent_runs", "user_id", "TEXT", "NULL"),
         ("catalog_entities", "tenant_id", "TEXT", "'default'"),
+        ("llmproviderconfig", "base_url", "TEXT", "NULL"),
+        ("llmproviderconfig", "api_key_vault_ref", "TEXT", "NULL"),
+        ("llmproviderconfig", "priority", "INTEGER", "100"),
+        ("llmproviderconfig", "metadata_json", "TEXT", "'{}'"),
     ]
     with Session(engine) as session:
         for table, col, col_type, default in migrations:

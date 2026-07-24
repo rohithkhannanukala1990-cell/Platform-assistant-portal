@@ -94,8 +94,9 @@ UI: `npm install && npm run dev` (point `VITE_*` / `API_BASE` at the API).
 ## AI / LLM
 
 - All chat goes through `backend/ai/llm_service.py` (`llm_service.chat`).
-- Providers: `openai` and `openai_compatible` (OpenAI chat completions via `OPENAI_BASE_URL`), plus `anthropic`.
-- Gemini and Ollama SDKs are removed. Local models use an OpenAI-compatible base URL.
-- Resolution: explicit args → `LLM_DEFAULT_PROVIDER` / `LLM_DEFAULT_MODEL` → `OPENAI_API_KEY` → `ANTHROPIC_API_KEY` → `LLM_MOCK=1` → error.
-- `llm_router` is a thin shim for existing call sites; do not add provider branches there.
-- Status (no secrets): `GET /api/ai/llm/status` and `llm_service.get_status()`.
+- Providers: `openai` and `openai_compatible` (OpenAI chat completions via `OPENAI_BASE_URL` / DB `base_url`), plus `anthropic`.
+- DB rows in `LLMProviderConfig` store encrypted `api_key_vault_ref` (Phase 8 secrets); multiple active rows allowed, ordered by `priority`.
+- Admin API: `/api/llm/status`, `/api/llm/providers`, `/api/llm/test` — GET responses never include raw API keys.
+- Resolution: explicit args → `LLM_DEFAULT_*` env → highest-priority active DB row → env API keys → `LLM_MOCK=1` → error.
+- `llm_router` is a thin shim for existing call sites.
+- UI: Settings → LLM providers; AIAssistant / TopBar read `/api/llm/status`.

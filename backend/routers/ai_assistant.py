@@ -1030,38 +1030,12 @@ async def reject_execution(
 
 @router.get("/models")
 def list_models(current_user: User = Depends(get_current_user)):
+    _ = current_user
     status = llm_service.get_status()
-    openai_ok = status["openai_configured"] or status["mock"]
-    anthropic_ok = status["anthropic_configured"] or status["mock"]
-
-    return [
-        {
-            "id": "gpt-4o-mini",
-            "provider": "openai",
-            "available": openai_ok,
-            "label": "GPT-4o mini (OpenAI)",
-        },
-        {
-            "id": "gpt-4o",
-            "provider": "openai",
-            "available": openai_ok,
-            "label": "GPT-4o (OpenAI)",
-        },
-        {
-            "id": "claude-3-5-haiku-latest",
-            "provider": "anthropic",
-            "available": anthropic_ok,
-            "label": "Claude 3.5 Haiku (Anthropic)",
-        },
-        {
-            "id": "claude-3-5-sonnet-latest",
-            "provider": "anthropic",
-            "available": anthropic_ok,
-            "label": "Claude 3.5 Sonnet (Anthropic)",
-        },
-    ]
+    return status.get("models") or []
 
 
 @router.get("/llm/status")
 def llm_status(current_user: User = Depends(get_current_user)):
+    _ = current_user
     return llm_service.get_status()

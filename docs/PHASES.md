@@ -1,4 +1,4 @@
-# Platform phases (0–9 + L1)
+# Platform phases (0–9 + L1–L2)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -57,3 +57,9 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Removed `ollama` / `google.genai` production imports and packages
 - [x] Defaults: `LLM_DEFAULT_PROVIDER=openai`, `LLM_DEFAULT_MODEL=gpt-4o-mini`
 - [x] UI labels use model from API / `LLM`; tests cover `LLM_MOCK=1`
+
+## Phase L2 — Multi-LLM DB config + API + UI
+- [x] Expanded `LLMProviderConfig` (base_url, api_key_vault_ref, priority, metadata_json, …)
+- [x] `/api/llm` status/providers CRUD/test; keys encrypted; GET masked
+- [x] `LLMService` resolution: explicit → env → DB priority → env keys → mock
+- [x] Settings LLM providers panel; AIAssistant/TopBar use `/api/llm/status`

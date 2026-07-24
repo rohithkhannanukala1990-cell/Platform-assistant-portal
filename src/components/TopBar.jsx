@@ -299,7 +299,7 @@ export default function TopBar({ user, onLogout, onOpenCommandPalette, onMenuOpe
     let cancelled = false
     async function loadLlmStatus() {
       try {
-        const res = await authFetch('/api/ai/llm/status')
+        const res = await authFetch('/api/llm/status')
         if (!res.ok) {
           if (!cancelled) setLlmLabel('LLM')
           return
