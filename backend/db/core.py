@@ -517,6 +517,8 @@ def _migrate():
         ("workspaces", "tenant_id", "TEXT", "'default'"),
         ("workspaces", "settings_json", "TEXT", "'{}'"),
         ("tool_accounts", "tenant_id", "TEXT", "'default'"),
+        ("tool_accounts", "owner_user_id", "TEXT", "NULL"),
+        ("tool_accounts", "workspace_id", "TEXT", "NULL"),
         ("user_context", "workspace_id", "TEXT", "NULL"),
         ("user_context", "tenant_id", "TEXT", "'default'"),
         ("templates", "recommended_golden_path_keys", "TEXT", "'[]'"),

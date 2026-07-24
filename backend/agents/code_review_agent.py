@@ -21,10 +21,7 @@ class CodeReviewAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session):
-        connector = try_github_connector_from_context(
-            getattr(context, "tool_accounts", None) or {},
-            db=db,
-        )
+        connector = try_github_connector_from_context(context, db=db)
         if connector is None:
             return self._build_result(
                 context,

@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -10,6 +10,7 @@ from ..auth import User, get_current_user
 from ..connectors.registry import get_auth_types, get_connector, get_required_fields
 from ..database import engine as db_engine
 from ..database import Tool, ToolAccount, ToolConnectionLog
+from ..services.secrets import decrypt_secret, encrypt_secret
 
 router = APIRouter(tags=["tools"])
 
@@ -59,6 +60,7 @@ def _latest_connection_for_account(session: Session, account_id: str) -> ToolCon
 
 def _account_to_dict(session: Session, a: ToolAccount) -> dict:
     log = _latest_connection_for_account(session, a.id)
+    has_creds = bool((a.credentials_vault_ref or "").strip())
     return {
         "id": a.id,
         "tool_id": a.tool_id,
@@ -68,11 +70,15 @@ def _account_to_dict(session: Session, a: ToolAccount) -> dict:
         "environment": a.environment,
         "region": a.region,
         "auth_type": a.auth_type,
-        "credentials_vault_ref": a.credentials_vault_ref,
+        # Never return decrypted or raw secrets to the client.
+        "has_credentials": has_creds,
         "status": a.status,
         "is_active": bool(a.is_active),
         "requires_hitl": bool(a.requires_hitl),
         "created_by": a.created_by,
+        "owner_user_id": getattr(a, "owner_user_id", None),
+        "workspace_id": getattr(a, "workspace_id", None),
+        "tenant_id": getattr(a, "tenant_id", None),
         "created_at": a.created_at.isoformat(),
         "last_connection_status": log.status if log else None,
         "last_connection_latency_ms": log.latency_ms if log else None,
@@ -317,6 +323,7 @@ def api_tool_accounts_list(
 def api_tool_accounts_create(
     tool_id: str,
     body: ToolAccountCreateBody,
+    request: Request,
     current_user: User = Depends(get_current_user),
 ):
     if not body.account_name.strip() or not body.environment.strip() or not body.auth_type.strip():
@@ -327,6 +334,14 @@ def api_tool_accounts_create(
     aid = str(uuid.uuid4())
     rh = body.requires_hitl
     hitl = 1 if rh is not None and int(rh) != 0 else 0
+    raw_secret = (body.credentials_vault_ref or "").strip()
+    stored_secret = encrypt_secret(raw_secret) if raw_secret else None
+    ws = getattr(request.state, "workspace_id", None) or getattr(
+        current_user, "workspace_id", None
+    )
+    tid = getattr(request.state, "tenant_id", None) or getattr(
+        current_user, "tenant_id", None
+    ) or "default"
     row = ToolAccount(
         id=aid,
         tool_id=tool_id,
@@ -336,9 +351,12 @@ def api_tool_accounts_create(
         environment=body.environment.strip(),
         region=(body.region or "").strip() or None,
         auth_type=body.auth_type.strip(),
-        credentials_vault_ref=(body.credentials_vault_ref or "").strip() or None,
+        credentials_vault_ref=stored_secret,
         requires_hitl=hitl,
         created_by=current_user.username,
+        owner_user_id=str(current_user.id) if current_user.id is not None else None,
+        workspace_id=(str(ws).strip() if ws else None) or None,
+        tenant_id=(str(tid).strip() if tid else "default"),
     )
     with Session(db_engine) as session:
         tool = session.get(Tool, tool_id)
@@ -369,14 +387,20 @@ def api_tool_accounts_update(
             "environment",
             "region",
             "auth_type",
-            "credentials_vault_ref",
             "status",
         ):
             if key in data and data[key] is not None:
                 val = data[key]
                 setattr(row, key, str(val).strip() if isinstance(val, str) else val)
+        if "credentials_vault_ref" in data and data["credentials_vault_ref"] is not None:
+            raw = str(data["credentials_vault_ref"]).strip()
+            # Empty string means "leave existing secret unchanged".
+            if raw:
+                row.credentials_vault_ref = encrypt_secret(raw)
         if "requires_hitl" in data and data["requires_hitl"] is not None:
             row.requires_hitl = 1 if int(data["requires_hitl"]) else 0
+        if not getattr(row, "owner_user_id", None) and current_user.id is not None:
+            row.owner_user_id = str(current_user.id)
         session.add(row)
         session.commit()
         session.refresh(row)
@@ -409,6 +433,7 @@ async def api_tool_accounts_test(
         acc = session.get(ToolAccount, account_id)
         if not acc or acc.tool_id != tool_id:
             raise HTTPException(status_code=404, detail="Account not found")
+        plain = decrypt_secret(acc.credentials_vault_ref or "")
         account_dict = {
             "tool_id": acc.tool_id,
             "account_name": acc.account_name,
@@ -417,7 +442,9 @@ async def api_tool_accounts_test(
             "environment": acc.environment,
             "region": acc.region,
             "auth_type": acc.auth_type,
-            "credentials_vault_ref": acc.credentials_vault_ref,
+            "credentials_vault_ref": plain,
+            "token": plain,
+            "api_token": plain,
         }
     connector = get_connector(account_dict["tool_id"], account_dict)
     result = await connector.test_connection()

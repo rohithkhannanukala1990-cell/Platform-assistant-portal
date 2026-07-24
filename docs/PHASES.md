@@ -32,9 +32,8 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Agents grounded on live GitHub (no invented data when disconnected)
 - [x] Active CI runs prefer GitHub, then demo, else `no_data`
 
-## Phase 7 — Hardening
-- [x] Login rate limit (`5/minute`), failed-login audit (`login_failed` / outcome denied), per-process lockout
-- [x] Chat / triage / agent run limits (`10/minute`); webhooks stay `5/minute`
-- [x] Metrics: webhook signature failures, demo data served, GitHub API requests
-- [x] Docs: `ARCHITECTURE.md`, this file
-- [x] Final verification: pytest, npm test, npm build
+# Phase 8 — Secrets + tool account scoping
+- [x] Fernet encrypt-at-rest (`SECRETS_ENCRYPTION_KEY`) for ToolAccount credentials
+- [x] GET APIs expose `has_credentials` only (no raw/decrypted secrets)
+- [x] GitHub account resolution scoped to user/workspace — no global active-account fallback
+- [x] `owner_user_id` / `workspace_id` on ToolAccount; agents stamp PlatformContext from auth + UserContext

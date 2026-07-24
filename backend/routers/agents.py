@@ -14,7 +14,7 @@ from ..agents import get_agent, list_agents, AgentNotFound
 from ..agents.base import AgentResult
 from ..auth import AuditLog, User, get_current_user, write_audit
 from ..context import PlatformContext
-from ..database import AgentRun, engine
+from ..database import AgentRun, UserContext, engine
 from ..executor.safe_executor import safe_executor
 from ..pipeline.orchestrator import orchestrator_agent
 from ..rate_limit import limiter
@@ -35,6 +35,68 @@ def _session():
 
 def _role_for_user(user: User) -> str:
     return "Admin" if (user.role or "").strip() == "Admin" else "User"
+
+
+def _load_user_tool_accounts(session: Session, user: User) -> dict[str, str]:
+    uid = str(user.id) if getattr(user, "id", None) is not None else str(user.username)
+    row = session.get(UserContext, uid)
+    if row is None and user.username:
+        row = session.get(UserContext, user.username)
+    if not row or not row.active_accounts:
+        return {}
+    try:
+        mapping = json.loads(row.active_accounts or "{}")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    if not isinstance(mapping, dict):
+        return {}
+    return {str(k): str(v) for k, v in mapping.items() if k and v}
+
+
+def _build_platform_context(
+    request: Request,
+    body: RunAgentRequest,
+    current_user: User,
+) -> PlatformContext:
+    """Always stamp authenticated user + workspace/tenant + UserContext pins."""
+    state_ws = getattr(request.state, "workspace_id", None)
+    state_tenant = getattr(request.state, "tenant_id", None)
+    body_ctx = body.context if isinstance(body.context, dict) else {}
+
+    with Session(engine) as session:
+        pinned = _load_user_tool_accounts(session, current_user)
+
+    merged_accounts = {**pinned}
+    body_accounts = body_ctx.get("tool_accounts") or {}
+    if isinstance(body_accounts, dict):
+        # Client may narrow pins; never inject foreign account ids without pin ownership checks later.
+        merged_accounts.update({str(k): str(v) for k, v in body_accounts.items() if k and v})
+
+    uid = str(current_user.id) if current_user.id is not None else str(current_user.username)
+    workspace_id = (
+        body_ctx.get("workspace_id")
+        or state_ws
+        or getattr(current_user, "workspace_id", None)
+    )
+    tenant_id = (
+        body_ctx.get("tenant_id")
+        or state_tenant
+        or getattr(current_user, "tenant_id", None)
+        or "default"
+    )
+    payload = {
+        **body_ctx,
+        "user_id": uid,
+        "user_role": _role_for_user(current_user),
+        "workspace_id": workspace_id,
+        "tenant_id": tenant_id,
+        "tool_accounts": merged_accounts,
+    }
+    return PlatformContext.from_dict(
+        payload,
+        user_id=uid,
+        user_role=_role_for_user(current_user),
+    )
 
 
 def _run_to_dict(row: AgentRun) -> dict[str, Any]:
@@ -67,11 +129,7 @@ async def run_agent(
     body: RunAgentRequest,
     current_user: User = Depends(get_current_user),
 ):
-    ctx = PlatformContext.from_dict(
-        body.context,
-        user_id=current_user.username,
-        user_role=_role_for_user(current_user),
-    )
+    ctx = _build_platform_context(request, body, current_user)
     with Session(engine) as session:
         result = await orchestrator_agent.run(
             body.task,

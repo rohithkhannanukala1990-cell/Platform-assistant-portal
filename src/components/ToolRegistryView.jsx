@@ -281,7 +281,7 @@ export default function ToolRegistryView() {
       setFormIdentifier(acc.account_identifier || '')
       setFormInstanceUrl(acc.instance_url || '')
       setFormAuthType(acc.auth_type || '')
-      setFormCredentials(acc.credentials_vault_ref || '')
+      setFormCredentials('')
       setFormHitl(!!acc.requires_hitl)
       setFormError('')
     },
@@ -415,8 +415,10 @@ export default function ToolRegistryView() {
       account_identifier: formIdentifier.trim() || null,
       instance_url: formInstanceUrl.trim() || null,
       auth_type: formAuthType,
-      credentials_vault_ref: formCredentials.trim() || null,
       requires_hitl: formHitl ? 1 : 0,
+    }
+    if (formCredentials.trim()) {
+      body.credentials_vault_ref = formCredentials.trim()
     }
     try {
       let res
@@ -936,9 +938,23 @@ export default function ToolRegistryView() {
                         {showSecret ? 'Hide' : 'Show'}
                       </button>
                     </div>
+                    {selectedTool?.id === 'github' && (
+                      <p className="text-[10px] text-amber-200/90 mb-1.5 leading-snug">
+                        Tokens are stored encrypted at rest. Use a fine-scoped PAT. Rotate if leaked.
+                      </p>
+                    )}
+                    {editingAccount?.has_credentials && !formCredentials.trim() && (
+                      <p className="text-[10px] text-slate-500 mb-1">
+                        A credential is already saved. Leave blank to keep it, or paste a new token to rotate.
+                      </p>
+                    )}
                     <textarea
                       className="w-full rounded-lg bg-slate-900 border border-border px-3 py-2 text-sm text-white font-mono min-h-[88px]"
-                      placeholder={authPlaceholder(formAuthType)}
+                      placeholder={
+                        editingAccount?.has_credentials
+                          ? '•••• saved — paste new token to rotate'
+                          : authPlaceholder(formAuthType)
+                      }
                       value={formCredentials}
                       onChange={(e) => setFormCredentials(e.target.value)}
                       autoComplete="off"

@@ -15,6 +15,7 @@ from ..importers.cloud_discovery import cloud_discovery
 from ..importers.csv_importer import csv_importer
 from ..importers.json_importer import json_importer
 from ..importers.service_discovery import service_discovery
+from ..services.secrets import encrypt_secret
 
 router = APIRouter(tags=["imports"])
 
@@ -67,6 +68,7 @@ def _bulk_insert_tool_accounts(
     rows: list[dict],
     actor_username: str,
     workspace_id: str | None = None,
+    owner_user_id: str | None = None,
 ) -> dict:
     imported = 0
     skipped = 0
@@ -89,6 +91,8 @@ def _bulk_insert_tool_accounts(
         "created_by",
         "created_at",
         "tenant_id",
+        "owner_user_id",
+        "workspace_id",
     }
     with Session(db_engine) as session:
         ws = None
@@ -141,6 +145,8 @@ def _bulk_insert_tool_accounts(
                 hitl = _normalize_requires_hitl(row.get("requires_hitl"))
                 created_by = (row.get("created_by") or "import").strip() or actor_username
                 try:
+                    raw_cred = (row.get("credentials_vault_ref") or "").strip() or None
+                    stored_cred = encrypt_secret(raw_cred) if raw_cred else None
                     ta = ToolAccount(
                         id=aid,
                         tool_id=tool_id,
@@ -152,13 +158,16 @@ def _bulk_insert_tool_accounts(
                         environment=env,
                         region=(row.get("region") or None) if row.get("region") else None,
                         auth_type=auth_type,
-                        credentials_vault_ref=(row.get("credentials_vault_ref") or None)
-                        if row.get("credentials_vault_ref")
-                        else None,
+                        credentials_vault_ref=stored_cred,
                         status=str(row.get("status") or "unknown"),
                         is_active=int(row.get("is_active", 1) or 1),
                         requires_hitl=hitl,
                         created_by=created_by,
+                        owner_user_id=(
+                            str(row.get("owner_user_id") or owner_user_id or "").strip()
+                            or None
+                        ),
+                        workspace_id=workspace_id or (str(row.get("workspace_id") or "").strip() or None),
                         tenant_id=(row.get("tenant_id") or getattr(ws, "tenant_id", None) or "default"),
                     )
                     ta.created_at = _parse_import_created_at(row.get("created_at"))
@@ -316,7 +325,10 @@ def api_import_csv_confirm(
     if not body.rows:
         raise HTTPException(status_code=400, detail="rows is required")
     summary = _bulk_insert_tool_accounts(
-        body.rows, current_user.username, workspace_id=body.workspace_id
+        body.rows,
+        current_user.username,
+        workspace_id=body.workspace_id,
+        owner_user_id=str(current_user.id) if current_user.id is not None else None,
     )
     _record_import_history("csv", "upload", len(body.rows), summary, current_user.username)
     return summary
@@ -339,7 +351,10 @@ def api_import_json_confirm(
     if not body.rows:
         raise HTTPException(status_code=400, detail="rows is required")
     summary = _bulk_insert_tool_accounts(
-        body.rows, current_user.username, workspace_id=body.workspace_id
+        body.rows,
+        current_user.username,
+        workspace_id=body.workspace_id,
+        owner_user_id=str(current_user.id) if current_user.id is not None else None,
     )
     _record_import_history("json", "upload", len(body.rows), summary, current_user.username)
     return summary
@@ -384,7 +399,10 @@ def api_import_discover_confirm(
         raise HTTPException(status_code=400, detail="accounts is required")
     rows = _strip_discovery_metadata(body.accounts)
     summary = _bulk_insert_tool_accounts(
-        rows, current_user.username, workspace_id=body.workspace_id
+        rows,
+        current_user.username,
+        workspace_id=body.workspace_id,
+        owner_user_id=str(current_user.id) if current_user.id is not None else None,
     )
     _record_import_history("cloud_discover", "provider_stub", len(body.accounts), summary, current_user.username)
     return summary
@@ -417,7 +435,10 @@ def api_discover_confirm(
         raise HTTPException(status_code=400, detail="accounts is required")
     rows = _strip_discovery_metadata(body.accounts)
     summary = _bulk_insert_tool_accounts(
-        rows, current_user.username, workspace_id=body.workspace_id
+        rows,
+        current_user.username,
+        workspace_id=body.workspace_id,
+        owner_user_id=str(current_user.id) if current_user.id is not None else None,
     )
     _record_import_history("service_discovery", "connected_scan", len(body.accounts), summary, current_user.username)
     return summary

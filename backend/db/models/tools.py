@@ -37,6 +37,9 @@ class ToolAccount(SQLModel, table=True):
     requires_hitl: int = Field(default=0)
     created_by: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # Ownership / scoping (Phase 8) — never resolve another user's PAT globally.
+    owner_user_id: Optional[str] = Field(default=None, index=True)
+    workspace_id: Optional[str] = Field(default=None, index=True)
     # TODO(S2-P2.1): Add tenant_id/org_id fields to support multi-tenant isolation
     tenant_id: Optional[str] = Field(default="default", index=True)
 

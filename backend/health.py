@@ -189,9 +189,16 @@ def _account_as_dict(account: Any) -> dict[str, Any]:
         }
     ref = (data.get("credentials_vault_ref") or data.get("token") or "").strip()
     if ref:
-        data.setdefault("token", ref)
-        data.setdefault("api_token", ref)
-        data.setdefault("api_key", ref)
+        try:
+            from .services.secrets import decrypt_secret
+
+            plain = decrypt_secret(ref)
+        except Exception:
+            plain = ref
+        data["credentials_vault_ref"] = plain
+        data.setdefault("token", plain)
+        data.setdefault("api_token", plain)
+        data.setdefault("api_key", plain)
     return data
 
 
