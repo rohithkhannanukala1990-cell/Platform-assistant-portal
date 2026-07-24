@@ -74,13 +74,42 @@ def _get_or_create_sso_user(email: str, role: str) -> User:
     return user
 
 
+def _sso_configured() -> dict[str, bool]:
+    saml = bool(
+        (os.getenv("SAML_IDP_METADATA_URL") or "").strip()
+        or (
+            (os.getenv("SAML_IDP_SSO_URL") or "").strip()
+            and (os.getenv("SAML_IDP_ENTITY_ID") or "").strip()
+        )
+    )
+    google = bool(
+        (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
+        and (os.getenv("GOOGLE_CLIENT_SECRET") or "").strip()
+    )
+    return {"saml": saml, "google": google}
+
+
+@router.get("/sso/status")
+async def sso_status():
+    """Return which SSO providers are configured (no secrets)."""
+    cfg = _sso_configured()
+    return {
+        "saml": cfg["saml"],
+        "google": cfg["google"],
+        "any": cfg["saml"] or cfg["google"],
+        "frontend_callback": f"{(os.getenv('FRONTEND_URL') or '').rstrip('/')}/auth/callback",
+    }
+
+
 # ── SAML ──────────────────────────────────────────────────────────────────────
 
 @router.get("/sso/saml/metadata")
 async def saml_metadata():
     """Returns SP metadata XML for IdP configuration."""
-    entity_id = os.getenv("SAML_SP_ENTITY_ID", "")
-    acs_url = os.getenv("SAML_SP_ACS_URL", "")
+    entity_id = os.getenv("SAML_SP_ENTITY_ID", "").strip()
+    acs_url = os.getenv("SAML_SP_ACS_URL", "").strip()
+    if not entity_id or not acs_url:
+        raise HTTPException(400, "SAML not configured")
     xml = f"""<?xml version="1.0"?>
 <EntityDescriptor entityID="{entity_id}"
   xmlns="urn:oasis:names:tc:SAML:2.0:metadata">
@@ -97,9 +126,13 @@ async def saml_metadata():
 async def saml_login():
     """Fetch IdP metadata and redirect to the HTTP-Redirect SSO URL."""
     try:
-        idp_url = os.getenv("SAML_IDP_METADATA_URL", "")
-        if not idp_url:
+        idp_url = os.getenv("SAML_IDP_METADATA_URL", "").strip()
+        sso_fallback = os.getenv("SAML_IDP_SSO_URL", "").strip()
+        if not idp_url and not sso_fallback:
             raise HTTPException(400, "SAML not configured")
+
+        if not idp_url and sso_fallback:
+            return RedirectResponse(sso_fallback)
 
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.get(idp_url)
@@ -118,6 +151,8 @@ async def saml_login():
                 break
 
         if not sso_url:
+            if sso_fallback:
+                return RedirectResponse(sso_fallback)
             raise HTTPException(
                 502, "No HTTP-Redirect binding found in IdP metadata"
             )
@@ -175,6 +210,7 @@ async def saml_acs(request: Request):
     token = create_access_token(
         username=user.username,
         role=normalize_role(user.role),
+        user_id=user.id,
     )
     write_audit(
         actor=user.username,
@@ -186,16 +222,19 @@ async def saml_acs(request: Request):
     return RedirectResponse(f"{os.getenv('FRONTEND_URL')}/auth/callback#token={token}")
 
 
-# ── Google OAuth2 stub ────────────────────────────────────────────────────────
+# ── Google OAuth2 ─────────────────────────────────────────────────────────────
 
 @router.get("/oauth/google")
 async def google_oauth_start():
-    client_id = os.getenv("GOOGLE_CLIENT_ID", "")
-    redirect = os.getenv("SAML_SP_ACS_URL", "").replace(
-        "saml/acs", "oauth/google/callback"
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    redirect = (
+        os.getenv("GOOGLE_REDIRECT_URI", "").strip()
+        or os.getenv("SAML_SP_ACS_URL", "").replace("saml/acs", "oauth/google/callback")
     )
-    if not client_id:
+    if not client_id or not (os.getenv("GOOGLE_CLIENT_SECRET") or "").strip():
         raise HTTPException(400, "Google OAuth not configured")
+    if not redirect:
+        raise HTTPException(400, "Google OAuth not configured (missing GOOGLE_REDIRECT_URI)")
     url = (
         "https://accounts.google.com/o/oauth2/v2/auth"
         f"?client_id={client_id}"
@@ -251,7 +290,9 @@ async def google_oauth_callback(request: Request):
         )
         user = _get_or_create_sso_user(email=email, role=role)
         canonical_role = normalize_role(user.role)
-        token = create_access_token(username=user.username, role=canonical_role)
+        token = create_access_token(
+            username=user.username, role=canonical_role, user_id=user.id
+        )
         write_audit(
             actor=user.username,
             actor_role=canonical_role,

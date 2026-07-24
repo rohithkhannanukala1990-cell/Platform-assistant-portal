@@ -223,7 +223,7 @@ def list_audit_logs(
 
 
 @router.get("/export")
-def export_audit_csv(
+def export_audit(
     user_id: Optional[str] = None,
     tool_id: Optional[str] = None,
     action: Optional[str] = None,
@@ -231,8 +231,18 @@ def export_audit_csv(
     environment: Optional[str] = None,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
+    from_: Optional[str] = Query(default=None, alias="from"),
+    to_: Optional[str] = Query(default=None, alias="to"),
+    format: str = Query(default="csv", pattern="^(csv|json)$"),
+    event_types: Optional[str] = Query(
+        default=None,
+        description="Comma-separated event types filter (e.g. login_failed,login_success,mfa,APPROVE,REJECT)",
+    ),
     _admin: User = Depends(require_admin),
 ):
+    """Admin-only audit export as CSV or JSON (supports from/to date aliases)."""
+    start = from_ or from_date
+    end = to_ or to_date
     with Session(engine) as session:
         q = select(AuditLog)
         q = _apply_filters(
@@ -242,16 +252,34 @@ def export_audit_csv(
             action=action,
             status=status,
             environment=environment,
-            from_date=from_date,
-            to_date=to_date,
+            from_date=start,
+            to_date=end,
         )
+        if event_types:
+            wanted = {p.strip() for p in event_types.split(",") if p.strip()}
+            if wanted:
+                aliases = set(wanted)
+                if "login_success" in aliases:
+                    aliases.add("LOGIN")
+                if "LOGIN" in aliases:
+                    aliases.add("login_success")
+                q = q.where(AuditLog.event_type.in_(list(aliases)))  # type: ignore[arg-type]
         rows = session.exec(q.order_by(AuditLog.timestamp.desc()).limit(10000)).all()
+
+    records = [audit_row_to_dict(r) for r in rows]
+
+    if format == "json":
+        return {
+            "count": len(records),
+            "from": start,
+            "to": end,
+            "results": records,
+        }
 
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS)
     writer.writeheader()
-    for row in rows:
-        d = audit_row_to_dict(row)
+    for d in records:
         writer.writerow(
             {
                 "id": d["id"],
@@ -277,6 +305,10 @@ def export_audit_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=audit_export.csv"},
     )
+
+
+# Backward-compatible alias name used by older imports/tests
+export_audit_csv = export_audit
 
 
 @router.get("/stats")

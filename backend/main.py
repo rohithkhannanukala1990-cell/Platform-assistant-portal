@@ -122,6 +122,7 @@ async def lifespan(app: FastAPI):
         WorkspaceTool,
     )
     from .auth import AuditLog, User  # noqa: F401
+    from .services.auth_sessions import AuthSession  # noqa: F401
 
     SQLModel.metadata.create_all(db_engine_ref)
     seed_default_admin()
@@ -143,8 +144,10 @@ from .routers.agents import router as agents_router
 from .routers.audit_log import router as audit_router
 from .routers.users import router as users_router
 from .routers.sso import router as sso_router
+from .routers.auth_sessions import router as auth_sessions_router
 
 app.include_router(auth_router)
+app.include_router(auth_sessions_router)
 app.include_router(workspaces_router)
 app.include_router(templates_router)
 app.include_router(rbac_router)

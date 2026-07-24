@@ -1,4 +1,4 @@
-# Platform phases (0–12 + L1–L2)
+# Platform phases (0–13 + L1–L2)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -83,3 +83,9 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Agents (`infra_agent`, `incident_agent`, `auto_heal`) use `try_*_connector`; skip when disconnected
 - [x] Health probes: configured flag + optional ping via connectors
 - [x] UI: `/k8s` and `/pagerduty` panels with empty states
+
+## Phase 13 — Enterprise identity
+- [x] `MFA_REQUIRED_ROLES` / settings: admins without MFA get 403 `mfa_enrollment_required`
+- [x] SSO status + clear "not configured"; `/auth/callback` handoff; no fake SSO success
+- [x] JWT `jti` session registry: `GET/POST /api/auth/sessions`, `/api/auth/logout`
+- [x] `GET /api/audit/export?from=&to=` admin CSV/JSON (login/mfa/approve events)

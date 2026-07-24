@@ -50,7 +50,18 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(() => !!loadStoredToken())
   const [error, setError] = useState(null)
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    const current = token
+    try {
+      if (current) {
+        await fetch(`${API_BASE}/api/auth/logout`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${current}` },
+        }).catch(() => {})
+      }
+    } catch {
+      // ignore network errors on logout
+    }
     try {
       localStorage.removeItem('aiops_access_token')
     } catch {
@@ -59,6 +70,16 @@ export function AuthProvider({ children }) {
     setToken(null)
     setUser(null)
     setAuthRole(null)
+  }, [token])
+
+  const setSessionFromToken = useCallback((accessToken) => {
+    if (!accessToken) return
+    try {
+      localStorage.setItem('aiops_access_token', accessToken)
+    } catch {
+      /* ignore */
+    }
+    setToken(accessToken)
   }, [])
 
   useEffect(() => {
@@ -116,10 +137,21 @@ export function AuthProvider({ children }) {
 
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        if (res.status === 401 && !totpCode) {
+        const detail = data?.detail
+        const code = typeof detail === 'object' && detail ? detail.code : null
+        const message =
+          typeof detail === 'string'
+            ? detail
+            : detail?.message || (Array.isArray(detail) ? detail.map((d) => d.msg || d).join(', ') : null) || 'Login failed'
+
+        if (code === 'mfa_enrollment_required' || res.status === 403) {
+          setError(message)
+          return { success: false, error: message, mfaEnrollmentRequired: true }
+        }
+        if (res.status === 401 && message === 'MFA code required') {
           return { success: false, error: 'MFA required — enter your authenticator code below', mfaRequired: true }
         }
-        const message = data?.detail || 'Login failed'
+        // Do not treat generic 401 (bad password) as MFA required
         setError(message)
         return { success: false, error: message }
       }
@@ -209,8 +241,9 @@ export function AuthProvider({ children }) {
       login,
       logout,
       authFetch,
+      setSessionFromToken,
     }),
-    [user, role, token, loading, error, login, logout, authFetch]
+    [user, role, token, loading, error, login, logout, authFetch, setSessionFromToken]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

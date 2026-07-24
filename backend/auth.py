@@ -1,4 +1,5 @@
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Callable
 
@@ -16,6 +17,12 @@ from sqlalchemy import Column, String
 
 from .database import engine
 from .rate_limit import limiter
+from .services.auth_sessions import (
+    AuthSession,
+    is_jti_revoked,
+    register_session,
+    revoke_jti,
+)
 
 load_dotenv()
 
@@ -157,6 +164,31 @@ def verify_mfa_code(secret: str | None, totp_code: str) -> bool:
     return bool(pyotp.TOTP(secret).verify(totp_code))
 
 
+def get_mfa_required_roles() -> set[str]:
+    """Roles that must have MFA enrolled before login completes.
+
+    Source: MFA_REQUIRED_ROLES env (comma-separated), optionally overridden by
+    settings key ``mfa_required_roles``.
+    """
+    raw = (os.getenv("MFA_REQUIRED_ROLES") or "").strip()
+    try:
+        from .database import get_settings
+
+        setting = (get_settings().get("mfa_required_roles") or "").strip()
+        if setting:
+            raw = setting
+    except Exception:
+        pass
+    return {normalize_role(part) for part in raw.split(",") if part.strip()}
+
+
+def role_requires_mfa(role: str | None) -> bool:
+    required = get_mfa_required_roles()
+    if not required:
+        return False
+    return normalize_role(role or "") in required
+
+
 # ── JWT CONFIG ────────────────────────────────────────────────────────────────
 
 # TODO: Read SECRET_KEY from environment and refuse insecure defaults in non-test environments
@@ -183,12 +215,44 @@ if JWT_PRIVATE_KEY_PEM and JWT_PUBLIC_KEY_PEM:
     ALGORITHM = "RS256"
 
 
-def create_access_token(username: str, role: str) -> str:
+def create_access_token(
+    username: str,
+    role: str,
+    *,
+    user_id: int | None = None,
+    ip_address: str = "",
+    user_agent: str = "",
+) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode = {"sub": username, "role": role, "exp": expire}
+    jti = str(uuid.uuid4())
+    to_encode = {"sub": username, "role": role, "exp": expire, "jti": jti}
     if _private_key:
-        return jwt.encode(to_encode, _private_key, algorithm=ALGORITHM)
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        token = jwt.encode(to_encode, _private_key, algorithm=ALGORITHM)
+    else:
+        token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+    uid = user_id
+    if uid is None:
+        try:
+            with Session(engine) as session:
+                row = session.exec(select(User).where(User.username == username)).first()
+                if row:
+                    uid = row.id
+        except Exception:
+            uid = None
+    if uid is not None:
+        try:
+            register_session(
+                jti=jti,
+                username=username,
+                user_id=int(uid),
+                expires_at=expire,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+        except Exception as exc:
+            print(f"[auth] WARNING: failed to register session: {exc}")
+    return token
 
 
 def decode_token(token: str) -> dict:
@@ -199,13 +263,31 @@ def decode_token(token: str) -> dict:
         role = payload.get("role")
         if not username or not role:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        jti = payload.get("jti")
+        if jti and is_jti_revoked(str(jti)):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return payload
+    except HTTPException:
+        raise
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def peek_token_claims(token: str) -> dict:
+    """Decode JWT signature/exp without checking the revoke denylist."""
+    try:
+        key = _public_key if _public_key else SECRET_KEY
+        return jwt.decode(token, key, algorithms=[ALGORITHM])
+    except JWTError:
+        return {}
 
 
 # ── PYDANTIC SCHEMAS ──────────────────────────────────────────────────────────
@@ -436,9 +518,6 @@ def seed_default_llm_config() -> None:
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-# TODO: Enforce MFA when user.mfa_enabled is True:
-# - Extend login request model with totp_code
-# - Verify TOTP code before issuing JWT
 @limiter.limit("5/minute")
 @auth_router.post("/login", response_model=Token)
 def login(
@@ -447,6 +526,7 @@ def login(
 ):
     ip = _client_ip(request)
     username = (login_request.username or "").strip()
+    user_agent = (request.headers.get("user-agent") or "")[:512]
 
     if _is_login_locked(username, ip):
         write_audit(
@@ -486,6 +566,24 @@ def login(
                 detail="Invalid credentials",
             )
 
+    # MFA enrollment required for configured roles (before issuing a token).
+    if role_requires_mfa(user.role) and not user.mfa_enabled:
+        write_audit(
+            actor=user.username,
+            actor_role=normalize_role(user.role),
+            event_type="mfa_enrollment_required",
+            resource="auth",
+            detail="outcome=denied code=mfa_enrollment_required",
+            ip_address=ip,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "mfa_enrollment_required",
+                "message": "MFA enrollment is required for this role. Contact an administrator or enroll MFA before signing in.",
+            },
+        )
+
     if user.mfa_enabled:
         if not login_request.totp_code:
             raise HTTPException(status_code=401, detail="MFA code required")
@@ -500,6 +598,14 @@ def login(
                 ip_address=ip,
             )
             raise HTTPException(status_code=401, detail="Invalid MFA code")
+        write_audit(
+            actor=user.username,
+            actor_role=normalize_role(user.role),
+            event_type="mfa",
+            resource="auth",
+            detail="totp verified on login",
+            ip_address=ip,
+        )
 
     _clear_login_failures(username, ip)
     norm_role = normalize_role(user.role)
@@ -513,11 +619,17 @@ def login(
             session.add(db_user)
             session.commit()
 
-    token = create_access_token(username=user.username, role=norm_role)
+    token = create_access_token(
+        username=user.username,
+        role=norm_role,
+        user_id=user.id,
+        ip_address=ip,
+        user_agent=user_agent,
+    )
     write_audit(
         actor=user.username,
         actor_role=norm_role,
-        event_type="LOGIN",
+        event_type="login_success",
         resource="auth",
         detail="User logged in",
         ip_address=ip,
@@ -537,6 +649,13 @@ def setup_mfa(current_user: User = Depends(get_current_user)):
         user.mfa_enabled = True
         session.add(user)
         session.commit()
+    write_audit(
+        actor=current_user.username,
+        actor_role=normalize_role(current_user.role),
+        event_type="mfa",
+        resource="auth",
+        detail="mfa enrolled via /auth/mfa/setup",
+    )
     totp = pyotp.TOTP(secret)
     return {
         "secret": secret,
@@ -551,6 +670,13 @@ def verify_mfa(totp_code: str, current_user: User = Depends(get_current_user)):
         raise HTTPException(400, "MFA not configured")
     if not pyotp.TOTP(current_user.mfa_secret).verify(totp_code):
         raise HTTPException(401, "Invalid MFA code")
+    write_audit(
+        actor=current_user.username,
+        actor_role=normalize_role(current_user.role),
+        event_type="mfa",
+        resource="auth",
+        detail="mfa verify succeeded",
+    )
     return {"message": "MFA verified successfully"}
 
 

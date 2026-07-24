@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
 import Layout from './components/Layout'
 import LoginPage from './components/LoginPage'
+import AuthCallback from './components/AuthCallback'
 import PermissionGate from './components/PermissionGate'
 import SettingsModal from './components/SettingsModal'
 
@@ -153,6 +154,7 @@ function AuthenticatedRoutes() {
           path="/login"
           element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />}
         />
+        <Route path="/auth/callback" element={<AuthCallback />} />
 
         <Route
           path="/admin"

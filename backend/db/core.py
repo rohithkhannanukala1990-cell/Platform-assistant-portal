@@ -60,6 +60,7 @@ def _import_models():
 
     # User / AuditLog live in auth — ensure auth models registered:
     from backend import auth as _auth  # noqa: F401
+    from backend.services.auth_sessions import AuthSession  # noqa: F401
 
 
 DEFAULT_SETTINGS = {
@@ -72,6 +73,7 @@ DEFAULT_SETTINGS = {
     "jira_email": "",
     "jira_api_token": "",
     "jira_project_key": "",
+    "mfa_required_roles": "",
 }
 
 

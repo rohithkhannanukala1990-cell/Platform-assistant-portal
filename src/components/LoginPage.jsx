@@ -1,20 +1,39 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Bot, Loader2, ShieldCheck, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { API_BASE } from '../config/apiBase'
 
 export default function LoginPage() {
   const auth = useAuth()
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [totpCode, setTotpCode]       = useState('')
+  const [totpCode, setTotpCode] = useState('')
   const [mfaRequired, setMfaRequired] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [localError, setLocalError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const [sso, setSso] = useState({ saml: false, google: false, any: false })
 
   const isDev = import.meta.env.DEV
   const loading = submitting
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/sso/status`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setSso(data)
+      } catch {
+        /* SSO status optional */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function onSubmit(e) {
     e.preventDefault()
@@ -42,7 +61,6 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface px-4">
       <div className="w-full max-w-md rounded-2xl border border-border bg-sidebar shadow-2xl p-7">
-        {/* Header */}
         <div className="flex items-center gap-4 mb-6">
           <div className="w-11 h-11 rounded-xl bg-accent/15 border border-accent/30 flex items-center justify-center shrink-0">
             <Bot className="w-5 h-5 text-accent" strokeWidth={2.5} />
@@ -53,15 +71,15 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Error */}
         {errText && (
           <div className="flex items-start gap-3 p-3.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 mb-5">
             <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
-            <div className="text-sm leading-relaxed">{errText}</div>
+            <div className="text-sm leading-relaxed">
+              {typeof errText === 'string' ? errText : JSON.stringify(errText)}
+            </div>
           </div>
         )}
 
-        {/* Form */}
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-slate-400">Username</label>
@@ -139,24 +157,36 @@ export default function LoginPage() {
           </button>
 
           {isDev && (
-            <p className="text-xs text-slate-600 text-center mt-1">Default: admin / changeme123</p>
+            <p className="text-xs text-slate-600 text-center mt-1">Default: admin / Admin123!</p>
           )}
         </form>
 
-        <div className="mt-4 border-t border-slate-700 pt-4">
-          <p className="text-xs text-slate-500 text-center mb-3">
-            Or continue with
+        {sso.any ? (
+          <div className="mt-4 border-t border-slate-700 pt-4 space-y-2">
+            <p className="text-xs text-slate-500 text-center mb-3">Or continue with</p>
+            {sso.saml && (
+              <a
+                href={`${API_BASE}/api/auth/sso/saml/login`}
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg border border-slate-600 text-slate-300 text-sm hover:bg-slate-800 transition-colors"
+              >
+                SSO / SAML Login
+              </a>
+            )}
+            {sso.google && (
+              <a
+                href={`${API_BASE}/api/auth/oauth/google`}
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg border border-slate-600 text-slate-300 text-sm hover:bg-slate-800 transition-colors"
+              >
+                Continue with Google
+              </a>
+            )}
+          </div>
+        ) : (
+          <p className="mt-4 text-[11px] text-slate-600 text-center border-t border-slate-800 pt-4">
+            SSO not configured
           </p>
-          <a href="/api/auth/sso/saml/login"
-             className="flex items-center justify-center gap-2
-                        w-full py-2.5 rounded-lg border
-                        border-slate-600 text-slate-300 text-sm
-                        hover:bg-slate-800 transition-colors">
-            🔐 SSO / SAML Login
-          </a>
-        </div>
+        )}
       </div>
     </div>
   )
 }
-
