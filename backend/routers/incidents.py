@@ -3,14 +3,13 @@
 import asyncio
 import base64
 import json
-import os
 import re
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from ..ai.ai_utils import call_gemini, call_ollama
+from ..ai.ai_utils import call_llm
 from ..auth import User, get_current_user, write_audit
 from ..database import (
     create_notification,
@@ -34,8 +33,6 @@ from ..services.incidents_service import (
 )
 
 router = APIRouter(tags=["incidents"])
-
-AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").lower()
 
 class TriageRequest(BaseModel):
     logs: str
@@ -344,10 +341,7 @@ async def create_jira_ticket(request: Request, incident_id: int, current_user: U
     )
 
     try:
-        if AI_PROVIDER == "ollama":
-            raw = await call_ollama(incident_summary_text, system_prompt=JIRA_FORMAT_PROMPT)
-        else:
-            raw = await call_gemini(incident_summary_text, system_prompt=JIRA_FORMAT_PROMPT)
+        raw = await call_llm(incident_summary_text, system_prompt=JIRA_FORMAT_PROMPT)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"AI provider error: {str(exc)}")
 

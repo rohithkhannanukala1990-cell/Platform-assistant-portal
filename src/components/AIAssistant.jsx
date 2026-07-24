@@ -79,7 +79,7 @@ export default function AIAssistant() {
   const [messages, setMessages] = useState([])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [selectedModel, setSelectedModel] = useState('gemini-1.5-flash')
+  const [selectedModel, setSelectedModel] = useState('gpt-4o-mini')
   const [availableModels, setAvailableModels] = useState([])
   const [pendingExecutions, setPendingExecutions] = useState([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -408,8 +408,10 @@ export default function AIAssistant() {
   }, [availableModels, selectedModel])
 
   const providerIcon = (provider) => {
-    if (provider === 'gemini') return <Zap className="w-4 h-4 text-amber-400" />
-    if (provider === 'openai') return <Settings className="w-4 h-4 text-emerald-400" />
+    if (provider === 'anthropic') return <Zap className="w-4 h-4 text-amber-400" />
+    if (provider === 'openai' || provider === 'openai_compatible') {
+      return <Settings className="w-4 h-4 text-emerald-400" />
+    }
     return <Cpu className="w-4 h-4 text-violet-400" />
   }
 

@@ -9,7 +9,7 @@
 | Database | PostgreSQL in Docker; SQLite acceptable for local/pytest |
 | Queue | Redis + Celery (webhook triage, CI/CD monitor) |
 | Observability | Prometheus metrics (`/metrics`), Grafana (compose), structured logs |
-| AI | Ollama and/or Gemini via `AI_PROVIDER` |
+| AI | Multi-provider `LLMService` (`openai`, `openai_compatible`, `anthropic`) |
 
 ## Request flow
 
@@ -90,3 +90,12 @@ uvicorn backend.main:app --reload --port 8000
 ```
 
 UI: `npm install && npm run dev` (point `VITE_*` / `API_BASE` at the API).
+
+## AI / LLM
+
+- All chat goes through `backend/ai/llm_service.py` (`llm_service.chat`).
+- Providers: `openai` and `openai_compatible` (OpenAI chat completions via `OPENAI_BASE_URL`), plus `anthropic`.
+- Gemini and Ollama SDKs are removed. Local models use an OpenAI-compatible base URL.
+- Resolution: explicit args → `LLM_DEFAULT_PROVIDER` / `LLM_DEFAULT_MODEL` → `OPENAI_API_KEY` → `ANTHROPIC_API_KEY` → `LLM_MOCK=1` → error.
+- `llm_router` is a thin shim for existing call sites; do not add provider branches there.
+- Status (no secrets): `GET /api/ai/llm/status` and `llm_service.get_status()`.

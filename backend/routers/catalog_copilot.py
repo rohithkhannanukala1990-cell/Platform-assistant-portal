@@ -258,7 +258,7 @@ Respond in this exact JSON format, nothing else:
 Return only valid JSON. No markdown fences. No explanation."""
 
     system_prompt = COPILOT_SYSTEM_SUFFIX + context_string
-    model = (os.getenv("AI_DEFAULT_MODEL", "gemini-1.5-flash") or "gemini-1.5-flash").strip()
+    model = (os.getenv("LLM_DEFAULT_MODEL") or os.getenv("AI_DEFAULT_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
 
     try:
         raw_response = await llm_router.chat(

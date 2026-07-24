@@ -284,7 +284,7 @@ export default function TriageView({
 
             <div className="flex items-center gap-2 text-xs text-slate-500 border border-border rounded-lg px-3 py-2 bg-card">
               <Sparkles className="w-3.5 h-3.5 text-accent" />
-              <span>{displayResult?.model_used ?? 'Ollama / Gemma 3 4B (Local)'}</span>
+              <span>{displayResult?.model_used ?? 'LLM'}</span>
               <span className="w-1.5 h-1.5 rounded-full bg-accent inline-block" />
             </div>
           </div>

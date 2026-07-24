@@ -63,7 +63,7 @@ class MigrationAgent:
 
         plan_raw = await llm_router.chat(
             messages=[{"role": "user", "content": plan_prompt}],
-            model="gemini",
+            model=None,
             system_prompt=system_prompt,
         )
 

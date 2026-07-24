@@ -164,7 +164,7 @@ export default function IncidentReportCard({
           </span>
           <span className="flex items-center gap-1.5">
             <Cpu className="w-3.5 h-3.5" />
-            {modelUsed ?? 'Ollama / Gemma 3 4B (Local)'}
+            {modelUsed ?? 'LLM'}
           </span>
 
           {/* Jira button */}

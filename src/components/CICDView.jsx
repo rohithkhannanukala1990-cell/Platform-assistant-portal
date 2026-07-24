@@ -182,7 +182,7 @@ export default function CICDView({ selectedRecord, onClearRecord, onGenerateComp
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-500 border border-border rounded-lg px-3 py-2 bg-card">
           <Cpu className="w-3.5 h-3.5 text-accent" />
-          <span>{result?.model_used ?? 'Ollama / Gemma 3 4B (Local)'}</span>
+          <span>{result?.model_used ?? 'LLM'}</span>
           <div className="w-1.5 h-1.5 rounded-full bg-accent" />
         </div>
       </div>

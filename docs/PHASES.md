@@ -1,4 +1,4 @@
-# Platform phases (0–9)
+# Platform phases (0–9 + L1)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -50,3 +50,10 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Incidents, tool accounts, agent runs, catalog, user_context scoped
 - [x] Agent runs persist `user_id` / `tenant_id` / `workspace_id`
 - [x] Cross-tenant tests in `test_phase9_isolation.py`
+
+## Phase L1 — Multi-provider LLMService (no Gemini/Ollama SDKs)
+- [x] `backend/ai/providers/` — OpenAI-compatible + Anthropic
+- [x] `backend/ai/llm_service.py` as sole chat entry; `llm_router` thin shim
+- [x] Removed `ollama` / `google.genai` production imports and packages
+- [x] Defaults: `LLM_DEFAULT_PROVIDER=openai`, `LLM_DEFAULT_MODEL=gpt-4o-mini`
+- [x] UI labels use model from API / `LLM`; tests cover `LLM_MOCK=1`

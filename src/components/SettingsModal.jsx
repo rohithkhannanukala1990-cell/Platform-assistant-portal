@@ -317,7 +317,7 @@ function WebhookDocs() {
       <p className="text-[11px] text-slate-500 leading-relaxed">
         POST logs to this endpoint from any server, CI pipeline, or script.
         The API returns <code className="font-mono bg-slate-800 px-1 rounded text-slate-300">202 Accepted</code> immediately and
-        processes the log with Gemma in the background.
+        processes the log with the configured LLM in the background.
       </p>
 
       {/* Tab bar */}

@@ -6,11 +6,10 @@ import asyncio
 import json
 import re
 
-import ollama
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from ..ai.ai_utils import AI_PROVIDER, OLLAMA_MODEL, gemini_client
+from ..ai.llm_service import llm_service
 from ..auth import User, get_current_user
 from ..database import (
     create_notification,
@@ -181,21 +180,11 @@ async def generate_infra(
     user_msg = f"Infrastructure request: {infra_in.prompt}"
 
     try:
-        if AI_PROVIDER == "ollama":
-            response = ollama.chat(
-                model=OLLAMA_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_msg},
-                ],
-            )
-            raw_text = response.message.content
-            model_used = "Ollama / Gemma 3 4B (Local)"
-        else:
-            full_prompt = f"{system_prompt}\n\n{user_msg}"
-            result = gemini_client.models.generate_content(model="gemma-3-27b-it", contents=full_prompt)
-            raw_text = result.text
-            model_used = "Gemma 3 27B (Cloud)"
+        _, model_used = llm_service.resolve_provider_and_model()
+        raw_text = await llm_service.chat(
+            messages=[{"role": "user", "content": user_msg}],
+            system_prompt=system_prompt,
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"AI provider error: {str(exc)}")
 
@@ -341,23 +330,11 @@ async def generate_cicd(
     user_msg = f"Application description: {cicd_in.prompt}"
 
     try:
-        if AI_PROVIDER == "ollama":
-            response = ollama.chat(
-                model=OLLAMA_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_msg},
-                ],
-            )
-            raw_text = response.message.content
-            model_used = "Ollama / Gemma 3 4B (Local)"
-        else:
-            result = gemini_client.models.generate_content(
-                model="gemma-3-27b-it",
-                contents=f"{system_prompt}\n\n{user_msg}",
-            )
-            raw_text = result.text
-            model_used = "Gemma 3 27B (Cloud)"
+        _, model_used = llm_service.resolve_provider_and_model()
+        raw_text = await llm_service.chat(
+            messages=[{"role": "user", "content": user_msg}],
+            system_prompt=system_prompt,
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"AI provider error: {str(exc)}")
 

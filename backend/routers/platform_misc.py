@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import text as sa_text
 from sqlmodel import Session, select
 
-from ..ai.ai_utils import AI_PROVIDER, ask_ai, call_gemini, call_ollama
+from ..ai.ai_utils import ask_ai, call_llm
 from ..auth import User, get_current_user
 from ..database import (
     CICDPipeline,
@@ -199,10 +199,7 @@ async def platform_chat(
     system_prompt = CHAT_SYSTEM_TEMPLATE.format(context=context)
 
     try:
-        if AI_PROVIDER == "ollama":
-            response = await call_ollama(chat_in.message, system_prompt=system_prompt)
-        else:
-            response = await call_gemini(chat_in.message, system_prompt=system_prompt)
+        response = await call_llm(chat_in.message, system_prompt=system_prompt)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"AI provider error: {str(exc)}")
 

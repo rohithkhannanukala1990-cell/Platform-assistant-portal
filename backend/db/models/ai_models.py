@@ -18,7 +18,7 @@ class AIConversation(SQLModel, table=True):
     workspace_id: Optional[str] = Field(default=None, index=True)
     environment: str = Field(default="production")
     title: Optional[str] = Field(default=None)
-    model: str = Field(default="gemini")
+    model: str = Field(default="gpt-4o-mini")
     is_active: int = Field(default=1)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

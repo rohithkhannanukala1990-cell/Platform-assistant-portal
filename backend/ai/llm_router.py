@@ -1,159 +1,38 @@
-import os
-from typing import List, Dict
+"""Thin shim — delegates to llm_service (kept for existing imports/patches)."""
+
+from __future__ import annotations
+
+from typing import Dict, List, Optional
+
+from .llm_service import llm_service
+from .providers import LLMNotConfiguredError
 
 
 class LLMRouter:
-
     def get_provider(self, model: str) -> str:
-        if model.startswith("gemini"):
-            return "gemini"
-        elif model.startswith("gpt") or model.startswith("o1"):
-            return "openai"
-        elif model in ["llama3", "mistral", "codellama",
-                       "phi3", "gemma"]:
-            return "ollama"
-        return "gemini"
+        provider, _ = llm_service.resolve_provider_and_model(model=model)
+        return provider
 
     async def chat(
         self,
         messages: List[Dict],
-        model: str = "gemini-1.5-flash",
+        model: Optional[str] = None,
         system_prompt: str = "",
-        stream: bool = False
+        stream: bool = False,
+        provider: Optional[str] = None,
     ) -> str:
-        provider = self.get_provider(model)
-        if provider == "gemini":
-            return await self._chat_gemini(
-                messages, model, system_prompt)
-        elif provider == "openai":
-            return await self._chat_openai(
-                messages, model, system_prompt)
-        elif provider == "ollama":
-            return await self._chat_ollama(
-                messages, model, system_prompt)
-        return "LLM provider not configured."
-
-    async def _chat_gemini(self, messages, model, system_prompt):
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if not api_key:
-            return self._mock_response(messages)
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            gmodel = genai.GenerativeModel(
-                model_name=model,
-                system_instruction=system_prompt
-            )
-            history = []
-            for m in messages[:-1]:
-                history.append({
-                    "role": "user" if m["role"] == "user"
-                            else "model",
-                    "parts": [m["content"]]
-                })
-            chat = gmodel.start_chat(history=history)
-            response = chat.send_message(
-                messages[-1]["content"])
-            return response.text
-        except Exception as e:
-            return f"Gemini error: {str(e)}"
-
-    async def _chat_openai(self, messages, model, system_prompt):
-        api_key = os.getenv("OPENAI_API_KEY", "")
-        if not api_key:
-            return self._mock_response(messages)
-        try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=api_key)
-            all_messages = []
-            if system_prompt:
-                all_messages.append(
-                    {"role": "system", "content": system_prompt})
-            all_messages.extend(messages)
-            response = await client.chat.completions.create(
-                model=model,
-                messages=all_messages
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"OpenAI error: {str(e)}"
-
-    async def _chat_ollama(self, messages, model, system_prompt):
-        ollama_url = os.getenv(
-            "OLLAMA_BASE_URL", "http://localhost:11434")
-        try:
-            import httpx
-            payload = {
-                "model": model,
-                "messages": messages,
-                "stream": False
-            }
-            if system_prompt:
-                payload["system"] = system_prompt
-            async with httpx.AsyncClient(
-                    timeout=60) as client:
-                r = await client.post(
-                    f"{ollama_url}/api/chat",
-                    json=payload
-                )
-                return r.json()["message"]["content"]
-        except Exception as e:
-            return f"Ollama error: {str(e)}"
-
-    def _mock_response(self, messages) -> str:
-        last = messages[-1]["content"] if messages else ""
-        return (
-            f"[AI Mock] I received: '{last[:80]}...'\n"
-            "Configure GEMINI_API_KEY, OPENAI_API_KEY, "
-            "or OLLAMA_BASE_URL to enable real responses."
+        _ = stream  # streaming not implemented in L1
+        return await llm_service.chat(
+            messages=messages,
+            model=model,
+            provider=provider,
+            system_prompt=system_prompt,
         )
 
-    # TODO: Extend system prompt to require a separate ACTIONS_JSON block describing actions in structured JSON
     def build_system_prompt(self, context: dict) -> str:
-        workspace = context.get("workspace_name", "None")
-        environment = context.get("environment", "production")
-        tools = context.get("tools", [])
-        tool_list = ", ".join(tools) if tools else "none"
-        base = f"""You are an AI assistant embedded in
-Platform Assistant Portal, an internal developer platform.
-
-Current context:
-- Active Workspace: {workspace}
-- Environment: {environment}
-- Connected Tools: {tool_list}
-
-You help engineers with:
-- Checking tool health and connectivity
-- Explaining infrastructure state
-- Drafting runbooks and incident responses
-- Summarizing alerts and metrics
-- Suggesting workspace configurations
-
-For actions that modify production systems,
-always ask for confirmation before proceeding.
-High-risk actions (HITL required) must be
-explicitly approved by the user.
-
-Be concise, technical, and accurate."""
-        extra = ""
-        ts = (context.get("tool_statuses_line") or "").strip()
-        if ts:
-            extra += f"\n\nTool statuses: {ts}"
-        if context.get("production_operating"):
-            extra += (
-                "\n\n⚠️ You are operating in PRODUCTION.\n"
-                "Treat all destructive actions as HITL-required."
-            )
-        extra += (
-            "\n\nWhen you propose actions, ALWAYS produce a separate JSON block "
-            "labeled 'ACTIONS_JSON' with this format:\n"
-            "ACTIONS_JSON: { \"actions\": [ { \"resource\": \"service\", "
-            "\"operation\": \"restart\", \"environment\": \"production\", "
-            "\"identifier\": \"svc-name\", \"reason\": \"...\" } ] }\n"
-            "Keep this JSON strictly valid. Do not include comments or extra "
-            "text inside the JSON."
-        )
-        return base + extra
+        return llm_service.build_system_prompt(context)
 
 
 llm_router = LLMRouter()
+
+__all__ = ["LLMRouter", "llm_router", "LLMNotConfiguredError"]

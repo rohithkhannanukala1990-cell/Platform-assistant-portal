@@ -123,10 +123,10 @@ class AuditLog(SQLModel, table=True):
 
 class LLMProviderConfig(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    provider: str = Field(default="ollama")
-    model_name: str = Field(default="llama3.2")
-    fallback_provider: str = Field(default="ollama")
-    fallback_model: str = Field(default="llama3.2")
+    provider: str = Field(default="openai")
+    model_name: str = Field(default="gpt-4o-mini")
+    fallback_provider: str = Field(default="openai")
+    fallback_model: str = Field(default="gpt-4o-mini")
     monthly_token_budget: int = Field(default=1_000_000)
     tokens_used_this_month: int = Field(default=0)
     is_active: bool = Field(default=True)
@@ -409,10 +409,10 @@ def seed_default_llm_config() -> None:
             return
         session.add(
             LLMProviderConfig(
-                provider="ollama",
-                model_name="llama3.2",
-                fallback_provider="ollama",
-                fallback_model="llama3.2",
+                provider="openai",
+                model_name="gpt-4o-mini",
+                fallback_provider="openai",
+                fallback_model="gpt-4o-mini",
                 monthly_token_budget=1_000_000,
                 tokens_used_this_month=0,
                 is_active=True,

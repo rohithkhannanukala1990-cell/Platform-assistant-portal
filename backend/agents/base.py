@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from abc import ABC
 from datetime import datetime, timezone
@@ -58,7 +59,8 @@ class BaseAgent(ABC):
             }
         )
         messages = [{"role": "user", "content": prompt}]
-        return await llm_router.chat(messages, model="gemini-1.5-flash", system_prompt=system)
+        model = (os.getenv("LLM_DEFAULT_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
+        return await llm_router.chat(messages, model=model, system_prompt=system)
 
     async def _execute(
         self, commands: list[str], context: PlatformContext, incident_id: int = 0

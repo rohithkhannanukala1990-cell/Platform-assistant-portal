@@ -273,7 +273,7 @@ export default function TopBar({ user, onLogout, onOpenCommandPalette, onMenuOpe
   const navigate = useNavigate()
   const { authFetch } = useAuth()
   const { pendingApprovalCount } = usePortalContext()
-  const [aiProvider, setAiProvider] = useState('ollama')
+  const [llmLabel, setLlmLabel] = useState('LLM')
   const [unreadCount, setUnreadCount] = useState(0)
 
   const headerToolId = useMemo(
@@ -297,19 +297,22 @@ export default function TopBar({ user, onLogout, onOpenCommandPalette, onMenuOpe
 
   useEffect(() => {
     let cancelled = false
-    async function loadSettings() {
+    async function loadLlmStatus() {
       try {
-        const res = await authFetch('/api/settings')
-        if (!res.ok) return
+        const res = await authFetch('/api/ai/llm/status')
+        if (!res.ok) {
+          if (!cancelled) setLlmLabel('LLM')
+          return
+        }
         const data = await res.json()
         if (cancelled) return
-        const provider = (data.ai_provider || data.AI_PROVIDER || 'ollama').toLowerCase()
-        setAiProvider(provider.includes('gemini') ? 'gemini' : 'ollama')
+        const model = (data.default_model || '').trim()
+        setLlmLabel(model || 'LLM')
       } catch {
-        if (!cancelled) setAiProvider('ollama')
+        if (!cancelled) setLlmLabel('LLM')
       }
     }
-    void loadSettings()
+    void loadLlmStatus()
     return () => {
       cancelled = true
     }
@@ -414,15 +417,9 @@ export default function TopBar({ user, onLogout, onOpenCommandPalette, onMenuOpe
           </button>
         )}
 
-        <span
-          className={`hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
-            aiProvider === 'gemini'
-              ? 'bg-blue-900 text-blue-300'
-              : 'bg-purple-900 text-purple-300'
-          }`}
-        >
+        <span className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-300">
           <Zap className="w-3.5 h-3.5" />
-          {aiProvider === 'gemini' ? 'Gemini' : 'Ollama'}
+          {llmLabel}
         </span>
 
         <WsIndicator connected={wsConnected} />

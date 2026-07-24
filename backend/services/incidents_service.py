@@ -1,7 +1,6 @@
 """Triage, HITL, Slack, and remediation helpers."""
 import asyncio
 import json
-import os
 import re
 import time
 
@@ -23,9 +22,8 @@ from ..observability.metrics import (
     INCIDENTS_TOTAL,
     LLM_LATENCY_SECONDS,
 )
-from ..ai.ai_utils import call_gemini, call_ollama
-
-AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").lower()
+from ..ai.ai_utils import call_llm
+from ..ai.llm_service import llm_service
 
 TRIAGE_SYSTEM_PROMPT = """You are a senior DevOps and SRE engineer embedded inside Cursor IDE.
 Analyze the provided server logs and return ONLY a valid JSON object — no markdown, no explanation, no code fences.
@@ -128,14 +126,10 @@ async def run_triage(
         active_system_prompt = TRIAGE_SYSTEM_PROMPT
 
     _start = time.time()
-    if AI_PROVIDER == "ollama":
-        raw_text  = await call_ollama(log_text, system_prompt=active_system_prompt)
-        model_used = "Ollama / Gemma 3 4B (Local)"
-        LLM_LATENCY_SECONDS.labels(provider=AI_PROVIDER).observe(time.time() - _start)
-    else:
-        raw_text  = await call_gemini(log_text, system_prompt=active_system_prompt)
-        model_used = "Gemma 3 27B (Cloud)"
-        LLM_LATENCY_SECONDS.labels(provider=AI_PROVIDER).observe(time.time() - _start)
+    provider, model = llm_service.resolve_provider_and_model()
+    raw_text = await call_llm(log_text, system_prompt=active_system_prompt)
+    model_used = model
+    LLM_LATENCY_SECONDS.labels(provider=provider).observe(time.time() - _start)
 
     parsed = parse_json_response(raw_text)
 

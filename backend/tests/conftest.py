@@ -12,6 +12,9 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_test_db.as_posix()}"
 os.environ["SKIP_BACKGROUND_SCHEDULER"] = "1"
 os.environ.setdefault("ENV", "test")
 os.environ.setdefault("SECRET_KEY", "pytest-jwt-secret-not-for-production")
+os.environ.setdefault("LLM_MOCK", "1")
+os.environ.setdefault("LLM_DEFAULT_PROVIDER", "openai")
+os.environ.setdefault("LLM_DEFAULT_MODEL", "gpt-4o-mini")
 # Match docker-compose default so seed_default_admin() hashes the same password tests use.
 os.environ.setdefault("DEFAULT_ADMIN_USERNAME", "admin")
 os.environ.setdefault("DEFAULT_ADMIN_PASSWORD", "Admin123!")

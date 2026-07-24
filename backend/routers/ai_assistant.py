@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 
 from ..auth import User, get_current_user, require_admin
 from ..ai.llm_router import llm_router
+from ..ai.llm_service import llm_service
 from ..ai.tool_executor import tool_executor
 from ..database import (
     engine,
@@ -43,7 +44,7 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     workspace_id: Optional[str] = None
     environment: Optional[str] = "production"
-    model: Optional[str] = "gemini-1.5-flash"
+    model: Optional[str] = "gpt-4o-mini"
 
 
 class ApproveExecutionRequest(BaseModel):
@@ -593,7 +594,12 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
 
     uid = current_user.username
     env = (req.environment or "production").strip().lower()
-    model = (req.model or os.getenv("AI_DEFAULT_MODEL", "gemini-1.5-flash") or "gemini-1.5-flash").strip()
+    model = (
+        req.model
+        or os.getenv("LLM_DEFAULT_MODEL")
+        or os.getenv("AI_DEFAULT_MODEL")
+        or "gpt-4o-mini"
+    ).strip() or "gpt-4o-mini"
     try:
         hist_limit = int(os.getenv("AI_MAX_HISTORY_MESSAGES", "20"))
     except ValueError:
@@ -1024,23 +1030,38 @@ async def reject_execution(
 
 @router.get("/models")
 def list_models(current_user: User = Depends(get_current_user)):
-    gemini_ok = bool((os.getenv("GEMINI_API_KEY") or "").strip())
-    openai_ok = bool((os.getenv("OPENAI_API_KEY") or "").strip())
-    ollama_ok = os.getenv("OLLAMA_BASE_URL") is not None and bool((os.getenv("OLLAMA_BASE_URL") or "").strip())
-
-    def avail(provider: str) -> bool:
-        if provider == "gemini":
-            return gemini_ok
-        if provider == "openai":
-            return openai_ok
-        if provider == "ollama":
-            return ollama_ok
-        return False
+    status = llm_service.get_status()
+    openai_ok = status["openai_configured"] or status["mock"]
+    anthropic_ok = status["anthropic_configured"] or status["mock"]
 
     return [
-        {"id": "gemini-1.5-flash", "provider": "gemini", "available": avail("gemini"), "label": "Gemini 1.5 Flash (Fast)"},
-        {"id": "gemini-1.5-pro", "provider": "gemini", "available": avail("gemini"), "label": "Gemini 1.5 Pro (Smart)"},
-        {"id": "gpt-4o", "provider": "openai", "available": avail("openai"), "label": "GPT-4o (OpenAI)"},
-        {"id": "llama3", "provider": "ollama", "available": avail("ollama"), "label": "Llama 3 (Local)"},
-        {"id": "mistral", "provider": "ollama", "available": avail("ollama"), "label": "Mistral (Local)"},
+        {
+            "id": "gpt-4o-mini",
+            "provider": "openai",
+            "available": openai_ok,
+            "label": "GPT-4o mini (OpenAI)",
+        },
+        {
+            "id": "gpt-4o",
+            "provider": "openai",
+            "available": openai_ok,
+            "label": "GPT-4o (OpenAI)",
+        },
+        {
+            "id": "claude-3-5-haiku-latest",
+            "provider": "anthropic",
+            "available": anthropic_ok,
+            "label": "Claude 3.5 Haiku (Anthropic)",
+        },
+        {
+            "id": "claude-3-5-sonnet-latest",
+            "provider": "anthropic",
+            "available": anthropic_ok,
+            "label": "Claude 3.5 Sonnet (Anthropic)",
+        },
     ]
+
+
+@router.get("/llm/status")
+def llm_status(current_user: User = Depends(get_current_user)):
+    return llm_service.get_status()
