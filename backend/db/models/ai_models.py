@@ -87,6 +87,8 @@ class AgentRun(SQLModel, table=True):
     execution_log: Optional[str] = Field(default=None)
     triggered_by: str = Field(default="", index=True)
     workspace_id: str = Field(default="", index=True)
+    tenant_id: Optional[str] = Field(default="default", index=True)
+    user_id: Optional[str] = Field(default=None, index=True)
     environment: str = Field(default="development")
     task: str = Field(default="")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

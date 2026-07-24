@@ -36,6 +36,8 @@ def save_incident(data: dict) -> Incident:
         raw_response=data.get("raw_response", ""),
         source=data.get("source", "manual"),
         owner_role=data.get("owner_role", "Admin"),
+        tenant_id=(data.get("tenant_id") or "default"),
+        workspace_id=(data.get("workspace_id") or None),
     )
     with Session(engine) as session:
         session.add(incident)
@@ -48,6 +50,8 @@ def list_incidents(
     limit: int = 100,
     offset: int = 0,
     status: str | None = None,
+    tenant_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> list[dict]:
     limit = max(1, min(int(limit or 100), 500))
     offset = max(0, int(offset or 0))
@@ -55,13 +59,39 @@ def list_incidents(
         q = select(Incident).order_by(Incident.timestamp.desc())
         if status:
             q = q.where(Incident.status == status)
+        if tenant_id:
+            q = q.where(Incident.tenant_id == tenant_id)
+        if workspace_id:
+            q = q.where(Incident.workspace_id == workspace_id)
         rows = session.exec(q.offset(offset).limit(limit)).all()
     return [serialize_incident(r) for r in rows]
 
 
-def get_all_incidents() -> list[dict]:
+def get_all_incidents(
+    tenant_id: str | None = None,
+    workspace_id: str | None = None,
+) -> list[dict]:
     """Deprecated wrapper — prefer list_incidents(limit=..., offset=..., status=...)."""
-    return list_incidents(limit=500)
+    return list_incidents(limit=500, tenant_id=tenant_id, workspace_id=workspace_id)
+
+
+def get_incident(
+    incident_id: int,
+    *,
+    tenant_id: str | None = None,
+) -> dict | None:
+    with Session(engine) as session:
+        row = session.get(Incident, incident_id)
+        if not row:
+            return None
+        if tenant_id is not None:
+            from backend.context import DEFAULT_TENANT_ID, resolve_tenant_id
+
+            left = resolve_tenant_id(getattr(row, "tenant_id", None), DEFAULT_TENANT_ID)
+            right = resolve_tenant_id(tenant_id, DEFAULT_TENANT_ID)
+            if left != right:
+                return None
+        return serialize_incident(row)
 
 
 def _serialize_incident(i: Incident) -> dict:
@@ -91,6 +121,8 @@ def serialize_incident(i: Incident) -> dict:
             getattr(i, "proposed_remediation_plan", None)
         ),
         "agent_execution_logs": getattr(i, "agent_execution_logs", None),
+        "tenant_id": getattr(i, "tenant_id", None) or "default",
+        "workspace_id": getattr(i, "workspace_id", None),
     }
 
 
@@ -144,6 +176,7 @@ __all__ = [
     "save_incident",
     "list_incidents",
     "get_all_incidents",
+    "get_incident",
     "serialize_incident",
     "_serialize_incident",
     "_safe_json_loads",

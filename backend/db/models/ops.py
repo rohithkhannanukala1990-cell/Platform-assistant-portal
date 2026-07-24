@@ -27,6 +27,8 @@ class Incident(SQLModel, table=True):
     owner_role: str = Field(default="Admin")     # Admin | Developer | DataEngineer | NetworkEngineer
     proposed_remediation_plan: Optional[str] = Field(default=None)  # JSON array of steps
     agent_execution_logs: Optional[str] = Field(default=None)
+    tenant_id: Optional[str] = Field(default="default", index=True)
+    workspace_id: Optional[str] = Field(default=None, index=True)
 
 
 class InfraGeneration(SQLModel, table=True):

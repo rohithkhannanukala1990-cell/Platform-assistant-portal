@@ -15,6 +15,7 @@ from ..auth import User, get_current_user, write_audit
 from ..database import (
     create_notification,
     get_all_incidents,
+    get_incident,
     get_pending_approvals,
     get_settings,
     update_incident_status,
@@ -23,6 +24,7 @@ from ..executor.safe_executor import safe_executor
 from ..observability.metrics import ACTIVE_APPROVALS, HITL_APPROVAL_SECONDS
 from ..rate_limit import limiter
 from ..services import incidents_service
+from ..services.isolation import assert_same_tenant, require_tenant
 from ..services.incidents_service import (
     AGENT_APPROVED_LOGS,
     MOCK_RUNBOOK_LOGS,
@@ -85,25 +87,57 @@ async def triage_logs(request: Request, triage_in: TriageRequest, current_user: 
     if not triage_in.logs.strip():
         raise HTTPException(status_code=400, detail="Log text cannot be empty.")
     try:
-        result = await incidents_service.run_triage(triage_in.logs, source="manual")
+        result = await incidents_service.run_triage(
+            triage_in.logs,
+            source="manual",
+            tenant_id=require_tenant(request),
+            workspace_id=getattr(request.state, "workspace_id", None),
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"AI provider error: {str(exc)}")
     return TriageResponse(**result)
 
 @router.get("/api/incidents", response_model=list[IncidentSummary])
-def list_incidents(role: str | None = None, current_user: User = Depends(get_current_user)):
-    """Return all incidents. If ?role=<X> is provided and role != Admin,
-    only incidents where owner_role matches are returned."""
-    incidents = get_all_incidents()
+def list_incidents(
+    request: Request,
+    role: str | None = None,
+    current_user: User = Depends(get_current_user),
+):
+    """Return incidents for the caller's tenant."""
+    tenant_id = require_tenant(request)
+    incidents = get_all_incidents(tenant_id=tenant_id)
     if role and role != "Admin":
         incidents = [i for i in incidents if i.get("owner_role", "Admin") == role]
     return incidents
 
+
+@router.get("/api/incidents/approvals")
+def list_pending_approvals(
+    request: Request,
+    role: str | None = None,
+    current_user: User = Depends(get_current_user),
+):
+    # Must be declared before /{incident_id} so "approvals" is not parsed as an int id.
+    return get_pending_approvals(role=role)
+
+
+@router.get("/api/incidents/{incident_id}", response_model=IncidentSummary)
+def get_incident_by_id(
+    request: Request,
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
+    incident = get_incident(incident_id, tenant_id=tenant_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return incident
+
 @router.post("/api/incidents/{incident_id}/remediate")
 @limiter.limit("5/minute")
 async def remediate_incident(request: Request, incident_id: int, current_user: User = Depends(get_current_user)):
-    all_incidents = get_all_incidents()
-    incident = next((i for i in all_incidents if i["id"] == incident_id), None)
+    tenant_id = require_tenant(request)
+    incident = get_incident(incident_id, tenant_id=tenant_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     if incident.get("status") == "RESOLVED":
@@ -133,8 +167,7 @@ class ApprovalRequest(BaseModel):
 @router.post("/api/incidents/{incident_id}/dry-run")
 @limiter.limit("5/minute")
 async def dry_run_incident(request: Request, incident_id: int, current_user: User = Depends(get_current_user)):
-    all_incidents = get_all_incidents()
-    incident = next((i for i in all_incidents if i["id"] == incident_id), None)
+    incident = get_incident(incident_id, tenant_id=require_tenant(request))
     if not incident:
         raise HTTPException(404, "Incident not found")
     plan = incident.get("proposed_remediation_plan") or []
@@ -145,8 +178,7 @@ async def dry_run_incident(request: Request, incident_id: int, current_user: Use
 @limiter.limit("5/minute")
 async def approve_incident(request: Request, incident_id: int, body: ApprovalRequest, current_user: User = Depends(get_current_user)):
     import json as _json
-    all_incidents = get_all_incidents()
-    incident = next((i for i in all_incidents if i["id"] == incident_id), None)
+    incident = get_incident(incident_id, tenant_id=require_tenant(request))
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     if incident.get("status") != "AWAITING_APPROVAL":
@@ -225,8 +257,7 @@ async def approve_incident(request: Request, incident_id: int, body: ApprovalReq
 @router.post("/api/incidents/{incident_id}/reject")
 @limiter.limit("5/minute")
 async def reject_incident(request: Request, incident_id: int, current_user: User = Depends(get_current_user)):
-    all_incidents = get_all_incidents()
-    incident = next((i for i in all_incidents if i["id"] == incident_id), None)
+    incident = get_incident(incident_id, tenant_id=require_tenant(request))
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     if incident.get("status") != "AWAITING_APPROVAL":
@@ -275,10 +306,6 @@ async def reject_incident(request: Request, incident_id: int, current_user: User
     return updated
 
 
-@router.get("/api/incidents/approvals")
-def list_pending_approvals(role: str | None = None, current_user: User = Depends(get_current_user)):
-    return get_pending_approvals(role=role)
-
 JIRA_FORMAT_PROMPT = """You are a senior SRE writing a Jira incident ticket.
 Given the incident data below, return ONLY a JSON object with these fields:
 - "title": concise one-line issue summary (max 100 chars)
@@ -293,8 +320,7 @@ Return ONLY raw JSON. No markdown fences.
 @limiter.limit("5/minute")
 async def create_jira_ticket(request: Request, incident_id: int, current_user: User = Depends(get_current_user)):
     # Load incident
-    all_incidents = get_all_incidents()
-    incident = next((i for i in all_incidents if i["id"] == incident_id), None)
+    incident = get_incident(incident_id, tenant_id=require_tenant(request))
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 

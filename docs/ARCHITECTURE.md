@@ -47,8 +47,13 @@ UI (authFetch)
 
 - `PlatformContext` carries `workspace_id`, `tenant_id`, `environment`, `tool_accounts`, and user identity into agents.
 - Middleware prefers `X-Workspace-Id`, then the user’s default `workspace_id`.
+- **Tenant trust:** if the authenticated user has `tenant_id`, that value always wins. Client `X-Tenant-Id` cannot escalate privileges.
+- Sensitive list/get paths filter by `tenant_id` (and ownership for tool accounts). Cross-tenant reads return **404** (not 403) via `assert_same_tenant`.
+- `ENFORCE_WORKSPACE_ISOLATION=true` hard-rejects authenticated non-public API calls without a workspace (allowlist: health/auth/settings/LLM status).
+- `UserContext` rows are keyed by authenticated numeric user id only.
 - Demo / single-tenant setups may run with `DEFAULT_TENANT_ID=default`.
 - Active tool accounts are pinned per user in `UserContext.active_accounts` (JSON map `tool_id → account_id`).
+- Helpers live in `backend/services/isolation.py` (`require_tenant`, `require_workspace`, `apply_tenant_filter`, `assert_same_tenant`).
 
 ## `ENABLE_DEMO_DATA` and `ENV`
 

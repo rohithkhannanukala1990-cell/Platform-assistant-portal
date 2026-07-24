@@ -3,12 +3,18 @@
 Resolves workspace_id and tenant_id for each request and attaches them to
 ``request.state`` so downstream routers can scope queries consistently.
 
-Sources (in order of preference for workspace):
+Tenant trust rules:
+- If the authenticated user has ``tenant_id``, that value ALWAYS wins.
+- ``X-Tenant-Id`` / ``X-Org-Id`` are ignored for privilege escalation
+  (non-admins cannot switch tenants via header).
+
+Workspace sources (in order):
 1. ``X-Workspace-Id`` header (active workspace switcher)
 2. Authenticated user's ``workspace_id`` (default workspace)
-3. ``None`` in demo / single-tenant setups
+3. ``None`` when unset
 
-Tenant comes from the user record, ``X-Tenant-Id``, or ``DEFAULT_TENANT_ID``.
+Set ``ENFORCE_WORKSPACE_ISOLATION=true`` to hard-reject authenticated
+non-public requests that lack a workspace_id (production-ready path).
 """
 
 from __future__ import annotations
@@ -20,7 +26,7 @@ from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from backend.context import DEFAULT_TENANT_ID, PlatformContext, resolve_tenant_id
+from backend.context import DEFAULT_TENANT_ID, resolve_tenant_id
 
 # Paths that never require an active workspace (auth, health, docs, static).
 _PUBLIC_PREFIXES: tuple[str, ...] = (
@@ -36,6 +42,13 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/favicon",
 )
 
+# Extra allowlist when enforcement is on (status / LLM probes without workspace).
+_ENFORCE_ALLOWLIST_PREFIXES: tuple[str, ...] = (
+    "/api/health",
+    "/api/llm",
+    "/api/settings",
+)
+
 
 def _is_public_path(path: str) -> bool:
     if path == "/" or path == "":
@@ -46,14 +59,21 @@ def _is_public_path(path: str) -> bool:
     return False
 
 
-def _enforce_workspace_required() -> bool:
-    """Optional hard reject when workspace is missing outside demo/dev."""
-    flag = (os.getenv("ENFORCE_WORKSPACE_ISOLATION") or "").strip().lower()
-    if flag in ("1", "true", "yes", "on"):
-        return True
-    # In non-dev environments, enable soft enforcement only when explicitly opted in
-    # via the flag above. Demo/single-tenant stays working by default.
+def _is_enforce_allowlisted(path: str) -> bool:
+    for prefix in _ENFORCE_ALLOWLIST_PREFIXES:
+        if path == prefix.rstrip("/") or path.startswith(prefix):
+            return True
     return False
+
+
+def _enforce_workspace_required() -> bool:
+    flag = (os.getenv("ENFORCE_WORKSPACE_ISOLATION") or "").strip().lower()
+    return flag in ("1", "true", "yes", "on")
+
+
+def _is_admin(user) -> bool:
+    role = str(getattr(user, "role", "") or "").strip().lower()
+    return role in {"admin", "superadmin", "platformadmin"}
 
 
 def _load_user_from_authorization(authorization: str | None):
@@ -78,7 +98,6 @@ def _load_user_from_authorization(authorization: str | None):
         return None
 
 
-# TODO(S2-P2.1): Enforce workspace isolation from authenticated user context
 class WorkspaceIsolationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         user = getattr(request.state, "user", None)
@@ -100,12 +119,24 @@ class WorkspaceIsolationMiddleware(BaseHTTPMiddleware):
 
         workspace_id = header_workspace or user_workspace or None
 
-        tenant_id = resolve_tenant_id(
-            getattr(user, "tenant_id", None) if user is not None else None,
-            request.headers.get("X-Tenant-Id"),
-            request.headers.get("X-Org-Id"),
-            DEFAULT_TENANT_ID,
-        )
+        # Tenant: never trust client header over the authenticated user's tenant.
+        user_tenant = None
+        if user is not None:
+            raw_t = getattr(user, "tenant_id", None)
+            if raw_t is not None and str(raw_t).strip():
+                user_tenant = str(raw_t).strip()
+
+        header_tenant = (request.headers.get("X-Tenant-Id") or request.headers.get("X-Org-Id") or "").strip()
+        if user_tenant:
+            # Admins may optionally override only when explicitly enabled later;
+            # default: force bound tenant (no privilege escalation via header).
+            if _is_admin(user) and header_tenant and header_tenant != user_tenant:
+                # Still ignore header override — keep fail-closed unless product needs it.
+                tenant_id = user_tenant
+            else:
+                tenant_id = user_tenant
+        else:
+            tenant_id = resolve_tenant_id(header_tenant or None, DEFAULT_TENANT_ID)
 
         request.state.workspace_id = workspace_id
         request.state.tenant_id = tenant_id
@@ -117,11 +148,10 @@ class WorkspaceIsolationMiddleware(BaseHTTPMiddleware):
         except Exception:
             pass
 
-        # Optionally reject authenticated API calls without a workspace outside demos.
         if (
             _enforce_workspace_required()
-            and not PlatformContext.is_dev_environment()
             and not _is_public_path(request.url.path)
+            and not _is_enforce_allowlisted(request.url.path)
             and user is not None
             and not workspace_id
         ):

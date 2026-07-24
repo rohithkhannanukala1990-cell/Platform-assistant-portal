@@ -1,4 +1,4 @@
-# Platform phases (0–7)
+# Platform phases (0–9)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -32,8 +32,21 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Agents grounded on live GitHub (no invented data when disconnected)
 - [x] Active CI runs prefer GitHub, then demo, else `no_data`
 
-# Phase 8 — Secrets + tool account scoping
+## Phase 7 — Hardening
+- [x] Login rate limit (`5/minute`), failed-login audit (`login_failed` / outcome denied), per-process lockout
+- [x] Chat / triage / agent run limits (`10/minute`); webhooks stay `5/minute`
+- [x] Metrics: webhook signature failures, demo data served, GitHub API requests
+- [x] Docs: `ARCHITECTURE.md`, this file
+
+## Phase 8 — Secrets + tool account scoping
 - [x] Fernet encrypt-at-rest (`SECRETS_ENCRYPTION_KEY`) for ToolAccount credentials
 - [x] GET APIs expose `has_credentials` only (no raw/decrypted secrets)
 - [x] GitHub account resolution scoped to user/workspace — no global active-account fallback
 - [x] `owner_user_id` / `workspace_id` on ToolAccount; agents stamp PlatformContext from auth + UserContext
+
+## Phase 9 — Tenant + workspace isolation hard-fail
+- [x] `backend/services/isolation.py` helpers; 404 on tenant mismatch
+- [x] Middleware forces user `tenant_id`; `ENFORCE_WORKSPACE_ISOLATION` documented
+- [x] Incidents, tool accounts, agent runs, catalog, user_context scoped
+- [x] Agent runs persist `user_id` / `tenant_id` / `workspace_id`
+- [x] Cross-tenant tests in `test_phase9_isolation.py`

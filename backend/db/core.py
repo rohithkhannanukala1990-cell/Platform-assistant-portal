@@ -522,6 +522,11 @@ def _migrate():
         ("user_context", "workspace_id", "TEXT", "NULL"),
         ("user_context", "tenant_id", "TEXT", "'default'"),
         ("templates", "recommended_golden_path_keys", "TEXT", "'[]'"),
+        ("incident", "tenant_id", "TEXT", "'default'"),
+        ("incident", "workspace_id", "TEXT", "NULL"),
+        ("agent_runs", "tenant_id", "TEXT", "'default'"),
+        ("agent_runs", "user_id", "TEXT", "NULL"),
+        ("catalog_entities", "tenant_id", "TEXT", "'default'"),
     ]
     with Session(engine) as session:
         for table, col, col_type, default in migrations:

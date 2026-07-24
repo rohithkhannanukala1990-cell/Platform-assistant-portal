@@ -51,6 +51,8 @@ def _user_can_run_agent(session: Session, context: PlatformContext, agent_name: 
 
 
 def _start_run(task: str, agent_name: str, context: PlatformContext) -> str:
+    if not (context.user_id or "").strip():
+        raise ValueError("user_id is required on PlatformContext for agent runs")
     with Session(engine) as session:
         row = AgentRun(
             agent=agent_name,
@@ -60,7 +62,9 @@ def _start_run(task: str, agent_name: str, context: PlatformContext) -> str:
             requires_approval=False,
             approval_payload_json="{}",
             triggered_by=context.user_id,
-            workspace_id=context.workspace_id,
+            user_id=context.user_id,
+            workspace_id=context.workspace_id or "",
+            tenant_id=context.tenant_id or "default",
             environment=context.environment,
             task=task,
         )
@@ -87,7 +91,10 @@ def _complete_run(run_id: str, result: AgentResult) -> None:
         session.commit()
 
 
-def _persist_run(task: str, result: AgentResult) -> str:
+def _persist_run(task: str, result: AgentResult, context: PlatformContext | None = None) -> str:
+    user_id = (context.user_id if context else None) or result.triggered_by
+    if not (user_id or "").strip():
+        raise ValueError("user_id is required to persist agent runs")
     with Session(engine) as session:
         row = AgentRun(
             agent=result.agent,
@@ -97,8 +104,10 @@ def _persist_run(task: str, result: AgentResult) -> str:
             requires_approval=result.requires_approval,
             approval_payload_json=json.dumps(result.approval_payload or {}),
             execution_log=result.execution_log,
-            triggered_by=result.triggered_by,
-            workspace_id=result.workspace,
+            triggered_by=result.triggered_by or user_id,
+            user_id=user_id,
+            workspace_id=(context.workspace_id if context else None) or result.workspace or "",
+            tenant_id=(context.tenant_id if context else None) or "default",
             environment=result.environment,
             task=task,
         )
@@ -243,7 +252,7 @@ class OrchestratorAgent:
         else:
             results = await asyncio.gather(*[_run_isolated(n) for n in allowed])
             final = result_aggregator.aggregate(list(results))
-            agg_id = _persist_run(task, final)
+            agg_id = _persist_run(task, final, context)
             final.run_id = agg_id
             await ws_broadcast(
                 agg_id,

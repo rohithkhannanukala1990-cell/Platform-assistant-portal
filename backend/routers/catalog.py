@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import Index
 from sqlmodel import Field, Session, SQLModel, select
@@ -16,6 +16,7 @@ from sqlmodel import Field, Session, SQLModel, select
 from ..auth import User, get_current_user
 from ..database import engine, get_db
 from backend.middleware.rbac_middleware import require_permission
+from ..services.isolation import apply_tenant_filter, assert_same_tenant, require_tenant
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -36,6 +37,7 @@ class CatalogEntity(SQLModel, table=True):
     health_status: str = "unknown"  # healthy | degraded | unknown
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     is_active: int = 1
+    tenant_id: Optional[str] = Field(default="default", index=True)
 
 
 class ServiceDependency(SQLModel, table=True):
@@ -121,13 +123,21 @@ def _serialize(row: CatalogEntity) -> dict[str, Any]:
         "health_status": row.health_status,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "is_active": bool(row.is_active),
+        "tenant_id": getattr(row, "tenant_id", None) or "default",
     }
 
 
-def _get_active(session: Session, entity_id: str) -> CatalogEntity:
+def _get_active(
+    session: Session,
+    entity_id: str,
+    *,
+    tenant_id: str | None = None,
+) -> CatalogEntity:
     row = session.get(CatalogEntity, entity_id)
     if not row or not row.is_active:
-        raise HTTPException(status_code=404, detail="Catalog entity not found")
+        raise HTTPException(status_code=404, detail="Entity not found")
+    if tenant_id is not None:
+        assert_same_tenant(getattr(row, "tenant_id", None), tenant_id)
     return row
 
 
@@ -153,6 +163,7 @@ _VALID_DEP_TYPES = frozenset({"calls", "uses", "depends_on"})
 # TODO: Add filters for owner_team, lifecycle, environment, and tags to the catalog list endpoint
 @router.get("")
 def list_catalog(
+    request: Request,
     kind: Optional[str] = Query(None),
     lifecycle: Optional[str] = Query(None),
     owner_team: Optional[str] = Query(None),
@@ -162,8 +173,10 @@ def list_catalog(
     ),
     current_user: User = Depends(get_current_user),
 ):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
         q = select(CatalogEntity).where(CatalogEntity.is_active == 1)
+        q = apply_tenant_filter(q, CatalogEntity, tenant_id)
         if kind:
             q = q.where(CatalogEntity.kind == kind)
         if lifecycle:
@@ -275,6 +288,7 @@ def search_catalog(
 # TODO: Protect catalog mutations with require_permission("catalog", "write")
 @router.post("")
 def create_catalog(
+    request: Request,
     body: CatalogCreate,
     current_user: User = Depends(get_current_user),
     _perm: None = Depends(require_permission("catalog", "write")),
@@ -282,6 +296,7 @@ def create_catalog(
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
         row = CatalogEntity(
             id=str(uuid.uuid4()),
@@ -296,6 +311,7 @@ def create_catalog(
             health_status=(body.health_status or "unknown").strip(),
             is_active=1,
             created_at=datetime.now(timezone.utc),
+            tenant_id=tenant_id,
         )
         session.add(row)
         session.commit()
@@ -304,9 +320,14 @@ def create_catalog(
 
 
 @router.get("/{entity_id}/dependencies")
-def list_entity_dependencies(entity_id: str, current_user: User = Depends(get_current_user)):
+def list_entity_dependencies(
+    request: Request,
+    entity_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
-        _get_active(session, entity_id)
+        _get_active(session, entity_id, tenant_id=tenant_id)
         names = _entity_name_map(session)
         rows = session.exec(
             select(ServiceDependency).where(
@@ -318,14 +339,20 @@ def list_entity_dependencies(entity_id: str, current_user: User = Depends(get_cu
 
 
 @router.get("/{entity_id}")
-def get_catalog(entity_id: str, current_user: User = Depends(get_current_user)):
+def get_catalog(
+    request: Request,
+    entity_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
-        return _serialize(_get_active(session, entity_id))
+        return _serialize(_get_active(session, entity_id, tenant_id=tenant_id))
 
 
 # TODO: Protect catalog mutations with require_permission("catalog", "write")
 @router.put("/{entity_id}")
 def update_catalog(
+    request: Request,
     entity_id: str,
     body: CatalogUpdate,
     current_user: User = Depends(get_current_user),
@@ -334,8 +361,9 @@ def update_catalog(
     data = body.model_dump(exclude_unset=True)
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
-        row = _get_active(session, entity_id)
+        row = _get_active(session, entity_id, tenant_id=tenant_id)
         if "name" in data and data["name"] is not None:
             row.name = str(data["name"]).strip()
         if "kind" in data and data["kind"] is not None:
@@ -364,6 +392,7 @@ def update_catalog(
 # TODO: Prevent deletion of entities that have dependencies in ServiceDependency, or require explicit force flag
 @router.delete("/{entity_id}")
 def delete_catalog(
+    request: Request,
     entity_id: str,
     force: bool = Query(
         False,
@@ -373,7 +402,7 @@ def delete_catalog(
     _perm: None = Depends(require_permission("catalog", "write")),
 ):
     with Session(engine) as session:
-        row = _get_active(session, entity_id)
+        row = _get_active(session, entity_id, tenant_id=require_tenant(request))
         dependencies = list(
             session.exec(
                 select(ServiceDependency).where(

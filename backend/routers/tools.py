@@ -11,6 +11,8 @@ from ..connectors.registry import get_auth_types, get_connector, get_required_fi
 from ..database import engine as db_engine
 from ..database import Tool, ToolAccount, ToolConnectionLog
 from ..services.secrets import decrypt_secret, encrypt_secret
+from ..services.isolation import apply_tenant_filter, assert_same_tenant, require_tenant
+from sqlalchemy import or_
 
 router = APIRouter(tags=["tools"])
 
@@ -302,15 +304,27 @@ def api_tool_accounts_matrix(tool_id: str, current_user: User = Depends(get_curr
 @router.get("/api/tools/{tool_id}/accounts")
 def api_tool_accounts_list(
     tool_id: str,
+    request: Request,
     environment: str | None = None,
     status: str | None = None,
     current_user: User = Depends(get_current_user),
 ):
+    tenant_id = require_tenant(request)
     with Session(db_engine) as session:
         tool = session.get(Tool, tool_id)
         if not tool:
             raise HTTPException(status_code=404, detail="Tool not found")
         q = select(ToolAccount).where(ToolAccount.tool_id == tool_id)
+        q = apply_tenant_filter(q, ToolAccount, tenant_id)
+        # Non-admins only see accounts they own (or created).
+        role = (current_user.role or "").strip().lower()
+        if role not in {"admin", "superadmin", "platformadmin"}:
+            uid = str(current_user.id) if current_user.id is not None else None
+            ownership = []
+            if uid:
+                ownership.append(ToolAccount.owner_user_id == uid)
+            ownership.append(ToolAccount.created_by == current_user.username)
+            q = q.where(or_(*ownership))
         if environment:
             q = q.where(ToolAccount.environment == environment)
         if status:
@@ -373,13 +387,16 @@ def api_tool_accounts_update(
     tool_id: str,
     account_id: str,
     body: ToolAccountUpdateBody,
+    request: Request,
     current_user: User = Depends(get_current_user),
 ):
     data = body.model_dump(exclude_unset=True)
+    tenant_id = require_tenant(request)
     with Session(db_engine) as session:
         row = session.get(ToolAccount, account_id)
         if not row or row.tool_id != tool_id:
             raise HTTPException(status_code=404, detail="Account not found")
+        assert_same_tenant(getattr(row, "tenant_id", None), tenant_id)
         for key in (
             "account_name",
             "account_identifier",
@@ -427,12 +444,15 @@ def api_tool_accounts_delete(
 async def api_tool_accounts_test(
     tool_id: str,
     account_id: str,
+    request: Request,
     current_user: User = Depends(get_current_user),
 ):
+    tenant_id = require_tenant(request)
     with Session(db_engine) as session:
         acc = session.get(ToolAccount, account_id)
         if not acc or acc.tool_id != tool_id:
             raise HTTPException(status_code=404, detail="Account not found")
+        assert_same_tenant(getattr(acc, "tenant_id", None), tenant_id)
         plain = decrypt_secret(acc.credentials_vault_ref or "")
         account_dict = {
             "tool_id": acc.tool_id,

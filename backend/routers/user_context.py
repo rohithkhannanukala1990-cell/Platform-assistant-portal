@@ -18,12 +18,12 @@ router = APIRouter(tags=["user-context"])
 
 
 def _context_user_key(user: User) -> str:
-    """Stable primary key for UserContext rows."""
+    """Stable primary key for UserContext rows — always authenticated user id."""
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
-    if getattr(user, "id", None) is not None:
-        return str(user.id)
-    return str(user.username)
+    if getattr(user, "id", None) is None:
+        raise HTTPException(status_code=400, detail="Authenticated user id is required")
+    return str(user.id)
 
 
 def _ensure_user_context_row(session: Session, user: User) -> UserContext:
@@ -168,6 +168,25 @@ class AccessRequestReviewBody(BaseModel):
 def api_context_get(current_user: User = Depends(get_current_user)):
     with Session(db_engine) as session:
         row = _ensure_user_context_row(session, current_user)
+        return _context_payload(session, row)
+
+
+@router.get("/api/context/users/{user_id}")
+def api_context_get_user(
+    user_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Explicit admin-only read of another user's context. Non-owners get 404."""
+    own = _context_user_key(current_user)
+    target = str(user_id or "").strip()
+    if target != own:
+        role = (current_user.role or "").strip().lower()
+        if role not in {"admin", "superadmin", "platformadmin"}:
+            raise HTTPException(status_code=404, detail="Not found")
+    with Session(db_engine) as session:
+        row = session.get(UserContext, target)
+        if not row:
+            raise HTTPException(status_code=404, detail="Not found")
         return _context_payload(session, row)
 
 

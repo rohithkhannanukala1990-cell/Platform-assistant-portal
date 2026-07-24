@@ -107,7 +107,13 @@ def to_list(value) -> list[str]:
         return [value.strip()]
     return []
 
-async def run_triage(log_text: str, source: str = "manual", owner_role: str = "Admin") -> dict:
+async def run_triage(
+    log_text: str,
+    source: str = "manual",
+    owner_role: str = "Admin",
+    tenant_id: str | None = None,
+    workspace_id: str | None = None,
+) -> dict:
     """
     Call AI → parse → save incident → notification → Slack.
     Returns the serialised TriageResponse dict (or raises on AI error).
@@ -140,6 +146,8 @@ async def run_triage(log_text: str, source: str = "manual", owner_role: str = "A
         "raw_response": raw_text,
         "source":       source,
         "owner_role":   owner_role,
+        "tenant_id":    tenant_id or "default",
+        "workspace_id": workspace_id,
     })
     INCIDENTS_TOTAL.labels(severity=parsed["severity"], source=source, outcome="triaged").inc()
     confidence_val = parsed.get("confidence", 0.0)

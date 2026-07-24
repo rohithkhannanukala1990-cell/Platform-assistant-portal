@@ -18,6 +18,7 @@ from ..database import AgentRun, UserContext, engine
 from ..executor.safe_executor import safe_executor
 from ..pipeline.orchestrator import orchestrator_agent
 from ..rate_limit import limiter
+from ..services.isolation import assert_same_tenant, require_tenant
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -73,17 +74,14 @@ def _build_platform_context(
         merged_accounts.update({str(k): str(v) for k, v in body_accounts.items() if k and v})
 
     uid = str(current_user.id) if current_user.id is not None else str(current_user.username)
+    if not uid.strip():
+        raise HTTPException(status_code=400, detail="Authenticated user_id is required")
     workspace_id = (
         body_ctx.get("workspace_id")
         or state_ws
         or getattr(current_user, "workspace_id", None)
     )
-    tenant_id = (
-        body_ctx.get("tenant_id")
-        or state_tenant
-        or getattr(current_user, "tenant_id", None)
-        or "default"
-    )
+    tenant_id = require_tenant(request)
     payload = {
         **body_ctx,
         "user_id": uid,
@@ -142,35 +140,46 @@ async def run_agent(
 
 @router.get("/approvals")
 def list_approvals(
+    request: Request,
     workspace_id: Optional[str] = None,
     current_user: User = Depends(get_current_user),
 ):
+    tenant_id = require_tenant(request)
+    ws = workspace_id or getattr(request.state, "workspace_id", None)
     with Session(engine) as session:
-        q = select(AgentRun).where(AgentRun.status == "pending_approval")
-        if workspace_id:
-            q = q.where(AgentRun.workspace_id == workspace_id)
+        q = select(AgentRun).where(
+            AgentRun.status == "pending_approval",
+            AgentRun.tenant_id == tenant_id,
+        )
+        if ws:
+            q = q.where(AgentRun.workspace_id == ws)
         rows = session.exec(q.order_by(AgentRun.created_at.desc())).all()
     return [_run_to_dict(r) for r in rows]
 
 
 @router.get("/runs")
 def list_runs(
+    request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = Query(None),
     workspace_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
 ):
-    """Paginated agent run history with optional status and workspace filters."""
+    """Paginated agent run history filtered by tenant/workspace."""
+    tenant_id = require_tenant(request)
+    ws = workspace_id or getattr(request.state, "workspace_id", None)
     with Session(engine) as session:
-        q = select(AgentRun)
-        count_q = select(func.count()).select_from(AgentRun)
+        q = select(AgentRun).where(AgentRun.tenant_id == tenant_id)
+        count_q = select(func.count()).select_from(AgentRun).where(
+            AgentRun.tenant_id == tenant_id
+        )
         if status:
             q = q.where(AgentRun.status == status.strip().lower())
             count_q = count_q.where(AgentRun.status == status.strip().lower())
-        if workspace_id:
-            q = q.where(AgentRun.workspace_id == workspace_id)
-            count_q = count_q.where(AgentRun.workspace_id == workspace_id)
+        if ws:
+            q = q.where(AgentRun.workspace_id == ws)
+            count_q = count_q.where(AgentRun.workspace_id == ws)
         total = int(session.exec(count_q).one() or 0)
         rows = session.exec(
             q.order_by(AgentRun.created_at.desc())
@@ -187,11 +196,12 @@ def list_runs(
 
 @router.get("/{agent_name}")
 def get_agent_meta(
+    request: Request,
     agent_name: str,
     current_user: User = Depends(get_current_user),
 ):
     if agent_name == "approvals":
-        return list_approvals(None, current_user)
+        return list_approvals(request, None, current_user)
     try:
         agent = get_agent(agent_name)
     except AgentNotFound:
@@ -233,6 +243,7 @@ async def approve_run(
         row = session.get(AgentRun, run_id)
         if not row:
             raise HTTPException(status_code=404, detail="Run not found")
+        assert_same_tenant(getattr(row, "tenant_id", None), require_tenant(request))
         if row.status != "pending_approval":
             raise HTTPException(status_code=400, detail="Run is not pending approval")
 
@@ -279,6 +290,7 @@ def reject_run(
         row = session.get(AgentRun, run_id)
         if not row:
             raise HTTPException(status_code=404, detail="Run not found")
+        assert_same_tenant(getattr(row, "tenant_id", None), require_tenant(request))
         row.status = "failed"
         row.requires_approval = False
         row.summary = f"Rejected by {current_user.username}: {row.summary}"
