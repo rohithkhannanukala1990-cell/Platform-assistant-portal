@@ -187,6 +187,7 @@ class OrchestratorAgent:
         context: PlatformContext,
         db: Session,
         override_agents: Optional[list[str]] = None,
+        agent_params: Optional[dict] = None,
     ) -> AgentResult:
         classified = await intent_classifier.classify(task, context)
         agent_names = override_agents or classified.suggested_agents
@@ -212,6 +213,8 @@ class OrchestratorAgent:
             )
 
         params = {"task": task, **classified.model_dump()}
+        if isinstance(agent_params, dict):
+            params.update(agent_params)
 
         async def _run_with_timeout(name: str) -> AgentResult:
             run_id = _start_run(task, name, context)

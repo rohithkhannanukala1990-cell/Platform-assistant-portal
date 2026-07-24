@@ -12,6 +12,7 @@ from ..database import get_recent_webhook_events, save_webhook_event, update_web
 from ..observability.logger import logger
 from ..rate_limit import limiter
 from ..services import incidents_service
+from ..services.github_webhooks import process_github_webhook_event, should_handle_github_event
 from ..tasks import process_inbound_webhook, process_webhook_log
 from ..webhooks.security import require_valid_signature
 
@@ -209,8 +210,48 @@ async def inbound_webhook_gateway(request: Request):
     payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
     event_type = data.get("event_type") or _map_to_cloud_event(payload, source)[0]
     owner_role = _route_owner(source)
-    ce_id = str(uuid.uuid4())
+    headers = {str(k).lower(): v for k, v in request.headers.items()}
+    delivery_id = str(
+        data.get("delivery_id")
+        or headers.get("x-github-delivery")
+        or uuid.uuid4()
+    )
 
+    # Fast-path: GitHub workflow_run failure / PR opened|sync → incident
+    if source == "github":
+        gh_event = str(
+            data.get("github_event")
+            or headers.get("x-github-event")
+            or event_type
+            or ""
+        ).strip()
+        if not gh_event or gh_event in {
+            "inbound_event",
+            "opened",
+            "synchronize",
+            "reopened",
+            "completed",
+        }:
+            if isinstance(payload.get("workflow_run"), dict):
+                gh_event = "workflow_run"
+            elif isinstance(payload.get("pull_request"), dict):
+                gh_event = "pull_request"
+        if should_handle_github_event(gh_event, payload):
+            result = process_github_webhook_event(
+                event_name=gh_event,
+                payload=payload,
+                delivery_id=delivery_id,
+            )
+            return {
+                "status": result.get("status") or "accepted",
+                "task_id": None,
+                "cloud_event_id": delivery_id,
+                "routed_to": owner_role,
+                "incident_id": result.get("incident_id"),
+                "message": f"GitHub event '{gh_event}' handled.",
+            }
+
+    ce_id = delivery_id
     ev = save_webhook_event({
         "source":         source,
         "event_type":     event_type,
@@ -234,6 +275,38 @@ async def inbound_webhook_gateway(request: Request):
         "cloud_event_id": ce_id,
         "routed_to":      owner_role,
         "message":        f"Event from '{source}' accepted and queued for processing.",
+    }
+
+
+@router.post("/api/webhooks/github", status_code=202)
+@limiter.limit("5/minute")
+async def github_native_webhook(request: Request):
+    """Native GitHub webhook receiver (X-GitHub-Event + X-Hub-Signature-256)."""
+    raw_body = await request.body()
+    require_valid_signature("github", raw_body, dict(request.headers))
+
+    try:
+        payload = json.loads(raw_body.decode("utf-8") or "{}")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="JSON body must be an object")
+
+    headers = {str(k).lower(): v for k, v in request.headers.items()}
+    event_name = str(headers.get("x-github-event") or "").strip()
+    delivery_id = str(headers.get("x-github-delivery") or uuid.uuid4())
+
+    result = process_github_webhook_event(
+        event_name=event_name,
+        payload=payload,
+        delivery_id=delivery_id,
+    )
+    return {
+        "status": result.get("status") or "accepted",
+        "delivery_id": delivery_id,
+        "incident_id": result.get("incident_id"),
+        "webhook_event_id": result.get("webhook_event_id"),
+        "message": f"GitHub event '{event_name}' handled.",
     }
 
 

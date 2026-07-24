@@ -27,6 +27,7 @@ class RunAgentRequest(BaseModel):
     task: str
     context: dict = Field(default_factory=dict)
     override_agents: Optional[list[str]] = None
+    params: Optional[dict] = None
 
 
 def _session():
@@ -134,6 +135,7 @@ async def run_agent(
             ctx,
             session,
             override_agents=body.override_agents,
+            agent_params=body.params,
         )
     return result.to_dict()
 

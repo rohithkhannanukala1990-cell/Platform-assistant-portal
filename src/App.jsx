@@ -43,6 +43,8 @@ const AccountImportView = lazy(() => import('./components/AccountImportView'))
 const DeploymentsView = lazy(() => import('./components/DeploymentsView'))
 const DORAPage = lazy(() => import('./components/DORAPage'))
 const LivePipelinesView = lazy(() => import('./components/LivePipelinesView'))
+const GitHubPRsView = lazy(() => import('./components/GitHubPRsView'))
+const GitHubActionsView = lazy(() => import('./components/GitHubActionsView'))
 const SchemaBrowserView = lazy(() => import('./components/SchemaBrowserView'))
 const DataLineageView = lazy(() => import('./components/DataLineageView'))
 const NotificationsPage = lazy(() => import('./components/NotificationsPage'))
@@ -213,6 +215,8 @@ function AuthenticatedRoutes() {
           />
           <Route path="/workspaces" element={<PrivateRoute><WorkspaceBuilder /></PrivateRoute>} />
           <Route path="/cicd" element={<PrivateRoute><CICDView /></PrivateRoute>} />
+          <Route path="/github/prs" element={<PrivateRoute><GitHubPRsView /></PrivateRoute>} />
+          <Route path="/github/actions" element={<PrivateRoute><GitHubActionsView /></PrivateRoute>} />
           <Route path="/live-pipelines" element={<PrivateRoute><LivePipelinesView /></PrivateRoute>} />
           <Route path="/deployments" element={<PrivateRoute><DeploymentsView /></PrivateRoute>} />
           <Route path="/schema-browser" element={<PrivateRoute><SchemaBrowserView /></PrivateRoute>} />

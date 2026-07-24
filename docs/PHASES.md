@@ -1,4 +1,4 @@
-# Platform phases (0–9 + L1–L2)
+# Platform phases (0–10 + L1–L2)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -63,3 +63,9 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] `/api/llm` status/providers CRUD/test; keys encrypted; GET masked
 - [x] `LLMService` resolution: explicit → env → DB priority → env keys → mock
 - [x] Settings LLM providers panel; AIAssistant/TopBar use `/api/llm/status`
+
+## Phase 10 — GitHub product loop
+- [x] PR/run/jobs detail routes under `/api/github`
+- [x] Native + inbound GitHub webhooks → incidents (HMAC, delivery-id idempotency)
+- [x] `code_review_agent` / `pipeline_monitor_agent` grounded via scoped connector
+- [x] UI: GitHub PRs + Actions views with empty states when disconnected

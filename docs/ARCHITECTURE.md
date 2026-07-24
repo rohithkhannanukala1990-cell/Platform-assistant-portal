@@ -35,8 +35,8 @@ UI (authFetch)
 | `workspaces` / `rbac` / `users` | Tenancy, roles, user admin |
 | `catalog` / `scorecards` / `standards` / `golden_paths` | Service catalog & platform paths |
 | `tools` / `imports_api` / `user_context` | Tool Registry, CSV import, active accounts |
-| `github_ops` | Read-only GitHub repos / PRs / Actions |
-| `incidents` / `webhooks_api` / `notifications` | Triage, inbound webhooks, alerts |
+| `github_ops` | Read-only GitHub repos / PRs / Actions (+ PR/run detail & jobs) |
+| `incidents` / `webhooks_api` / `notifications` | Triage, inbound + native GitHub webhooks, alerts |
 | `infra_cicd` | Infra generator, CI/CD generate, active runs, DORA |
 | `agents` | Agent run / approve / reject |
 | `platform_misc` | Settings, chat, search, anomaly scan |

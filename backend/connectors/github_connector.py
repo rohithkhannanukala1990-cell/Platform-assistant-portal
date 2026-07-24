@@ -379,6 +379,32 @@ class GitHubConnector(_BaseGitHub):
             if isinstance(j, dict)
         ]
 
+    async def get_workflow_run(
+        self, owner: str, repo: str, run_id: int
+    ) -> dict[str, Any]:
+        """GET /repos/{owner}/{repo}/actions/runs/{run_id}"""
+        data = await self._get(
+            f"/repos/{owner}/{repo}/actions/runs/{int(run_id)}"
+        )
+        if not isinstance(data, dict):
+            return {}
+        return {
+            "id": data.get("id"),
+            "name": data.get("name"),
+            "status": data.get("status"),
+            "conclusion": data.get("conclusion"),
+            "html_url": data.get("html_url"),
+            "created_at": data.get("created_at"),
+            "updated_at": data.get("updated_at"),
+            "head_branch": data.get("head_branch"),
+            "head_sha": (data.get("head_sha") or "")[:12],
+            "event": data.get("event"),
+            "display_title": data.get("display_title") or data.get("name"),
+            "run_attempt": data.get("run_attempt"),
+            "actor": ((data.get("actor") or {}).get("login")),
+            "path": data.get("path"),
+        }
+
     async def get_readme(self, repo: str) -> Optional[str]:
         try:
             data = await self._get(f"/repos/{repo}/readme")

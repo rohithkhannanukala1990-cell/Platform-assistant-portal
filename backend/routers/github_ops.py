@@ -69,3 +69,59 @@ async def api_github_workflow_runs(
         return await connector.list_workflow_runs(full, status=status, per_page=per_page)
     except GitHubAPIError as exc:
         raise _http_from_github_error(exc) from exc
+
+
+@router.get("/repos/{owner}/{repo}/pulls/{number}")
+async def api_github_pull_detail(
+    owner: str,
+    repo: str,
+    number: int,
+    current_user: User = Depends(get_current_user),
+):
+    connector = await _github_connector_for_user(current_user)
+    try:
+        return await connector.get_pull_request(owner, repo, number)
+    except GitHubAPIError as exc:
+        raise _http_from_github_error(exc) from exc
+
+
+@router.get("/repos/{owner}/{repo}/pulls/{number}/files")
+async def api_github_pull_files(
+    owner: str,
+    repo: str,
+    number: int,
+    current_user: User = Depends(get_current_user),
+):
+    connector = await _github_connector_for_user(current_user)
+    try:
+        return await connector.list_pull_request_files(owner, repo, number)
+    except GitHubAPIError as exc:
+        raise _http_from_github_error(exc) from exc
+
+
+@router.get("/repos/{owner}/{repo}/actions/runs/{run_id}")
+async def api_github_workflow_run_detail(
+    owner: str,
+    repo: str,
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    connector = await _github_connector_for_user(current_user)
+    try:
+        return await connector.get_workflow_run(owner, repo, run_id)
+    except GitHubAPIError as exc:
+        raise _http_from_github_error(exc) from exc
+
+
+@router.get("/repos/{owner}/{repo}/actions/runs/{run_id}/jobs")
+async def api_github_workflow_run_jobs(
+    owner: str,
+    repo: str,
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    connector = await _github_connector_for_user(current_user)
+    try:
+        return await connector.list_workflow_run_jobs(owner, repo, run_id)
+    except GitHubAPIError as exc:
+        raise _http_from_github_error(exc) from exc

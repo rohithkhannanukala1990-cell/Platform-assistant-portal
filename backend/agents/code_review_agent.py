@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 
 from sqlmodel import Session
@@ -11,6 +12,36 @@ from ..connectors.github_connector import GitHubAPIError
 from ..context import PlatformContext
 from ..services.github_access import try_github_connector_from_context
 from .base import BaseAgent
+
+
+def _parse_repo_parts(params: dict) -> tuple[str, str, str]:
+    """Return (owner, repo_name, full_name)."""
+    owner = (params.get("owner") or "").strip()
+    repo = (params.get("repo") or "").strip()
+    if owner and repo and "/" not in repo:
+        return owner, repo, f"{owner}/{repo}"
+    if "/" in repo:
+        parts = repo.split("/", 1)
+        return parts[0], parts[1], repo
+    task = str(params.get("task") or "")
+    m = re.search(r"([\w.-]+)/([\w.-]+)", task)
+    if m:
+        return m.group(1), m.group(2), f"{m.group(1)}/{m.group(2)}"
+    return owner, repo, repo
+
+
+def _parse_pr_number(params: dict) -> int | None:
+    raw = params.get("pr_number") or params.get("number")
+    if raw is not None and str(raw).strip():
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            pass
+    task = str(params.get("task") or "")
+    m = re.search(r"(?:PR|pr|#)\s*#?(\d+)", task)
+    if m:
+        return int(m.group(1))
+    return None
 
 
 class CodeReviewAgent(BaseAgent):
@@ -26,23 +57,29 @@ class CodeReviewAgent(BaseAgent):
             return self._build_result(
                 context,
                 status="skipped",
-                summary="GitHub connection is required. Connect a GitHub account in Tool Registry.",
+                summary="GitHub not connected. Connect a GitHub account in Tool Registry.",
                 details={"reason": "github_not_configured"},
             )
 
-        repo = (params.get("repo") or "").strip()
-        pr_number = params.get("pr_number") or params.get("number")
-        owner = (params.get("owner") or "").strip()
+        owner, repo_name, full = _parse_repo_parts(params)
+        pr_number = _parse_pr_number(params)
 
         try:
-            if pr_number and owner and repo and "/" not in repo:
-                pr = await connector.get_pull_request(owner, repo, int(pr_number))
+            if pr_number and owner and repo_name:
+                pr = await connector.get_pull_request(owner, repo_name, int(pr_number))
                 files = await connector.list_pull_request_files(
-                    owner, repo, int(pr_number)
+                    owner, repo_name, int(pr_number)
                 )
+                if not pr:
+                    return self._build_result(
+                        context,
+                        status="failed",
+                        summary=f"PR #{pr_number} not found in {owner}/{repo_name}.",
+                        details={"reason": "pr_not_found"},
+                    )
                 facts = {
                     "mode": "single_pr",
-                    "repo": f"{owner}/{repo}",
+                    "repo": f"{owner}/{repo_name}",
                     "pr": pr,
                     "files": files[:40],
                     "file_count": len(files),
@@ -61,7 +98,7 @@ class CodeReviewAgent(BaseAgent):
                     status="success",
                     summary=str(
                         parsed.get("summary")
-                        or f"Reviewed PR #{pr_number} in {owner}/{repo}"
+                        or f"Reviewed PR #{pr_number} in {owner}/{repo_name}"
                     ),
                     details={
                         "github_facts": facts,
@@ -73,8 +110,8 @@ class CodeReviewAgent(BaseAgent):
                     },
                 )
 
+            repo = full
             if not repo:
-                # Prefer account org repos when no explicit repo
                 repos = await connector.list_repos(per_page=5)
                 if repos:
                     repo = str(repos[0].get("full_name") or "")
@@ -92,18 +129,17 @@ class CodeReviewAgent(BaseAgent):
                 context,
                 status="failed",
                 summary=f"GitHub API error: {exc.message}",
-                details={"error_type": exc.error_type, "repo": repo},
+                details={"error_type": exc.error_type, "repo": full or repo_name},
             )
         except Exception as exc:
             return self._build_result(
                 context,
                 status="failed",
                 summary="Failed to fetch pull requests from GitHub.",
-                details={"error": str(exc)[:200], "repo": repo},
+                details={"error": str(exc)[:200], "repo": full or repo_name},
             )
 
         by_author: dict[str, int] = {}
-        oldest_age = 0
         ages: list[int] = []
         for pr in prs:
             author = pr.get("user") or "unknown"

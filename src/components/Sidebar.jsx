@@ -38,6 +38,7 @@ import {
   Code2,
   TerminalSquare,
   Search,
+  GitPullRequest,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -69,10 +70,12 @@ const ICON_MAP = {
   Sparkles,
   Database,
   HardDrive,
+  Activity,
   Bot,
   Code2,
   TerminalSquare,
   Search,
+  GitPullRequest,
 }
 
 const NAV_GROUPS = [
@@ -113,6 +116,8 @@ const NAV_GROUPS = [
     defaultOpen: false,
     items: [
       { label: 'CI/CD Pipelines', path: '/cicd', icon: 'GitBranch' },
+      { label: 'GitHub PRs', path: '/github/prs', icon: 'GitPullRequest' },
+      { label: 'GitHub Actions', path: '/github/actions', icon: 'Activity' },
       { label: 'Deployments', path: '/deployments', icon: 'Rocket' },
       { label: 'Live Pipelines', path: '/live-pipelines', icon: 'Activity' },
       { label: 'Schema Browser', path: '/schema-browser', icon: 'Database' },

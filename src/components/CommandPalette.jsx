@@ -34,6 +34,8 @@ const ALL_COMMANDS = [
   { label: 'Settings', path: '/settings', category: 'Admin' },
   { label: 'AI Assistant', path: '/ai-assistant', category: 'AI' },
   { label: 'CI/CD Pipelines', path: '/cicd', category: 'DevTools' },
+  { label: 'GitHub PRs', path: '/github/prs', category: 'DevTools' },
+  { label: 'GitHub Actions', path: '/github/actions', category: 'DevTools' },
   { label: 'Live Pipelines', path: '/live-pipelines', category: 'DevTools' },
   { label: 'Deployments', path: '/deployments', category: 'DevTools' },
   { label: 'Schema Browser', path: '/schema-browser', category: 'DevTools' },
