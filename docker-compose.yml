@@ -115,7 +115,7 @@ services:
       celery -A backend.worker.celery_app worker
         --loglevel=info
         --concurrency=2
-        --queues=celery
+        --queues=celery,triage,notify
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

@@ -5,6 +5,7 @@ import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..auth import User, get_current_user
@@ -13,6 +14,8 @@ from ..observability.logger import logger
 from ..rate_limit import limiter
 from ..services import incidents_service
 from ..services.github_webhooks import process_github_webhook_event, should_handle_github_event
+from ..services.webhook_delivery import claim_delivery, extract_delivery_id, mark_delivery_status
+from ..observability.metrics import record_webhook_duplicate
 from ..tasks import process_inbound_webhook, process_webhook_log
 from ..webhooks.security import require_valid_signature
 
@@ -211,11 +214,27 @@ async def inbound_webhook_gateway(request: Request):
     event_type = data.get("event_type") or _map_to_cloud_event(payload, source)[0]
     owner_role = _route_owner(source)
     headers = {str(k).lower(): v for k, v in request.headers.items()}
-    delivery_id = str(
-        data.get("delivery_id")
-        or headers.get("x-github-delivery")
-        or uuid.uuid4()
+    delivery_id = extract_delivery_id(
+        source=source,
+        headers=headers,
+        body=data if isinstance(data, dict) else {},
+        fallback=str(data.get("delivery_id") or "") or None,
     )
+
+    is_new, existing = claim_delivery(delivery_id, source)
+    if not is_new:
+        record_webhook_duplicate(source)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "duplicate",
+                "delivery_id": delivery_id,
+                "cloud_event_id": delivery_id,
+                "routed_to": owner_role,
+                "incident_id": None,
+                "message": f"Duplicate delivery_id for '{source}' — ignored.",
+            },
+        )
 
     # Fast-path: GitHub workflow_run failure / PR opened|sync → incident
     if source == "github":
@@ -242,10 +261,12 @@ async def inbound_webhook_gateway(request: Request):
                 payload=payload,
                 delivery_id=delivery_id,
             )
+            mark_delivery_status(delivery_id, result.get("status") or "processed")
             return {
                 "status": result.get("status") or "accepted",
                 "task_id": None,
                 "cloud_event_id": delivery_id,
+                "delivery_id": delivery_id,
                 "routed_to": owner_role,
                 "incident_id": result.get("incident_id"),
                 "message": f"GitHub event '{gh_event}' handled.",
@@ -269,10 +290,12 @@ async def inbound_webhook_gateway(request: Request):
         asyncio.create_task(_inbound_webhook_background_fallback(payload, source, ev.id))
         task_id = "local-fallback"
 
+    mark_delivery_status(delivery_id, "accepted")
     return {
         "status":         "accepted",
         "task_id":        task_id,
         "cloud_event_id": ce_id,
+        "delivery_id":    delivery_id,
         "routed_to":      owner_role,
         "message":        f"Event from '{source}' accepted and queued for processing.",
     }
@@ -282,6 +305,8 @@ async def inbound_webhook_gateway(request: Request):
 @limiter.limit("5/minute")
 async def github_native_webhook(request: Request):
     """Native GitHub webhook receiver (X-GitHub-Event + X-Hub-Signature-256)."""
+    from fastapi.responses import JSONResponse
+
     raw_body = await request.body()
     require_valid_signature("github", raw_body, dict(request.headers))
 
@@ -294,13 +319,35 @@ async def github_native_webhook(request: Request):
 
     headers = {str(k).lower(): v for k, v in request.headers.items()}
     event_name = str(headers.get("x-github-event") or "").strip()
-    delivery_id = str(headers.get("x-github-delivery") or uuid.uuid4())
+    delivery_id = extract_delivery_id(
+        source="github",
+        headers=headers,
+        body=payload,
+    )
+
+    is_new, existing = claim_delivery(delivery_id, "github")
+    if not is_new:
+        from ..services.github_webhooks import find_webhook_by_delivery_id
+
+        record_webhook_duplicate("github")
+        prior = find_webhook_by_delivery_id(delivery_id)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "duplicate",
+                "delivery_id": delivery_id,
+                "incident_id": prior.incident_id if prior else None,
+                "webhook_event_id": prior.id if prior else None,
+                "message": f"Duplicate GitHub delivery '{delivery_id}' — ignored.",
+            },
+        )
 
     result = process_github_webhook_event(
         event_name=event_name,
         payload=payload,
         delivery_id=delivery_id,
     )
+    mark_delivery_status(delivery_id, result.get("status") or "processed")
     return {
         "status": result.get("status") or "accepted",
         "delivery_id": delivery_id,

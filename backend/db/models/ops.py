@@ -82,6 +82,34 @@ class WebhookEvent(SQLModel, table=True):
     cloud_event_id: str = Field(default="")          # generated CE id
 
 
+class WebhookDelivery(SQLModel, table=True):
+    """Idempotency ledger for inbound webhooks (delivery_id primary key)."""
+
+    __tablename__ = "webhook_delivery"
+
+    delivery_id: str = Field(primary_key=True, max_length=255)
+    source: str = Field(default="", index=True)
+    received_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    status: str = Field(default="received")  # received | processed | duplicate | error
+
+
+class CeleryTaskFailure(SQLModel, table=True):
+    """Dead-letter style failure log for manual replay after max Celery retries."""
+
+    __tablename__ = "celery_task_failure"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_name: str = Field(default="", index=True)
+    task_id: str = Field(default="", index=True)
+    queue: str = Field(default="celery")
+    args_json: str = Field(default="[]")
+    kwargs_json: str = Field(default="{}")
+    error: str = Field(default="")
+    retries: int = Field(default=0)
+    failed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    replayed_at: Optional[datetime] = Field(default=None)
+
+
 class HealthAlert(SQLModel, table=True):
     """Background health-check / auto-heal notifications (see health_alerts.py)."""
     id: str = Field(primary_key=True)

@@ -73,6 +73,24 @@ UI (authFetch)
 
 Never commit PATs. Tokens are stored as `credentials_vault_ref` and must not appear in logs or API error bodies.
 
+## Celery queues
+
+Workers should listen to all application queues (see `docker-compose.yml` `celery_worker`):
+
+| Queue | Tasks | Purpose |
+|-------|-------|---------|
+| `triage` | `tasks.process_inbound_webhook`, `tasks.process_webhook_log` | Webhook → AI triage (retries with exponential backoff) |
+| `notify` | `tasks.notify_incident` | Durable notification fan-out |
+| `celery` | `tasks.monitor_cicd_pipelines` (default) | Background monitors / default queue |
+
+Config lives in `backend/worker.py` (`task_routes`). After max retries, failures are written to `celery_task_failure` for manual replay and counted on `celery_task_failures_total`.
+
+Webhook idempotency: `webhook_delivery.delivery_id` (PK) is claimed **after** HMAC verify; duplicates return HTTP **200** with `status=duplicate`.
+
+Login lockout counters use Redis (`CELERY_BROKER_URL` / `REDIS_URL`) when available, otherwise an in-process fallback (logged warning).
+
+Backup steps: see [`RUNBOOK_BACKUP.md`](./RUNBOOK_BACKUP.md).
+
 ## Run docker-compose locally
 
 ```bash

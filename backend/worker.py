@@ -42,6 +42,14 @@ celery_app.conf.update(
     task_acks_late=True,               # ack only after the task finishes
     task_reject_on_worker_lost=True,   # requeue if the worker crashes mid-task
     worker_prefetch_multiplier=1,      # one task per worker slot (fair scheduling)
+    task_default_queue="celery",
+    task_queues=None,                  # declare via worker --queues=
+    task_routes={
+        "tasks.process_inbound_webhook": {"queue": "triage"},
+        "tasks.process_webhook_log": {"queue": "triage"},
+        "tasks.notify_incident": {"queue": "notify"},
+        "tasks.monitor_cicd_pipelines": {"queue": "celery"},
+    },
 
     # Visibility
     task_track_started=True,           # STARTED state visible in result backend

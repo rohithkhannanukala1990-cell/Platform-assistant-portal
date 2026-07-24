@@ -75,6 +75,21 @@ WEBHOOK_SIGNATURE_FAILURES_TOTAL = Counter(
     "webhook_signature_failures_total",
     "Webhook requests rejected due to invalid or missing HMAC signature",
 )
+WEBHOOK_DUPLICATES_TOTAL = Counter(
+    "webhook_duplicates_total",
+    "Webhook deliveries ignored as duplicates",
+    ["source"],
+)
+CELERY_TASK_RETRIES_TOTAL = Counter(
+    "celery_task_retries_total",
+    "Celery task retry attempts",
+    ["task", "queue"],
+)
+CELERY_TASK_FAILURES_TOTAL = Counter(
+    "celery_task_failures_total",
+    "Celery tasks that exhausted retries (dead-lettered)",
+    ["task", "queue"],
+)
 DEMO_DATA_SERVED_TOTAL = Counter(
     "demo_data_served_total",
     "Demo fixture responses served when ENABLE_DEMO_DATA/ENV allows",
@@ -109,6 +124,33 @@ def observe_health_probe(probe_name: str, duration_seconds: float) -> None:
 def record_webhook_signature_failure() -> None:
     try:
         WEBHOOK_SIGNATURE_FAILURES_TOTAL.inc()
+    except Exception:
+        pass
+
+
+def record_webhook_duplicate(source: str) -> None:
+    try:
+        WEBHOOK_DUPLICATES_TOTAL.labels(source=source or "unknown").inc()
+    except Exception:
+        pass
+
+
+def record_celery_task_retry(task: str, queue: str) -> None:
+    try:
+        CELERY_TASK_RETRIES_TOTAL.labels(
+            task=task or "unknown",
+            queue=queue or "celery",
+        ).inc()
+    except Exception:
+        pass
+
+
+def record_celery_task_failure(task: str, queue: str) -> None:
+    try:
+        CELERY_TASK_FAILURES_TOTAL.labels(
+            task=task or "unknown",
+            queue=queue or "celery",
+        ).inc()
     except Exception:
         pass
 

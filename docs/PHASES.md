@@ -1,4 +1,4 @@
-# Platform phases (0–13 + L1–L2)
+# Platform phases (0–14 + L1–L2)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -89,3 +89,10 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] SSO status + clear "not configured"; `/auth/callback` handoff; no fake SSO success
 - [x] JWT `jti` session registry: `GET/POST /api/auth/sessions`, `/api/auth/logout`
 - [x] `GET /api/audit/export?from=&to=` admin CSV/JSON (login/mfa/approve events)
+
+## Phase 14 — Reliability
+- [x] `WebhookDelivery` ledger: claim delivery_id after HMAC; duplicates → HTTP 200
+- [x] Celery triage/notify retries with backoff; failures → `celery_task_failure` + metrics
+- [x] Queues documented (`celery`, `triage`, `notify`) in ARCHITECTURE.md
+- [x] Login lockout counters in Redis when available (in-process fallback)
+- [x] `docs/RUNBOOK_BACKUP.md` (pg_dump/restore, exclusions, secret-key warning)

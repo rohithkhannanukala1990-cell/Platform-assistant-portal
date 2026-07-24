@@ -61,7 +61,7 @@ def test_github_workflow_failure_creates_incident(client, admin_token, monkeypat
             "X-GitHub-Delivery": delivery,
         },
     )
-    assert r2.status_code == 202
+    assert r2.status_code == 200
     assert r2.json()["status"] == "duplicate"
     assert r2.json()["incident_id"] == incident_id
 

@@ -1,11 +1,13 @@
 """Re-export all SQLModel table classes."""
 from .ops import (
     CICDPipeline,
+    CeleryTaskFailure,
     HealthAlert,
     Incident,
     InfraGeneration,
     Notification,
     UserSetting,
+    WebhookDelivery,
     WebhookEvent,
 )
 from .tools import (
@@ -40,6 +42,8 @@ __all__ = [
     "Notification",
     "UserSetting",
     "WebhookEvent",
+    "WebhookDelivery",
+    "CeleryTaskFailure",
     "HealthAlert",
     "Tool",
     "ToolAccount",

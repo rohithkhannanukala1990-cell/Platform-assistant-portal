@@ -16,13 +16,17 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from celery.exceptions import MaxRetriesExceededError
+
 from .worker import celery_app
 from .database import update_webhook_event
+from .observability.metrics import record_celery_task_failure, record_celery_task_retry
+from .services.celery_failures import record_task_failure
 
 logger = logging.getLogger(__name__)
 
+_TRIAGE_MAX_RETRIES = 5
 
-# ── Async runner ───────────────────────────────────────────────────────────────
 
 def _run_async(coro):
     """
@@ -32,7 +36,6 @@ def _run_async(coro):
     try:
         asyncio.run(coro)
     except RuntimeError:
-        # Fallback for environments where a loop already exists (eventlet/gevent pools)
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(coro)
@@ -40,28 +43,50 @@ def _run_async(coro):
             loop.close()
 
 
-# ── Task: inbound webhook gateway ──────────────────────────────────────────────
+def _backoff_countdown(retries: int) -> int:
+    """Exponential backoff with cap (seconds): 5, 10, 20, 40, 80… max 300."""
+    return min(300, 5 * (2 ** max(0, int(retries))))
+
+
+def _dead_letter(task_self, *, queue: str, args, error: BaseException) -> None:
+    name = getattr(task_self, "name", "") or task_self.__name__
+    retries = int(getattr(task_self.request, "retries", 0) or 0)
+    task_id = str(getattr(task_self.request, "id", "") or "")
+    try:
+        record_task_failure(
+            task_name=name,
+            task_id=task_id,
+            queue=queue,
+            args=list(args) if args is not None else [],
+            kwargs={},
+            error=str(error),
+            retries=retries,
+        )
+    except Exception as persist_exc:
+        logger.error("[celery] failed to persist dead-letter: %s", persist_exc)
+    try:
+        record_celery_task_failure(name, queue)
+    except Exception:
+        pass
+    logger.error(
+        "[celery] dead-letter task=%s queue=%s retries=%s error=%s",
+        name,
+        queue,
+        retries,
+        error,
+        exc_info=True,
+    )
+
 
 @celery_app.task(
     bind=True,
     name="tasks.process_inbound_webhook",
-    max_retries=3,
-    default_retry_delay=30,   # seconds between retries
+    max_retries=_TRIAGE_MAX_RETRIES,
     acks_late=True,
+    queue="triage",
 )
 def process_inbound_webhook(self, payload: dict, source: str, event_id: int):
-    """
-    Celery replacement for the FastAPI BackgroundTask in POST /api/webhooks/inbound.
-
-    Steps:
-      1. Normalise the arbitrary inbound payload to a CloudEvent-style log string.
-      2. Route to the correct owner role.
-      3. Run full AI triage (may trigger HITL or auto-resolve).
-      4. Update the WebhookEvent record with the resulting Incident ID.
-
-    Retries up to 3 times with a 30-second delay on transient failures.
-    """
-    # Lazy import — avoids circular dependency (main imports tasks at module level)
+    """Normalize inbound payload → AI triage. Retries with exponential backoff."""
     from .main import _run_triage, _map_to_cloud_event, _route_owner
 
     logger.info("[celery] process_inbound_webhook source=%s event_id=%s", source, event_id)
@@ -86,27 +111,32 @@ def process_inbound_webhook(self, payload: dict, source: str, event_id: int):
 
     except Exception as exc:
         update_webhook_event(event_id, status="error")
-        logger.error("[celery] Event %s failed: %s", event_id, exc, exc_info=True)
-        # Retry on transient errors; propagate on max-retries exceeded
-        raise self.retry(exc=exc)
+        retries = int(getattr(self.request, "retries", 0) or 0)
+        try:
+            record_celery_task_retry("tasks.process_inbound_webhook", "triage")
+        except Exception:
+            pass
+        try:
+            raise self.retry(exc=exc, countdown=_backoff_countdown(retries))
+        except MaxRetriesExceededError:
+            _dead_letter(
+                self,
+                queue="triage",
+                args=[payload, source, event_id],
+                error=exc,
+            )
+            raise
 
-
-# ── Task: legacy log ingestion webhook ────────────────────────────────────────
 
 @celery_app.task(
     bind=True,
     name="tasks.process_webhook_log",
-    max_retries=3,
-    default_retry_delay=30,
+    max_retries=_TRIAGE_MAX_RETRIES,
     acks_late=True,
+    queue="triage",
 )
 def process_webhook_log(self, log_text: str, source: str):
-    """
-    Celery replacement for the FastAPI BackgroundTask in POST /api/webhooks/logs.
-
-    Runs AI triage on a raw log string sent via the simple log-ingestion endpoint.
-    Retries up to 3 times on failure.
-    """
+    """AI triage on raw log string. Retries with exponential backoff."""
     from .main import _run_triage
 
     logger.info("[celery] process_webhook_log source=%s", source)
@@ -118,30 +148,70 @@ def process_webhook_log(self, log_text: str, source: str):
         _run_async(_run())
 
     except Exception as exc:
+        retries = int(getattr(self.request, "retries", 0) or 0)
+        try:
+            record_celery_task_retry("tasks.process_webhook_log", "triage")
+        except Exception:
+            pass
         logger.error(
             "[celery] Webhook log triage failed source=%s: %s", source, exc, exc_info=True
         )
-        raise self.retry(exc=exc)
+        try:
+            raise self.retry(exc=exc, countdown=_backoff_countdown(retries))
+        except MaxRetriesExceededError:
+            _dead_letter(
+                self,
+                queue="triage",
+                args=[log_text, source],
+                error=exc,
+            )
+            raise
 
 
-# ── Task: CI/CD pipeline monitor ───────────────────────────────────────────────
+@celery_app.task(
+    bind=True,
+    name="tasks.notify_incident",
+    max_retries=3,
+    acks_late=True,
+    queue="notify",
+)
+def notify_incident(self, incident_id: int, message: str, ntype: str = "info"):
+    """Durable notification create (notify queue)."""
+    from .database import create_notification
+
+    try:
+        create_notification(message=message, type=ntype, incident_id=incident_id)
+    except Exception as exc:
+        retries = int(getattr(self.request, "retries", 0) or 0)
+        try:
+            record_celery_task_retry("tasks.notify_incident", "notify")
+        except Exception:
+            pass
+        try:
+            raise self.retry(exc=exc, countdown=_backoff_countdown(retries))
+        except MaxRetriesExceededError:
+            _dead_letter(
+                self,
+                queue="notify",
+                args=[incident_id, message, ntype],
+                error=exc,
+            )
+            raise
+
 
 @celery_app.task(
     bind=True,
     name="tasks.monitor_cicd_pipelines",
     max_retries=1,
     acks_late=True,
+    queue="celery",
 )
 def monitor_cicd_pipelines(self):
     """
     Simulates a CI/CD pipeline monitoring scan.
 
     Picks a random failure scenario, creates an Incident, and routes it to
-    the owner role that owns that pipeline stage:
-      - Security Scan  → NetworkEngineer
-      - Test / Build   → Developer
-      - Deploy         → Developer
-    The incident is then evaluated by the HITL processor.
+    the owner role that owns that pipeline stage.
     """
     import random as _rand
     from .database import save_incident, create_notification
@@ -152,8 +222,11 @@ def monitor_cicd_pipelines(self):
 
     try:
         scenario = _rand.choice(CICD_MONITOR_SCENARIOS)
-        logger.info("[celery] monitor_cicd_pipelines: detected failure stage=%s owner=%s",
-                    scenario["stage"], scenario["owner_role"])
+        logger.info(
+            "[celery] monitor_cicd_pipelines: detected failure stage=%s owner=%s",
+            scenario["stage"],
+            scenario["owner_role"],
+        )
 
         record = save_incident({
             "severity":   scenario["severity"],
@@ -184,9 +257,21 @@ def monitor_cicd_pipelines(self):
 
         _run_async(_run())
 
-        logger.info("[celery] monitor_cicd_pipelines: Incident #%s created → %s", record.id, scenario["owner_role"])
-        return {"incident_id": record.id, "stage": scenario["stage"], "owner_role": scenario["owner_role"]}
+        logger.info(
+            "[celery] monitor_cicd_pipelines: Incident #%s created → %s",
+            record.id,
+            scenario["owner_role"],
+        )
+        return {
+            "incident_id": record.id,
+            "stage": scenario["stage"],
+            "owner_role": scenario["owner_role"],
+        }
 
     except Exception as exc:
-        logger.error("[celery] monitor_cicd_pipelines failed: %s", exc, exc_info=True)
+        try:
+            record_celery_task_failure("tasks.monitor_cicd_pipelines", "celery")
+        except Exception:
+            pass
+        _dead_letter(self, queue="celery", args=[], error=exc)
         raise self.retry(exc=exc)

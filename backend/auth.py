@@ -34,11 +34,11 @@ CANONICAL_ROLE_TO_RBAC_ROLE_ID = {
     "ReadOnly": "role-viewer",
 }
 
-# Per-process only — not shared across workers/replicas. Simple lockout after
-# repeated failed logins from the same username+IP within a sliding window.
+# Login lockout: prefer Redis (shared across workers); fall back to in-process memory.
 _LOGIN_FAILURES: dict[str, list[float]] = {}
 _LOCKOUT_THRESHOLD = 10
 _LOCKOUT_WINDOW_SEC = 15 * 60
+_REDIS_LOCKOUT_WARNED = False
 
 
 def _client_ip(request: Request) -> str:
@@ -47,6 +47,30 @@ def _client_ip(request: Request) -> str:
 
 def _login_fail_key(username: str, ip: str) -> str:
     return f"{(username or '').strip().lower()}|{(ip or '').strip()}"
+
+
+def _redis_client():
+    """Return a Redis client or None. Failures fall back to in-process lockout."""
+    global _REDIS_LOCKOUT_WARNED
+    url = (
+        (os.getenv("CELERY_BROKER_URL") or "").strip()
+        or (os.getenv("REDIS_URL") or "").strip()
+    )
+    if not url:
+        return None
+    try:
+        import redis as redis_sync
+
+        client = redis_sync.Redis.from_url(
+            url, socket_connect_timeout=0.5, socket_timeout=0.5, decode_responses=True
+        )
+        client.ping()
+        return client
+    except Exception as exc:
+        if not _REDIS_LOCKOUT_WARNED:
+            print(f"[auth] WARNING: Redis lockout unavailable, using in-process fallback: {exc}")
+            _REDIS_LOCKOUT_WARNED = True
+        return None
 
 
 def _prune_failures(key: str, now: float) -> list[float]:
@@ -63,6 +87,15 @@ def _is_login_locked(username: str, ip: str) -> bool:
     import time
 
     key = _login_fail_key(username, ip)
+    rkey = f"login_fail:{key}"
+    client = _redis_client()
+    if client is not None:
+        try:
+            count = int(client.llen(rkey) or 0)
+            return count >= _LOCKOUT_THRESHOLD
+        except Exception as exc:
+            print(f"[auth] WARNING: Redis lockout read failed, using memory: {exc}")
+
     recent = _prune_failures(key, time.time())
     return len(recent) >= _LOCKOUT_THRESHOLD
 
@@ -72,13 +105,34 @@ def _record_login_failure(username: str, ip: str) -> None:
 
     now = time.time()
     key = _login_fail_key(username, ip)
+    rkey = f"login_fail:{key}"
+    client = _redis_client()
+    if client is not None:
+        try:
+            pipe = client.pipeline()
+            pipe.rpush(rkey, str(now))
+            pipe.ltrim(rkey, -_LOCKOUT_THRESHOLD * 2, -1)
+            pipe.expire(rkey, _LOCKOUT_WINDOW_SEC)
+            pipe.execute()
+            return
+        except Exception as exc:
+            print(f"[auth] WARNING: Redis lockout write failed, using memory: {exc}")
+
     recent = _prune_failures(key, now)
     recent.append(now)
     _LOGIN_FAILURES[key] = recent
 
 
 def _clear_login_failures(username: str, ip: str) -> None:
-    _LOGIN_FAILURES.pop(_login_fail_key(username, ip), None)
+    key = _login_fail_key(username, ip)
+    rkey = f"login_fail:{key}"
+    client = _redis_client()
+    if client is not None:
+        try:
+            client.delete(rkey)
+        except Exception as exc:
+            print(f"[auth] WARNING: Redis lockout clear failed: {exc}")
+    _LOGIN_FAILURES.pop(key, None)
 
 
 # TODO: Normalize roles into a single canonical set (e.g. Admin, Operator, Viewer) used across auth, users, RBAC, and SSO
