@@ -7,8 +7,6 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
 from fastapi.security import OAuth2PasswordBearer
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
@@ -17,6 +15,7 @@ from sqlmodel import SQLModel, Field, Session, select
 from sqlalchemy import Column, String
 
 from .database import engine
+from .rate_limit import limiter
 
 load_dotenv()
 
@@ -27,6 +26,52 @@ CANONICAL_ROLE_TO_RBAC_ROLE_ID = {
     "User": "role-operator",
     "ReadOnly": "role-viewer",
 }
+
+# Per-process only — not shared across workers/replicas. Simple lockout after
+# repeated failed logins from the same username+IP within a sliding window.
+_LOGIN_FAILURES: dict[str, list[float]] = {}
+_LOCKOUT_THRESHOLD = 10
+_LOCKOUT_WINDOW_SEC = 15 * 60
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request and request.client else ""
+
+
+def _login_fail_key(username: str, ip: str) -> str:
+    return f"{(username or '').strip().lower()}|{(ip or '').strip()}"
+
+
+def _prune_failures(key: str, now: float) -> list[float]:
+    cutoff = now - _LOCKOUT_WINDOW_SEC
+    recent = [t for t in _LOGIN_FAILURES.get(key, []) if t >= cutoff]
+    if recent:
+        _LOGIN_FAILURES[key] = recent
+    else:
+        _LOGIN_FAILURES.pop(key, None)
+    return recent
+
+
+def _is_login_locked(username: str, ip: str) -> bool:
+    import time
+
+    key = _login_fail_key(username, ip)
+    recent = _prune_failures(key, time.time())
+    return len(recent) >= _LOCKOUT_THRESHOLD
+
+
+def _record_login_failure(username: str, ip: str) -> None:
+    import time
+
+    now = time.time()
+    key = _login_fail_key(username, ip)
+    recent = _prune_failures(key, now)
+    recent.append(now)
+    _LOGIN_FAILURES[key] = recent
+
+
+def _clear_login_failures(username: str, ip: str) -> None:
+    _LOGIN_FAILURES.pop(_login_fail_key(username, ip), None)
 
 
 # TODO: Normalize roles into a single canonical set (e.g. Admin, Operator, Viewer) used across auth, users, RBAC, and SSO
@@ -39,8 +84,6 @@ def normalize_role(role: str | None) -> str:
         return "ReadOnly"
     return "User"
 
-
-limiter = Limiter(key_func=get_remote_address)
 
 def get_session():
     with Session(engine) as session:
@@ -388,12 +431,29 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
 # TODO: Enforce MFA when user.mfa_enabled is True:
 # - Extend login request model with totp_code
 # - Verify TOTP code before issuing JWT
-@limiter.limit("5/15minutes")
+@limiter.limit("5/minute")
 @auth_router.post("/login", response_model=Token)
 def login(
     request: Request,
     login_request: LoginRequest = Depends(LoginRequest.as_form),
 ):
+    ip = _client_ip(request)
+    username = (login_request.username or "").strip()
+
+    if _is_login_locked(username, ip):
+        write_audit(
+            actor=username or "unknown",
+            actor_role="unknown",
+            event_type="login_failed",
+            resource="auth",
+            detail="outcome=denied reason=lockout",
+            ip_address=ip,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Try again later.",
+        )
+
     with Session(engine) as session:
         user = session.exec(
             select(User).where(User.username == login_request.username)
@@ -403,28 +463,37 @@ def login(
             or not user.is_active
             or not verify_password(login_request.password, user.hashed_password)
         ):
+            _record_login_failure(username, ip)
+            # Never store the password (or hash) in audit details.
             write_audit(
-                actor=login_request.username,
+                actor=username or "unknown",
                 actor_role="unknown",
-                event_type="LOGIN_FAILED",
-                detail="Invalid credentials attempt",
+                event_type="login_failed",
+                resource="auth",
+                detail="outcome=denied",
+                ip_address=ip,
             )
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
 
     if user.mfa_enabled:
         if not login_request.totp_code:
             raise HTTPException(status_code=401, detail="MFA code required")
         if not verify_mfa_code(user.mfa_secret, login_request.totp_code):
+            _record_login_failure(username, ip)
             write_audit(
                 actor=user.username,
                 actor_role=normalize_role(user.role),
-                event_type="LOGIN_FAILED_MFA",
+                event_type="login_failed",
                 resource="auth",
-                detail="Invalid MFA code",
-                ip_address=(request.client.host if request.client else ""),
+                detail="outcome=denied reason=mfa",
+                ip_address=ip,
             )
             raise HTTPException(status_code=401, detail="Invalid MFA code")
 
+    _clear_login_failures(username, ip)
     norm_role = normalize_role(user.role)
     with Session(engine) as session:
         db_user = session.get(User, user.id)
@@ -443,7 +512,7 @@ def login(
         event_type="LOGIN",
         resource="auth",
         detail="User logged in",
-        ip_address=(request.client.host if request.client else ""),
+        ip_address=ip,
     )
     return Token(access_token=token, role=norm_role, username=user.username)
 

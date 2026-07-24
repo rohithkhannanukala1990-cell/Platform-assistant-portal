@@ -77,4 +77,10 @@ def require_valid_signature(source: str, payload: bytes, request_headers: dict):
         "x-webhook-signature", ""
     )
     if not verify_webhook_signature(source_key, payload, sig):
+        try:
+            from ..observability.metrics import record_webhook_signature_failure
+
+            record_webhook_signature_failure()
+        except Exception:
+            pass
         raise HTTPException(status_code=403, detail="Invalid webhook signature")

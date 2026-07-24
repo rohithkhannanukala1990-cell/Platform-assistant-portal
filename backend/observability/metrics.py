@@ -71,6 +71,20 @@ HEALTH_PROBE_DURATION_SECONDS = Histogram(
     "Duration of health probes by name",
     ["probe_name"],
 )
+WEBHOOK_SIGNATURE_FAILURES_TOTAL = Counter(
+    "webhook_signature_failures_total",
+    "Webhook requests rejected due to invalid or missing HMAC signature",
+)
+DEMO_DATA_SERVED_TOTAL = Counter(
+    "demo_data_served_total",
+    "Demo fixture responses served when ENABLE_DEMO_DATA/ENV allows",
+    ["endpoint"],
+)
+GITHUB_API_REQUESTS_TOTAL = Counter(
+    "github_api_requests_total",
+    "GitHub API requests by operation and outcome status",
+    ["operation", "status"],
+)
 
 
 def record_connector_error(connector: str, error_type: str) -> None:
@@ -88,6 +102,30 @@ def observe_health_probe(probe_name: str, duration_seconds: float) -> None:
         HEALTH_PROBE_DURATION_SECONDS.labels(
             probe_name=probe_name or "unknown",
         ).observe(max(0.0, float(duration_seconds)))
+    except Exception:
+        pass
+
+
+def record_webhook_signature_failure() -> None:
+    try:
+        WEBHOOK_SIGNATURE_FAILURES_TOTAL.inc()
+    except Exception:
+        pass
+
+
+def record_demo_data_served(endpoint: str) -> None:
+    try:
+        DEMO_DATA_SERVED_TOTAL.labels(endpoint=endpoint or "unknown").inc()
+    except Exception:
+        pass
+
+
+def record_github_api_request(operation: str, status: str) -> None:
+    try:
+        GITHUB_API_REQUESTS_TOTAL.labels(
+            operation=operation or "unknown",
+            status=status or "unknown",
+        ).inc()
     except Exception:
         pass
 

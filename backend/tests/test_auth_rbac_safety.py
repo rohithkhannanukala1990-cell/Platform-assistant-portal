@@ -78,12 +78,15 @@ def test_mfa_login_requires_code_and_rejects_invalid_code(client):
             select(AuditLog)
             .where(
                 AuditLog.actor == user.username,
-                AuditLog.event_type == "LOGIN_FAILED_MFA",
+                AuditLog.event_type == "login_failed",
             )
             .order_by(AuditLog.timestamp.desc())
         ).first()
     assert audit is not None
-    assert audit.detail == "Invalid MFA code"
+    assert "outcome=denied" in (audit.detail or "")
+    assert "mfa" in (audit.detail or "").lower()
+    assert "000000" not in (audit.detail or "")
+    assert "Password123!" not in (audit.detail or "")
 
 
 def test_mfa_login_accepts_valid_totp(client):

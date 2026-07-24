@@ -128,8 +128,15 @@ class GitHubConnector(_BaseGitHub):
                 "details": {"error_type": exc.error_type},
             }
 
-    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+    async def _get(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        *,
+        operation: str | None = None,
+    ) -> Any:
         token = self._token()
+        op = operation or self._operation_from_path(path)
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(
@@ -138,21 +145,63 @@ class GitHubConnector(_BaseGitHub):
                     params=params or {},
                 )
         except httpx.HTTPError as exc:
+            self._record_api(op, "network_error")
             raise GitHubAPIError(
                 "network_error",
                 _mask_secret(f"GitHub network error: {exc}", token),
             ) from exc
 
         if resp.status_code >= 400:
-            raise _map_status_to_error(resp.status_code, resp.text, token=token)
+            err = _map_status_to_error(resp.status_code, resp.text, token=token)
+            self._record_api(op, err.error_type)
+            raise err
         try:
-            return resp.json()
+            data = resp.json()
         except ValueError as exc:
+            self._record_api(op, "network_error")
             raise GitHubAPIError(
                 "network_error",
                 "GitHub returned a non-JSON response",
                 status_code=resp.status_code,
             ) from exc
+        self._record_api(op, "ok")
+        return data
+
+    @staticmethod
+    def _operation_from_path(path: str) -> str:
+        p = (path or "").strip("/")
+        if p.startswith("user/repos") or (
+            p.startswith("orgs/") and "/repos" in p and "/pulls" not in p and "/actions" not in p
+        ):
+            return "list_repos"
+        if "/pulls/" in p and p.rstrip("/").endswith("/files"):
+            return "list_pull_request_files"
+        if "/pulls/" in p:
+            return "get_pull_request"
+        if p.endswith("/pulls") or "/pulls?" in p:
+            return "list_pull_requests"
+        if "/actions/runs/" in p and p.rstrip("/").endswith("/jobs"):
+            return "list_workflow_run_jobs"
+        if "/actions/runs" in p:
+            return "list_workflow_runs"
+        if "/readme" in p:
+            return "get_readme"
+        if "/contents/" in p:
+            return "get_file_contents"
+        if "/tags" in p:
+            return "get_latest_tag"
+        if p.startswith("rate_limit"):
+            return "rate_limit"
+        return (p.split("/")[0] if p else "unknown") or "unknown"
+
+    @staticmethod
+    def _record_api(operation: str, status: str) -> None:
+        try:
+            from ..observability.metrics import record_github_api_request
+
+            record_github_api_request(operation, status)
+        except Exception:
+            pass
 
     @staticmethod
     def _decode_content(data: Any) -> Optional[str]:

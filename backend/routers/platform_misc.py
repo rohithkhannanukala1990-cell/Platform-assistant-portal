@@ -186,7 +186,7 @@ def _build_context() -> str:
 
 
 @router.post("/api/chat")
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def platform_chat(
     request: Request,
     chat_in: ChatRequest,
@@ -335,6 +335,9 @@ async def scan_anomalies(request: Request, current_user: User = Depends(get_curr
             "message": "Anomaly scanner requires demo mode or a real log source.",
         }
 
+    from ..observability.metrics import record_demo_data_served
+
+    record_demo_data_served("logs_scan_anomalies")
     await asyncio.sleep(3)
 
     record = save_incident(ANOMALY_INCIDENT)

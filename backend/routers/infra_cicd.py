@@ -454,6 +454,9 @@ async def get_cicd_active_runs(current_user: User = Depends(get_current_user)):
             )
 
     if demo_data_enabled():
+        from ..observability.metrics import record_demo_data_served
+
+        record_demo_data_served("cicd_active_runs")
         return CICD_ACTIVE_RUNS
 
     return {
@@ -475,6 +478,9 @@ def get_dora_metrics(current_user: User = Depends(get_current_user)):
             "change_failure_rate": None,
             "time_to_restore": None,
         }
+    from ..observability.metrics import record_demo_data_served
+
+    record_demo_data_served("cicd_dora_metrics")
     return DORA_METRICS
 
 
@@ -501,6 +507,9 @@ async def _cicd_monitor_fallback():
     if not demo_data_enabled():
         logger.info("CI/CD monitor fallback skipped — demo data disabled")
         return
+    from ..observability.metrics import record_demo_data_served
+
+    record_demo_data_served("cicd_monitor_fallback")
     import random as _rand
 
     await asyncio.sleep(2)

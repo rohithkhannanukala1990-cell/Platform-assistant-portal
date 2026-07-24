@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select, func
 
@@ -17,6 +17,7 @@ from ..context import PlatformContext
 from ..database import AgentRun, engine
 from ..executor.safe_executor import safe_executor
 from ..pipeline.orchestrator import orchestrator_agent
+from ..rate_limit import limiter
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -60,7 +61,9 @@ def list_all_agents(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/run")
+@limiter.limit("10/minute")
 async def run_agent(
+    request: Request,
     body: RunAgentRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -162,7 +165,9 @@ def get_agent_meta(
 
 
 @router.post("/{run_id}/approve")
+@limiter.limit("10/minute")
 async def approve_run(
+    request: Request,
     run_id: str,
     current_user: User = Depends(get_current_user),
 ):
@@ -206,7 +211,9 @@ async def approve_run(
 
 
 @router.post("/{run_id}/reject")
+@limiter.limit("10/minute")
 def reject_run(
+    request: Request,
     run_id: str,
     current_user: User = Depends(get_current_user),
 ):

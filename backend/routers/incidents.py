@@ -80,7 +80,7 @@ class ApprovalRequest(BaseModel):
 
 
 @router.post("/api/triage", response_model=TriageResponse)
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def triage_logs(request: Request, triage_in: TriageRequest, current_user: User = Depends(get_current_user)):
     if not triage_in.logs.strip():
         raise HTTPException(status_code=400, detail="Log text cannot be empty.")
