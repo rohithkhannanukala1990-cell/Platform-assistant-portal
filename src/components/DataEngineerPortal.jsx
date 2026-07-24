@@ -35,11 +35,26 @@ const CI_STATUS_CFG = {
 function CIPipelineWidget() {
   const [tab, setTab] = useState('dbt')
   const [activePipes, setActivePipes] = useState([])
+  const [activeEmptyMsg, setActiveEmptyMsg] = useState(null)
 
   useEffect(() => {
     fetch(CICD_API)
       .then(r => r.json())
-      .then(data => setActivePipes(data.filter(r => r.status === 'running')))
+      .then(data => {
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.runs)
+            ? data.runs
+            : []
+        setActivePipes(list.filter(r => r.status === 'running'))
+        if (data && typeof data === 'object' && !Array.isArray(data) && data.status === 'no_data') {
+          setActiveEmptyMsg(
+            data.message || 'Connect a GitHub or GitLab CI account to populate active runs.'
+          )
+        } else {
+          setActiveEmptyMsg(null)
+        }
+      })
       .catch(() => {})
   }, [])
 
@@ -138,7 +153,9 @@ function CIPipelineWidget() {
         <div className="flex flex-col gap-2">
           <p className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Currently Running Pipelines</p>
           {activePipes.length === 0 ? (
-            <p className="text-center text-sm text-slate-600 py-6">No active pipeline runs</p>
+            <p className="text-center text-sm text-slate-600 py-6">
+              {activeEmptyMsg || 'No active pipeline runs'}
+            </p>
           ) : activePipes.map(run => (
             <div key={run.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-blue-500/25 bg-blue-500/10">
               <RefreshCw size={13} className="animate-spin text-blue-400 shrink-0" />

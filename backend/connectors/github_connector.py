@@ -27,8 +27,22 @@ class GitHubAPIError(Exception):
         return {"type": self.error_type, "message": self.message}
 
 
-def _map_status_to_error(status_code: int, body: str) -> GitHubAPIError:
-    snippet = (body or "").strip()[:200]
+def _mask_secret(message: str, secret: str | None) -> str:
+    """Never leak tokens into exception/log text."""
+    text = str(message or "")
+    if secret and len(secret) >= 8 and secret in text:
+        text = text.replace(secret, "***")
+    # Common PAT prefixes
+    for prefix in ("ghp_", "gho_", "ghu_", "ghs_", "ghr_"):
+        if prefix in text:
+            import re as _re
+
+            text = _re.sub(rf"{prefix}[A-Za-z0-9_]+", f"{prefix}***", text)
+    return text
+
+
+def _map_status_to_error(status_code: int, body: str, token: str | None = None) -> GitHubAPIError:
+    snippet = _mask_secret((body or "").strip()[:200], token)
     if status_code in (401, 403):
         return GitHubAPIError(
             "auth_failed",
@@ -67,12 +81,18 @@ def _record_connector_error(error_type: str) -> None:
 
 
 class GitHubConnector(_BaseGitHub):
-    def _headers(self) -> dict[str, str]:
-        token = (
-            (self.account or {}).get("token")
-            or (self.account or {}).get("api_token")
+    def _token(self) -> str:
+        a = self.account or {}
+        return str(
+            a.get("token")
+            or a.get("api_token")
+            or a.get("credentials_vault_ref")
             or os.getenv("GITHUB_TOKEN", "")
-        )
+            or ""
+        ).strip()
+
+    def _headers(self) -> dict[str, str]:
+        token = self._token()
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -81,10 +101,37 @@ class GitHubConnector(_BaseGitHub):
             headers["Authorization"] = f"Bearer {token}"
         return headers
 
-    # TODO: Return structured error codes (auth_failed, rate_limited, not_found, network_error) instead of None on HTTP errors
-    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+    async def _do_test(self) -> dict[str, Any]:
+        """Live auth check via /rate_limit (read-only)."""
+        if not self._token():
+            return {
+                "connected": False,
+                "error": "Missing GitHub token",
+                "details": {"error_type": "auth_failed"},
+            }
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            data = await self._get("/rate_limit")
+            resources = (data or {}).get("resources") if isinstance(data, dict) else {}
+            core = (resources or {}).get("core") if isinstance(resources, dict) else {}
+            return {
+                "connected": True,
+                "details": {
+                    "instance_url": (self.account or {}).get("instance_url") or _API_BASE,
+                    "org": (self.account or {}).get("account_identifier"),
+                    "rate_limit_remaining": (core or {}).get("remaining"),
+                },
+            }
+        except GitHubAPIError as exc:
+            return {
+                "connected": False,
+                "error": _mask_secret(exc.message, self._token()),
+                "details": {"error_type": exc.error_type},
+            }
+
+    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        token = self._token()
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(
                     f"{_API_BASE}{path}",
                     headers=self._headers(),
@@ -93,11 +140,11 @@ class GitHubConnector(_BaseGitHub):
         except httpx.HTTPError as exc:
             raise GitHubAPIError(
                 "network_error",
-                f"GitHub network error: {exc}",
+                _mask_secret(f"GitHub network error: {exc}", token),
             ) from exc
 
         if resp.status_code >= 400:
-            raise _map_status_to_error(resp.status_code, resp.text)
+            raise _map_status_to_error(resp.status_code, resp.text, token=token)
         try:
             return resp.json()
         except ValueError as exc:
@@ -120,6 +167,34 @@ class GitHubConnector(_BaseGitHub):
             except Exception:
                 return None
         return str(content)
+
+    async def list_repos(
+        self,
+        org: str | None = None,
+        per_page: int = 30,
+    ) -> list[dict[str, Any]]:
+        """GET /user/repos or /orgs/{org}/repos"""
+        per_page = max(1, min(int(per_page or 30), 100))
+        org_name = (org or (self.account or {}).get("account_identifier") or "").strip()
+        path = f"/orgs/{org_name}/repos" if org_name else "/user/repos"
+        data = await self._get(path, params={"per_page": per_page, "sort": "updated"})
+        if not isinstance(data, list):
+            return []
+        out: list[dict[str, Any]] = []
+        for repo in data:
+            if not isinstance(repo, dict):
+                continue
+            out.append(
+                {
+                    "id": repo.get("id"),
+                    "name": repo.get("name"),
+                    "full_name": repo.get("full_name"),
+                    "private": bool(repo.get("private")),
+                    "html_url": repo.get("html_url"),
+                    "default_branch": repo.get("default_branch"),
+                }
+            )
+        return out
 
     async def list_pull_requests(
         self,
@@ -151,16 +226,59 @@ class GitHubConnector(_BaseGitHub):
         except Exception:
             return []
 
+    async def get_pull_request(self, owner: str, repo: str, number: int) -> dict[str, Any]:
+        """GET /repos/{owner}/{repo}/pulls/{number}"""
+        data = await self._get(f"/repos/{owner}/{repo}/pulls/{int(number)}")
+        if not isinstance(data, dict):
+            return {}
+        return {
+            "number": data.get("number"),
+            "title": data.get("title"),
+            "state": data.get("state"),
+            "user": (data.get("user") or {}).get("login"),
+            "html_url": data.get("html_url"),
+            "body": (data.get("body") or "")[:2000],
+            "created_at": data.get("created_at"),
+            "updated_at": data.get("updated_at"),
+            "head": ((data.get("head") or {}).get("ref")),
+            "base": ((data.get("base") or {}).get("ref")),
+        }
+
+    async def list_pull_request_files(
+        self, owner: str, repo: str, number: int
+    ) -> list[dict[str, Any]]:
+        """GET /repos/{owner}/{repo}/pulls/{number}/files"""
+        data = await self._get(
+            f"/repos/{owner}/{repo}/pulls/{int(number)}/files",
+            params={"per_page": 100},
+        )
+        if not isinstance(data, list):
+            return []
+        return [
+            {
+                "filename": f.get("filename"),
+                "status": f.get("status"),
+                "additions": f.get("additions"),
+                "deletions": f.get("deletions"),
+                "changes": f.get("changes"),
+            }
+            for f in data
+            if isinstance(f, dict)
+        ]
+
     async def list_workflow_runs(
         self,
         repo: str,
-        status: str = "failure",
+        status: str | None = "failure",
         per_page: int = 20,
     ) -> list[dict[str, Any]]:
         try:
+            params: dict[str, Any] = {"per_page": per_page}
+            if status:
+                params["status"] = status
             data = await self._get(
                 f"/repos/{repo}/actions/runs",
-                params={"status": status, "per_page": per_page},
+                params=params,
             )
             if not isinstance(data, dict):
                 return []
@@ -174,13 +292,43 @@ class GitHubConnector(_BaseGitHub):
                     "html_url": run.get("html_url"),
                     "created_at": run.get("created_at"),
                     "head_branch": run.get("head_branch"),
+                    "head_sha": (run.get("head_sha") or "")[:7],
+                    "event": run.get("event"),
+                    "display_title": run.get("display_title") or run.get("name"),
+                    "run_attempt": run.get("run_attempt"),
+                    "actor": ((run.get("actor") or {}).get("login")),
                 }
                 for run in runs
+                if isinstance(run, dict)
             ]
         except GitHubAPIError:
             raise
         except Exception:
             return []
+
+    async def list_workflow_run_jobs(
+        self, owner: str, repo: str, run_id: int
+    ) -> list[dict[str, Any]]:
+        """GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs"""
+        data = await self._get(
+            f"/repos/{owner}/{repo}/actions/runs/{int(run_id)}/jobs",
+            params={"per_page": 100},
+        )
+        if not isinstance(data, dict):
+            return []
+        jobs = data.get("jobs") or []
+        return [
+            {
+                "id": j.get("id"),
+                "name": j.get("name"),
+                "status": j.get("status"),
+                "conclusion": j.get("conclusion"),
+                "started_at": j.get("started_at"),
+                "completed_at": j.get("completed_at"),
+            }
+            for j in jobs
+            if isinstance(j, dict)
+        ]
 
     async def get_readme(self, repo: str) -> Optional[str]:
         try:
@@ -284,7 +432,10 @@ class GitHubConnector(_BaseGitHub):
                 "ok": False,
                 "tool": "github",
                 "action": action,
-                "error": exc.as_dict(),
+                "error": {
+                    "type": exc.error_type,
+                    "message": _mask_secret(exc.message, self._token()),
+                },
             }
         except Exception as exc:
             _record_connector_error("network_error")
@@ -305,6 +456,9 @@ class GitHubConnector(_BaseGitHub):
                 "ok": False,
                 "tool": "github",
                 "action": action,
-                "error": {"type": "network_error", "message": str(exc)},
+                "error": {
+                    "type": "network_error",
+                    "message": _mask_secret(str(exc), self._token()),
+                },
             }
         return await super().execute_action(action, params)

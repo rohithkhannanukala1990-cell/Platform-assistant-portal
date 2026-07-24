@@ -234,7 +234,10 @@ def test_24_tool_account_lifecycle(client, admin_token):
     assert tst.status_code == 200
     body = tst.json()
     assert "connected" in body and "latency_ms" in body
-    assert body.get("connected") is True
+    # Real GitHub connector: without a valid token, do not pretend success.
+    assert body.get("connected") is False
+    err = str(body.get("error") or "")
+    assert "ghp_" not in err
     upd = client.put(
         f"/api/tools/github/accounts/{aid}",
         headers=h,

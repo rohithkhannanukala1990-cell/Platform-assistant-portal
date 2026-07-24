@@ -386,15 +386,81 @@ def list_cicd(current_user: User = Depends(get_current_user)):
 
 
 @router.get("/api/cicd/active-runs")
-def get_cicd_active_runs(current_user: User = Depends(get_current_user)):
-    """Return list of currently executing CI/CD pipeline runs."""
-    if not demo_data_enabled():
-        return {
-            "status": "no_data",
-            "runs": [],
-            "message": "Connect a GitHub or GitLab CI account to populate active runs.",
-        }
-    return CICD_ACTIVE_RUNS
+async def get_cicd_active_runs(current_user: User = Depends(get_current_user)):
+    """Return currently executing CI/CD pipeline runs (GitHub first, then demo)."""
+    from ..services.github_access import try_github_connector_for_user
+
+    connector = try_github_connector_for_user(current_user)
+    if connector is not None:
+        try:
+            repos = await connector.list_repos(per_page=15)
+            mapped: list[dict] = []
+            for repo in repos[:8]:
+                full = (repo or {}).get("full_name") or ""
+                if not full:
+                    continue
+                try:
+                    runs = await connector.list_workflow_runs(
+                        full, status="in_progress", per_page=5
+                    )
+                except Exception:
+                    continue
+                for run in runs:
+                    status_raw = (run.get("status") or "").lower()
+                    conclusion = (run.get("conclusion") or "").lower()
+                    if status_raw in ("in_progress", "queued", "pending", "waiting"):
+                        ui_status = "running"
+                    elif conclusion == "success" or status_raw == "completed":
+                        ui_status = "success" if conclusion == "success" else (
+                            "failed" if conclusion in ("failure", "timed_out", "cancelled") else "running"
+                        )
+                    else:
+                        ui_status = "running"
+                    mapped.append(
+                        {
+                            "id": str(run.get("id") or f"{full}-{run.get('head_sha')}"),
+                            "repository": full,
+                            "branch": run.get("head_branch") or "",
+                            "trigger_user": run.get("actor") or "",
+                            "trigger_event": run.get("event") or "",
+                            "commit": run.get("head_sha") or "",
+                            "commit_message": run.get("display_title") or run.get("name") or "",
+                            "stages": ["Build", "Test", "Security Scan", "Deploy"],
+                            "current_stage": run.get("name") or "Build",
+                            "status": ui_status,
+                            "elapsed_time": "",
+                            "stage_statuses": {
+                                "Build": "running" if ui_status == "running" else ui_status,
+                                "Test": "pending",
+                                "Security Scan": "pending",
+                                "Deploy": "pending",
+                            },
+                            "html_url": run.get("html_url"),
+                            "source": "github",
+                        }
+                    )
+            if mapped:
+                return {"status": "ok", "runs": mapped, "source": "github"}
+            return {
+                "status": "ok",
+                "runs": [],
+                "source": "github",
+                "message": "No in-progress GitHub Actions runs found.",
+            }
+        except Exception as exc:
+            logger.warning(
+                "Active runs GitHub fetch failed",
+                extra={"error": str(exc)[:200]},
+            )
+
+    if demo_data_enabled():
+        return CICD_ACTIVE_RUNS
+
+    return {
+        "status": "no_data",
+        "runs": [],
+        "message": "Connect a GitHub or GitLab CI account to populate active runs.",
+    }
 
 
 @router.get("/api/cicd/dora-metrics")

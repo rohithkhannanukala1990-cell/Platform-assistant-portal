@@ -158,6 +158,9 @@ export default function ToolRegistryView() {
   const [editingAccount, setEditingAccount] = useState(null)
   const [isTestingConnection, setIsTestingConnection] = useState({})
   const [connectionResults, setConnectionResults] = useState({})
+  const [githubRepos, setGithubRepos] = useState(null)
+  const [githubReposError, setGithubReposError] = useState('')
+  const [githubReposLoading, setGithubReposLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterCategory, setFilterCategory] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
@@ -338,6 +341,34 @@ export default function ToolRegistryView() {
     })
   }, [allToolsFlat, searchQuery, filterCategory])
 
+  const fetchGithubRepos = useCallback(async () => {
+    setGithubReposLoading(true)
+    setGithubReposError('')
+    try {
+      const res = await authFetch('/api/github/repos?per_page=20')
+      if (!res.ok) {
+        const text = await res.text()
+        let detail = text
+        try {
+          const j = JSON.parse(text)
+          detail = j.detail || text
+        } catch {
+          /* keep text */
+        }
+        setGithubRepos([])
+        setGithubReposError(typeof detail === 'string' ? detail : 'Failed to load repositories')
+        return
+      }
+      const data = await res.json()
+      setGithubRepos(Array.isArray(data) ? data : [])
+    } catch (e) {
+      setGithubRepos([])
+      setGithubReposError(String(e?.message || e))
+    } finally {
+      setGithubReposLoading(false)
+    }
+  }, [authFetch])
+
   const runTest = useCallback(
     async (toolId, accountId) => {
       setIsTestingConnection((m) => ({ ...m, [accountId]: true }))
@@ -354,6 +385,9 @@ export default function ToolRegistryView() {
         const data = res.ok ? await res.json() : { connected: false, error: await res.text() }
         setConnectionResults((r) => ({ ...r, [accountId]: data }))
         void fetchAccounts(toolId)
+        if (toolId === 'github' && data?.connected) {
+          void fetchGithubRepos()
+        }
       } catch (e) {
         setConnectionResults((r) => ({
           ...r,
@@ -363,7 +397,7 @@ export default function ToolRegistryView() {
         setIsTestingConnection((m) => ({ ...m, [accountId]: false }))
       }
     },
-    [authFetch, fetchAccounts]
+    [authFetch, fetchAccounts, fetchGithubRepos]
   )
 
   const saveAccount = useCallback(async () => {
@@ -727,6 +761,43 @@ export default function ToolRegistryView() {
                                           )}
                                         </div>
                                       )}
+                                      {tool.id === 'github' &&
+                                        connectionResults[acc.id]?.connected &&
+                                        githubRepos !== null && (
+                                          <div className="w-full mt-2 rounded-lg border border-slate-700/60 bg-slate-900/50 px-2 py-2">
+                                            <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">
+                                              Repositories
+                                            </p>
+                                            {githubReposLoading ? (
+                                              <p className="text-[10px] text-slate-500">Loading…</p>
+                                            ) : githubReposError ? (
+                                              <p className="text-[10px] text-amber-300">{githubReposError}</p>
+                                            ) : githubRepos.length === 0 ? (
+                                              <p className="text-[10px] text-slate-500">No repositories found.</p>
+                                            ) : (
+                                              <ul className="space-y-1 max-h-36 overflow-y-auto">
+                                                {githubRepos.map((r) => (
+                                                  <li key={r.id || r.full_name || r.name}>
+                                                    {r.html_url ? (
+                                                      <a
+                                                        href={r.html_url}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="text-[11px] text-sky-300 hover:underline truncate block"
+                                                      >
+                                                        {r.full_name || r.name}
+                                                      </a>
+                                                    ) : (
+                                                      <span className="text-[11px] text-slate-300">
+                                                        {r.full_name || r.name}
+                                                      </span>
+                                                    )}
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                            )}
+                                          </div>
+                                        )}
                                     </div>
                                   ))}
                                 </div>
@@ -946,6 +1017,42 @@ export default function ToolRegistryView() {
                           )}
                         </div>
                       )}
+                      {selectedTool?.id === 'github' &&
+                        connectionResults[editingAccount.id]?.connected && (
+                          <div className="mt-3 rounded-lg border border-slate-700/60 bg-slate-900/40 px-3 py-2">
+                            <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-2">
+                              Repositories
+                            </p>
+                            {githubReposLoading ? (
+                              <p className="text-xs text-slate-500">Loading…</p>
+                            ) : githubReposError ? (
+                              <p className="text-xs text-amber-300">{githubReposError}</p>
+                            ) : !githubRepos || githubRepos.length === 0 ? (
+                              <p className="text-xs text-slate-500">No repositories found.</p>
+                            ) : (
+                              <ul className="space-y-1.5 max-h-48 overflow-y-auto">
+                                {githubRepos.map((r) => (
+                                  <li key={r.id || r.full_name || r.name}>
+                                    {r.html_url ? (
+                                      <a
+                                        href={r.html_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-xs text-sky-300 hover:underline"
+                                      >
+                                        {r.full_name || r.name}
+                                      </a>
+                                    ) : (
+                                      <span className="text-xs text-slate-300">
+                                        {r.full_name || r.name}
+                                      </span>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
                     </div>
                   )}
 

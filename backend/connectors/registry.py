@@ -292,6 +292,11 @@ CONNECTOR_CLASSES: dict[str, type[BaseConnector]] = {
 
 
 def get_connector(tool_id: str, account: dict[str, Any]) -> BaseConnector:
+    if tool_id == "github":
+        # Prefer the real HTTP connector implementation.
+        from .github_connector import GitHubConnector as RealGitHubConnector
+
+        return RealGitHubConnector(account)
     connector_class = CONNECTOR_CLASSES.get(tool_id, BaseConnector)
     return connector_class(account)
 
