@@ -164,13 +164,21 @@ export default function CICDView({ selectedRecord, onClearRecord, onGenerateComp
           <p className="text-sm text-slate-400">
             Describe your app and deployment target — get a production-ready pipeline file instantly.
           </p>
-          <button
-            type="button"
-            onClick={() => navigate('/live-pipelines')}
-            className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 underline transition-colors"
-          >
-            View Live Pipelines →
-          </button>
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+            <button
+              type="button"
+              onClick={() => navigate('/live-pipelines')}
+              className="text-indigo-400 hover:text-indigo-300 underline transition-colors"
+            >
+              View Live Pipelines →
+            </button>
+            <a
+              href="/tool-registry"
+              className="text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              Connect GitHub in Tool Registry
+            </a>
+          </div>
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-500 border border-border rounded-lg px-3 py-2 bg-card">
           <Cpu className="w-3.5 h-3.5 text-accent" />
@@ -343,7 +351,7 @@ export default function CICDView({ selectedRecord, onClearRecord, onGenerateComp
             </InfoCard>
 
             {/* Security checks */}
-            {displayResult.security_checks?.length > 0 && (
+            {Array.isArray(displayResult.security_checks) && displayResult.security_checks.length > 0 && (
               <InfoCard
                 icon={ShieldCheck}
                 iconColor="text-green-400"

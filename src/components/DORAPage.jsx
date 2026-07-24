@@ -104,6 +104,7 @@ function DoraCard({ label, icon: Icon, iconColor, metric }) {
 
 function hasDoraMetrics(d) {
   if (!d || typeof d !== 'object') return false
+  if (d.status === 'no_data') return false
   return Boolean(
     d.deployment_frequency?.value ||
     d.lead_time?.value ||
@@ -114,6 +115,9 @@ function hasDoraMetrics(d) {
 
 function normalizeDoraMetrics(data) {
   if (!data || typeof data !== 'object') return null
+  if (data.status === 'no_data') {
+    return { status: 'no_data', message: data.message || 'Connect CI/CD tools to compute real DORA metrics.' }
+  }
   if (hasDoraMetrics(data)) return data
   const freq = data.deploy_frequency ?? data.deployment_frequency
   const lead = data.lead_time_hours ?? data.lead_time
@@ -298,9 +302,19 @@ export default function DORAPage() {
               <MetricSkeleton />
             </>
           ) : showEmptyMetrics ? (
-            <p className="col-span-full text-sm text-slate-500 py-4 text-center">
-              DORA metrics not yet available — connect your CI/CD pipeline
-            </p>
+            <div className="col-span-full rounded-xl border border-dashed border-border bg-card/30 px-6 py-10 text-center space-y-3">
+              <p className="text-sm text-slate-400">
+                {dora?.status === 'no_data' && dora?.message
+                  ? dora.message
+                  : 'DORA metrics not yet available — connect your CI/CD pipeline'}
+              </p>
+              <a
+                href="/tool-registry"
+                className="inline-flex text-sm font-medium text-indigo-400 hover:text-indigo-300"
+              >
+                Connect GitHub in Tool Registry
+              </a>
+            </div>
           ) : (
             <>
               <DoraCard

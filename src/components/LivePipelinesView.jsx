@@ -126,8 +126,9 @@ function PipelineRow({ run, onSelectRun, selected }) {
 }
 
 function StageSummaryBar({ runs }) {
+  const list = Array.isArray(runs) ? runs : []
   const counts = { success: 0, running: 0, failed: 0, pending: 0 }
-  runs.forEach(r => {
+  list.forEach(r => {
     const s = r.status
     if (s in counts) counts[s]++
   })
@@ -232,12 +233,25 @@ export default function LivePipelinesView() {
   const [scanning, setScanning]       = useState(false)
   const [scanMsg, setScanMsg]         = useState(null)
   const [lastRefresh, setLastRefresh] = useState(null)
+  const [emptyMessage, setEmptyMessage] = useState(null)
 
   const fetchRuns = useCallback(async () => {
     try {
       const res = await fetch(ACTIVE_API)
       const data = await res.json()
-      setRuns(data)
+      const nextRuns = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.runs)
+          ? data.runs
+          : []
+      setRuns(nextRuns)
+      if (data && typeof data === 'object' && !Array.isArray(data) && data.status === 'no_data') {
+        setEmptyMessage(
+          data.message || 'Connect a GitHub or GitLab CI account to populate active runs.'
+        )
+      } else {
+        setEmptyMessage(null)
+      }
       setLastRefresh(new Date())
     } catch {
       /* keep stale data */
@@ -334,9 +348,21 @@ export default function LivePipelinesView() {
         <div className="flex-1 grid grid-cols-5 gap-4 min-h-0">
           {/* Left: pipeline list */}
           <div className="col-span-3 flex flex-col gap-3 overflow-y-auto pr-1 min-h-0">
-            <StageSummaryBar runs={runs} />
-            {runs.length === 0 ? (
-              <div className="text-center text-sm text-slate-600 py-12">No active runs</div>
+            <StageSummaryBar runs={Array.isArray(runs) ? runs : []} />
+            {(Array.isArray(runs) ? runs : []).length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-700/60 bg-slate-800/30 px-6 py-12 text-center space-y-3">
+                <p className="text-sm text-slate-400">
+                  {emptyMessage || 'No active runs'}
+                </p>
+                {emptyMessage ? (
+                  <a
+                    href="/tool-registry"
+                    className="inline-flex text-sm font-medium text-indigo-400 hover:text-indigo-300"
+                  >
+                    Connect GitHub in Tool Registry
+                  </a>
+                ) : null}
+              </div>
             ) : (
               runs.map(run => (
                 <PipelineRow

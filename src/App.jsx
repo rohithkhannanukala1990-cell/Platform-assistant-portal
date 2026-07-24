@@ -1,51 +1,51 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 
 import { useAuth } from './contexts/AuthContext'
-import AdminDashboard from './components/admin/AdminDashboard'
-
 import Layout from './components/Layout'
 import LoginPage from './components/LoginPage'
-import CatalogPage from './components/CatalogPage'
-import DependencyGraph from './components/DependencyGraph'
-import StandardsPage from './components/StandardsPage'
-import EntityActionsPage from './components/EntityActionsPage'
-import GoldenPathsPage from './components/GoldenPathsPage'
-import ReportsPage from './components/ReportsPage'
-import ScorecardsPage from './components/ScorecardsPage'
-import DashboardView from './components/DashboardView'
-import TriageView from './components/TriageView'
-import InfraBuilderView from './components/InfraBuilderView'
-import CICDView from './components/CICDView'
-import IntegrationsPage from './components/IntegrationsPage'
-import ToolRegistryView from './components/ToolRegistryView'
-import SettingsModal from './components/SettingsModal'
-import RBACManager from './components/RBACManager'
-import AIAssistant from './components/AIAssistant'
-import HealthDashboard from './components/HealthDashboard'
-import AgentApprovalsWidget from './components/AgentApprovalsWidget'
-import AgentRunnerPanel from './components/AgentRunnerPanel'
-import CodeEditor from './components/CodeEditor'
-import Terminal from './components/Terminal'
-import QueryAnalyzerView from './components/QueryAnalyzerView'
-import OpsPortal from './components/OpsPortal'
-import DeveloperPortal from './components/DeveloperPortal'
-import DataEngineerPortal from './components/DataEngineerPortal'
-import DatabasePortal from './components/DatabasePortal'
-import HistoryPanel from './components/HistoryPanel'
-import StorageView from './components/StorageView'
-import RunbooksView from './components/RunbooksView'
-import WorkspaceBuilder from './components/WorkspaceBuilder'
-import TemplateGallery from './components/TemplateGallery'
-import AccountImportView from './components/AccountImportView'
-import DeploymentsView from './components/DeploymentsView'
-import DORAPage from './components/DORAPage'
-import LivePipelinesView from './components/LivePipelinesView'
-import SchemaBrowserView from './components/SchemaBrowserView'
-import DataLineageView from './components/DataLineageView'
 import PermissionGate from './components/PermissionGate'
-import NotificationsPage from './components/NotificationsPage'
+import SettingsModal from './components/SettingsModal'
+
+const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard'))
+const CatalogPage = lazy(() => import('./components/CatalogPage'))
+const DependencyGraph = lazy(() => import('./components/DependencyGraph'))
+const StandardsPage = lazy(() => import('./components/StandardsPage'))
+const EntityActionsPage = lazy(() => import('./components/EntityActionsPage'))
+const GoldenPathsPage = lazy(() => import('./components/GoldenPathsPage'))
+const ReportsPage = lazy(() => import('./components/ReportsPage'))
+const ScorecardsPage = lazy(() => import('./components/ScorecardsPage'))
+const DashboardView = lazy(() => import('./components/DashboardView'))
+const TriageView = lazy(() => import('./components/TriageView'))
+const InfraBuilderView = lazy(() => import('./components/InfraBuilderView'))
+const CICDView = lazy(() => import('./components/CICDView'))
+const IntegrationsPage = lazy(() => import('./components/IntegrationsPage'))
+const ToolRegistryView = lazy(() => import('./components/ToolRegistryView'))
+const RBACManager = lazy(() => import('./components/RBACManager'))
+const AIAssistant = lazy(() => import('./components/AIAssistant'))
+const HealthDashboard = lazy(() => import('./components/HealthDashboard'))
+const AgentApprovalsWidget = lazy(() => import('./components/AgentApprovalsWidget'))
+const AgentRunnerPanel = lazy(() => import('./components/AgentRunnerPanel'))
+const CodeEditor = lazy(() => import('./components/CodeEditor'))
+const Terminal = lazy(() => import('./components/Terminal'))
+const QueryAnalyzerView = lazy(() => import('./components/QueryAnalyzerView'))
+const OpsPortal = lazy(() => import('./components/OpsPortal'))
+const DeveloperPortal = lazy(() => import('./components/DeveloperPortal'))
+const DataEngineerPortal = lazy(() => import('./components/DataEngineerPortal'))
+const DatabasePortal = lazy(() => import('./components/DatabasePortal'))
+const HistoryPanel = lazy(() => import('./components/HistoryPanel'))
+const StorageView = lazy(() => import('./components/StorageView'))
+const RunbooksView = lazy(() => import('./components/RunbooksView'))
+const WorkspaceBuilder = lazy(() => import('./components/WorkspaceBuilder'))
+const TemplateGallery = lazy(() => import('./components/TemplateGallery'))
+const AccountImportView = lazy(() => import('./components/AccountImportView'))
+const DeploymentsView = lazy(() => import('./components/DeploymentsView'))
+const DORAPage = lazy(() => import('./components/DORAPage'))
+const LivePipelinesView = lazy(() => import('./components/LivePipelinesView'))
+const SchemaBrowserView = lazy(() => import('./components/SchemaBrowserView'))
+const DataLineageView = lazy(() => import('./components/DataLineageView'))
+const NotificationsPage = lazy(() => import('./components/NotificationsPage'))
 
 const OPS_URL_VIEWS = new Set([
   'dashboard',
@@ -61,6 +61,15 @@ const OPS_URL_VIEWS = new Set([
   'ai-assistant',
   'import',
 ])
+
+function PageLoader() {
+  return (
+    <div className="flex h-64 items-center justify-center gap-2 text-slate-500">
+      <Loader2 className="animate-spin" size={20} aria-hidden />
+      <span>Loading…</span>
+    </div>
+  )
+}
 
 function PrivateRoute({ children, adminOnly = false }) {
   const { isAuthenticated, loading, role } = useAuth()
@@ -133,130 +142,132 @@ function AuthenticatedRoutes() {
   }
 
   return (
-    <Routes>
-      <Route
-        path="/login"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />}
-      />
-
-      <Route
-        path="/admin"
-        element={(
-          <PrivateRoute adminOnly>
-            <AdminDashboard />
-          </PrivateRoute>
-        )}
-      />
-
-      <Route
-        element={
-          isAuthenticated ? (
-            <Layout user={user} onLogout={logout} />
-          ) : (
-            <Navigate to="/login" replace />
-          )
-        }
-      >
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<PrivateRoute><DashboardView /></PrivateRoute>} />
-
-        <Route path="/catalog" element={<PrivateRoute><CatalogPage /></PrivateRoute>} />
-        <Route path="/scorecards" element={<PrivateRoute><ScorecardsPage /></PrivateRoute>} />
-        <Route path="/dependency-graph" element={<PrivateRoute><DependencyGraph /></PrivateRoute>} />
-        <Route path="/standards" element={<PrivateRoute><StandardsPage /></PrivateRoute>} />
-        <Route path="/entity-actions" element={<PrivateRoute><EntityActionsPage /></PrivateRoute>} />
-        <Route path="/golden-paths" element={<PrivateRoute><GoldenPathsPage /></PrivateRoute>} />
-        <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
-
-        <Route path="/ai-assistant" element={<PrivateRoute><AIAssistant /></PrivateRoute>} />
-        <Route path="/integrations" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
-        <Route path="/webhooks" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
         <Route
-          path="/rbac"
+          path="/login"
+          element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />}
+        />
+
+        <Route
+          path="/admin"
           element={(
-            <PrivateRoute>
-              <PermissionGate requiredRole="Admin" showFallback>
-                <RBACManager />
-              </PermissionGate>
+            <PrivateRoute adminOnly>
+              <AdminDashboard />
             </PrivateRoute>
           )}
         />
-        <Route
-          path="/tools"
-          element={(
-            <PrivateRoute>
-              <PermissionGate requiredRole="Admin" showFallback>
-                <ToolRegistryView />
-              </PermissionGate>
-            </PrivateRoute>
-          )}
-        />
-        <Route
-          path="/tool-registry"
-          element={(
-            <PrivateRoute>
-              <PermissionGate requiredRole="Admin" showFallback>
-                <ToolRegistryView />
-              </PermissionGate>
-            </PrivateRoute>
-          )}
-        />
-        <Route path="/workspaces" element={<PrivateRoute><WorkspaceBuilder /></PrivateRoute>} />
-        <Route path="/cicd" element={<PrivateRoute><CICDView /></PrivateRoute>} />
-        <Route path="/live-pipelines" element={<PrivateRoute><LivePipelinesView /></PrivateRoute>} />
-        <Route path="/deployments" element={<PrivateRoute><DeploymentsView /></PrivateRoute>} />
-        <Route path="/schema-browser" element={<PrivateRoute><SchemaBrowserView /></PrivateRoute>} />
-        <Route path="/data-lineage" element={<PrivateRoute><DataLineageView /></PrivateRoute>} />
 
-        <Route path="/incidents" element={<PrivateRoute><TriageView /></PrivateRoute>} />
-        <Route path="/alerts" element={<PrivateRoute><TriageView /></PrivateRoute>} />
-        <Route path="/dora" element={<PrivateRoute><DORAPage /></PrivateRoute>} />
-        <Route path="/infra" element={<PrivateRoute><InfraBuilderView /></PrivateRoute>} />
-        <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
-        <Route path="/health" element={<PrivateRoute><HealthDashboard /></PrivateRoute>} />
-        <Route path="/agents" element={<PrivateRoute><AgentRunnerPanel /></PrivateRoute>} />
-        <Route path="/editor" element={<PrivateRoute><CodeEditor /></PrivateRoute>} />
-        <Route path="/terminal" element={<PrivateRoute><Terminal /></PrivateRoute>} />
-        <Route path="/approvals" element={<PrivateRoute><AgentApprovalsWidget /></PrivateRoute>} />
-        <Route path="/db-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
-        <Route path="/query-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
-
-        {/* Legacy / role portals — preserved */}
-        <Route path="/ops" element={<PrivateRoute><OpsPortalRoute /></PrivateRoute>} />
-        <Route path="/developer" element={<PrivateRoute><DeveloperPortalRoute /></PrivateRoute>} />
-        <Route path="/data" element={<PrivateRoute><DataEngineerPortal currentView="pipelines" /></PrivateRoute>} />
-        <Route path="/database" element={<PrivateRoute><DatabasePortal currentView="dbhealth" /></PrivateRoute>} />
-        <Route path="/history" element={<PrivateRoute><HistoryPanel /></PrivateRoute>} />
-        <Route path="/system-health" element={<Navigate to="/health" replace />} />
-        <Route path="/storage" element={<PrivateRoute><StorageView /></PrivateRoute>} />
-        <Route path="/runbooks" element={<PrivateRoute><RunbooksView /></PrivateRoute>} />
-        <Route path="/templates" element={<PrivateRoute><TemplateGallery /></PrivateRoute>} />
-        <Route path="/template-gallery" element={<PrivateRoute><TemplateGallery /></PrivateRoute>} />
         <Route
-          path="/import"
-          element={(
-            <PrivateRoute>
-              <PermissionGate requiredRole="Admin" showFallback>
-                <AccountImportView />
-              </PermissionGate>
-            </PrivateRoute>
-          )}
-        />
-        <Route
-          path="/account-import"
-          element={(
-            <PrivateRoute>
-              <PermissionGate requiredRole="Admin" showFallback>
-                <AccountImportView />
-              </PermissionGate>
-            </PrivateRoute>
-          )}
-        />
-        <Route path="/notifications" element={<PrivateRoute><NotificationsPage /></PrivateRoute>} />
+          element={
+            isAuthenticated ? (
+              <Layout user={user} onLogout={logout} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        >
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<PrivateRoute><DashboardView /></PrivateRoute>} />
 
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Route>
-    </Routes>
+          <Route path="/catalog" element={<PrivateRoute><CatalogPage /></PrivateRoute>} />
+          <Route path="/scorecards" element={<PrivateRoute><ScorecardsPage /></PrivateRoute>} />
+          <Route path="/dependency-graph" element={<PrivateRoute><DependencyGraph /></PrivateRoute>} />
+          <Route path="/standards" element={<PrivateRoute><StandardsPage /></PrivateRoute>} />
+          <Route path="/entity-actions" element={<PrivateRoute><EntityActionsPage /></PrivateRoute>} />
+          <Route path="/golden-paths" element={<PrivateRoute><GoldenPathsPage /></PrivateRoute>} />
+          <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
+
+          <Route path="/ai-assistant" element={<PrivateRoute><AIAssistant /></PrivateRoute>} />
+          <Route path="/integrations" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
+          <Route path="/webhooks" element={<PrivateRoute><IntegrationsPage /></PrivateRoute>} />
+          <Route
+            path="/rbac"
+            element={(
+              <PrivateRoute>
+                <PermissionGate requiredRole="Admin" showFallback>
+                  <RBACManager />
+                </PermissionGate>
+              </PrivateRoute>
+            )}
+          />
+          <Route
+            path="/tools"
+            element={(
+              <PrivateRoute>
+                <PermissionGate requiredRole="Admin" showFallback>
+                  <ToolRegistryView />
+                </PermissionGate>
+              </PrivateRoute>
+            )}
+          />
+          <Route
+            path="/tool-registry"
+            element={(
+              <PrivateRoute>
+                <PermissionGate requiredRole="Admin" showFallback>
+                  <ToolRegistryView />
+                </PermissionGate>
+              </PrivateRoute>
+            )}
+          />
+          <Route path="/workspaces" element={<PrivateRoute><WorkspaceBuilder /></PrivateRoute>} />
+          <Route path="/cicd" element={<PrivateRoute><CICDView /></PrivateRoute>} />
+          <Route path="/live-pipelines" element={<PrivateRoute><LivePipelinesView /></PrivateRoute>} />
+          <Route path="/deployments" element={<PrivateRoute><DeploymentsView /></PrivateRoute>} />
+          <Route path="/schema-browser" element={<PrivateRoute><SchemaBrowserView /></PrivateRoute>} />
+          <Route path="/data-lineage" element={<PrivateRoute><DataLineageView /></PrivateRoute>} />
+
+          <Route path="/incidents" element={<PrivateRoute><TriageView /></PrivateRoute>} />
+          <Route path="/alerts" element={<PrivateRoute><TriageView /></PrivateRoute>} />
+          <Route path="/dora" element={<PrivateRoute><DORAPage /></PrivateRoute>} />
+          <Route path="/infra" element={<PrivateRoute><InfraBuilderView /></PrivateRoute>} />
+          <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
+          <Route path="/health" element={<PrivateRoute><HealthDashboard /></PrivateRoute>} />
+          <Route path="/agents" element={<PrivateRoute><AgentRunnerPanel /></PrivateRoute>} />
+          <Route path="/editor" element={<PrivateRoute><CodeEditor /></PrivateRoute>} />
+          <Route path="/terminal" element={<PrivateRoute><Terminal /></PrivateRoute>} />
+          <Route path="/approvals" element={<PrivateRoute><AgentApprovalsWidget /></PrivateRoute>} />
+          <Route path="/db-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
+          <Route path="/query-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
+
+          {/* Legacy / role portals — preserved */}
+          <Route path="/ops" element={<PrivateRoute><OpsPortalRoute /></PrivateRoute>} />
+          <Route path="/developer" element={<PrivateRoute><DeveloperPortalRoute /></PrivateRoute>} />
+          <Route path="/data" element={<PrivateRoute><DataEngineerPortal currentView="pipelines" /></PrivateRoute>} />
+          <Route path="/database" element={<PrivateRoute><DatabasePortal currentView="dbhealth" /></PrivateRoute>} />
+          <Route path="/history" element={<PrivateRoute><HistoryPanel /></PrivateRoute>} />
+          <Route path="/system-health" element={<Navigate to="/health" replace />} />
+          <Route path="/storage" element={<PrivateRoute><StorageView /></PrivateRoute>} />
+          <Route path="/runbooks" element={<PrivateRoute><RunbooksView /></PrivateRoute>} />
+          <Route path="/templates" element={<PrivateRoute><TemplateGallery /></PrivateRoute>} />
+          <Route path="/template-gallery" element={<PrivateRoute><TemplateGallery /></PrivateRoute>} />
+          <Route
+            path="/import"
+            element={(
+              <PrivateRoute>
+                <PermissionGate requiredRole="Admin" showFallback>
+                  <AccountImportView />
+                </PermissionGate>
+              </PrivateRoute>
+            )}
+          />
+          <Route
+            path="/account-import"
+            element={(
+              <PrivateRoute>
+                <PermissionGate requiredRole="Admin" showFallback>
+                  <AccountImportView />
+                </PermissionGate>
+              </PrivateRoute>
+            )}
+          />
+          <Route path="/notifications" element={<PrivateRoute><NotificationsPage /></PrivateRoute>} />
+
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
+      </Routes>
+    </Suspense>
   )
 }
 
