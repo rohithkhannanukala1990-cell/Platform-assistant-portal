@@ -524,6 +524,7 @@ def _migrate():
         ("templates", "recommended_golden_path_keys", "TEXT", "'[]'"),
         ("incident", "tenant_id", "TEXT", "'default'"),
         ("incident", "workspace_id", "TEXT", "NULL"),
+        ("incident", "timeline_json", "TEXT", "'[]'"),
         ("agent_runs", "tenant_id", "TEXT", "'default'"),
         ("agent_runs", "user_id", "TEXT", "NULL"),
         ("catalog_entities", "tenant_id", "TEXT", "'default'"),

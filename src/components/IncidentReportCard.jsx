@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   AlertCircle,
@@ -132,6 +133,14 @@ export default function IncidentReportCard({
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3 flex-wrap">
           <h2 className="text-base font-semibold text-white">Incident Report</h2>
+          {id && (
+            <Link
+              to={`/incidents/${id}`}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold text-accent hover:underline"
+            >
+              Command center <ExternalLink className="w-3 h-3" />
+            </Link>
+          )}
 
           {/* Severity badge */}
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border ${config.badgeCls} ${config.glowCls}`}>

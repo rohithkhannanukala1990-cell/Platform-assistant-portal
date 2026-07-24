@@ -29,6 +29,7 @@ class Incident(SQLModel, table=True):
     agent_execution_logs: Optional[str] = Field(default=None)
     tenant_id: Optional[str] = Field(default="default", index=True)
     workspace_id: Optional[str] = Field(default=None, index=True)
+    timeline_json: Optional[str] = Field(default="[]")  # JSON array of timeline events
 
 
 class InfraGeneration(SQLModel, table=True):

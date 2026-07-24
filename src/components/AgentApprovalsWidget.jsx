@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Bot, CheckCircle2, XCircle, Loader2, ShieldAlert,
   ChevronDown, ChevronUp, Clock, AlertTriangle, Terminal,
@@ -60,6 +61,12 @@ function SecurityRiskCard({ incident }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <span className="text-xs font-bold text-white">Incident #{incident.id}</span>
+            <Link
+              to={`/incidents/${incident.id}`}
+              className="text-[10px] font-semibold text-accent hover:underline"
+            >
+              Open command center
+            </Link>
             <SevBadge severity={incident.severity} />
             <span className="text-[10px] text-red-500 font-bold uppercase tracking-widest border border-red-500/40 bg-red-500/10 px-2 py-0.5 rounded-full">
               ESCALATED — SECURITY RISK
@@ -291,6 +298,12 @@ function ApprovalCard({ incident, onApprove, onReject }) {
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1">
               <span className="text-xs font-bold text-white">Incident #{incident.id}</span>
+              <Link
+                to={`/incidents/${incident.id}`}
+                className="text-[10px] font-semibold text-accent hover:underline"
+              >
+                Command center
+              </Link>
               <SevBadge severity={incident.severity} />
               <span className="text-[10px] text-slate-500 flex items-center gap-1">
                 <Clock className="w-2.5 h-2.5" />

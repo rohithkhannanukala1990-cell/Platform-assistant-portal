@@ -361,6 +361,18 @@ async def hitl_evaluate(incident_id: int, severity: str, parsed: dict, owner_rol
             status="AWAITING_APPROVAL",
             proposed_remediation_plan=_json.dumps(plan),
         )
+        try:
+            from .incident_timeline import append_timeline_event
+
+            append_timeline_event(
+                incident_id,
+                event_type="actions_proposed",
+                detail=f"{len(plan)} remediation steps proposed — awaiting approval",
+                actor="agent",
+                meta={"plan": plan[:20]},
+            )
+        except Exception:
+            pass
         ACTIVE_APPROVALS.inc()
         create_notification(
             message=f"🤖 Agent requires approval for Incident #{incident_id} [{severity}] — awaiting {owner_role}",
@@ -424,12 +436,28 @@ def escalate_security_risk(incident_id: int, violations: list[str], stage: str =
 
 
 async def mock_hitl_slack_notify(incident_id: int, severity: str, owner_role: str, summary: str):
-    """Mock outbound Slack notification to the owner role's channel."""
+    """Outbound Slack HITL notify — only when webhook configured; no fake success."""
     try:
+        from .demo_fixtures import demo_data_enabled
+
         settings = get_settings()
-        webhook  = settings.get("slack_webhook_url", "").strip()
+        webhook = settings.get("slack_webhook_url", "").strip()
         if not webhook:
-            logger.info("Slack webhook not configured - skipping HITL notify", extra={"incident_id": incident_id})
+            logger.info(
+                "Slack webhook not configured - skipping HITL notify",
+                extra={"incident_id": incident_id},
+            )
+            return
+        # Refuse placeholder/demo URLs when demo data is disabled
+        if not demo_data_enabled() and (
+            "hooks.slack.com/services/xxx" in webhook.lower()
+            or "example" in webhook.lower()
+            or webhook.endswith("/xxx")
+        ):
+            logger.info(
+                "Skipping Slack HITL notify — demo disabled and webhook looks like a placeholder",
+                extra={"incident_id": incident_id},
+            )
             return
         payload = {
             "attachments": [{
@@ -447,7 +475,12 @@ async def mock_hitl_slack_notify(incident_id: int, severity: str, owner_role: st
             }]
         }
         async with httpx.AsyncClient(timeout=8) as client:
-            await client.post(webhook, json=payload)
+            resp = await client.post(webhook, json=payload)
+            if resp.status_code >= 400:
+                logger.error(
+                    "Slack HITL notify failed",
+                    extra={"incident_id": incident_id, "status": resp.status_code},
+                )
     except Exception as exc:
         logger.error("Slack alert failed", extra={"error": str(exc)})
 
@@ -487,6 +520,14 @@ AGENT_APPROVED_LOGS = """\
 
 async def close_servicenow_ticket(incident_id: int):
     try:
+        from .demo_fixtures import demo_data_enabled
+
+        if not demo_data_enabled():
+            logger.info(
+                "Skipping ServiceNow mock close — demo data disabled",
+                extra={"incident_id": incident_id},
+            )
+            return
         async with httpx.AsyncClient(timeout=5) as client:
             await client.post(_SERVICENOW_MOCK_URL, json={
                 "incident_id": incident_id,

@@ -18,6 +18,7 @@ const ReportsPage = lazy(() => import('./components/ReportsPage'))
 const ScorecardsPage = lazy(() => import('./components/ScorecardsPage'))
 const DashboardView = lazy(() => import('./components/DashboardView'))
 const TriageView = lazy(() => import('./components/TriageView'))
+const IncidentCommandCenter = lazy(() => import('./components/IncidentCommandCenter'))
 const InfraBuilderView = lazy(() => import('./components/InfraBuilderView'))
 const CICDView = lazy(() => import('./components/CICDView'))
 const IntegrationsPage = lazy(() => import('./components/IntegrationsPage'))
@@ -223,6 +224,7 @@ function AuthenticatedRoutes() {
           <Route path="/data-lineage" element={<PrivateRoute><DataLineageView /></PrivateRoute>} />
 
           <Route path="/incidents" element={<PrivateRoute><TriageView /></PrivateRoute>} />
+          <Route path="/incidents/:id" element={<PrivateRoute><IncidentCommandCenter /></PrivateRoute>} />
           <Route path="/alerts" element={<PrivateRoute><TriageView /></PrivateRoute>} />
           <Route path="/dora" element={<PrivateRoute><DORAPage /></PrivateRoute>} />
           <Route path="/infra" element={<PrivateRoute><InfraBuilderView /></PrivateRoute>} />

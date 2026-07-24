@@ -1,4 +1,4 @@
-# Platform phases (0–10 + L1–L2)
+# Platform phases (0–11 + L1–L2)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -69,3 +69,10 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Native + inbound GitHub webhooks → incidents (HMAC, delivery-id idempotency)
 - [x] `code_review_agent` / `pipeline_monitor_agent` grounded via scoped connector
 - [x] UI: GitHub PRs + Actions views with empty states when disconnected
+
+## Phase 11 — Incident command center + HITL UX
+- [x] Incident detail API: timeline, github_refs, pending_approval, execution_log
+- [x] Approve / reject require auth + tenant scope; dry-run before execute; audit actor
+- [x] No fake Slack/ServiceNow success when demo data disabled
+- [x] UI: `/incidents/:id` command center (timeline, plan, commands, Approve/Reject/Re-triage/Run agent)
+- [x] `POST .../run-agent` stamps PlatformContext from current user; results append to timeline

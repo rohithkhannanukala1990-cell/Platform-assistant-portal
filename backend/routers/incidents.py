@@ -23,11 +23,15 @@ from ..executor.safe_executor import safe_executor
 from ..observability.metrics import ACTIVE_APPROVALS, HITL_APPROVAL_SECONDS
 from ..rate_limit import limiter
 from ..services import incidents_service
-from ..services.isolation import assert_same_tenant, require_tenant
+from ..services.incident_timeline import (
+    append_timeline_event,
+    enrich_incident_detail,
+    extract_executable_commands,
+)
+from ..services.isolation import require_tenant
 from ..services.incidents_service import (
     AGENT_APPROVED_LOGS,
     MOCK_RUNBOOK_LOGS,
-    _SERVICENOW_MOCK_URL,
     close_servicenow_ticket,
     to_adf,
 )
@@ -72,10 +76,13 @@ class IncidentSummary(BaseModel):
     owner_role: str = "Admin"
     proposed_remediation_plan: list[str] = []
     agent_execution_logs: str | None = None
+    tenant_id: str | None = "default"
+    workspace_id: str | None = None
 
 
 class ApprovalRequest(BaseModel):
     approved_by_role: str = "Admin"
+    reason: str | None = None
 
 
 @router.post("/api/triage", response_model=TriageResponse)
@@ -118,17 +125,19 @@ def list_pending_approvals(
     return get_pending_approvals(role=role)
 
 
-@router.get("/api/incidents/{incident_id}", response_model=IncidentSummary)
+@router.get("/api/incidents/{incident_id}")
 def get_incident_by_id(
     request: Request,
     incident_id: int,
     current_user: User = Depends(get_current_user),
 ):
+    """Incident command-center payload: timeline, github refs, pending approval, logs."""
     tenant_id = require_tenant(request)
     incident = get_incident(incident_id, tenant_id=tenant_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
-    return incident
+    return enrich_incident_detail(incident)
+
 
 @router.post("/api/incidents/{incident_id}/remediate")
 @limiter.limit("5/minute")
@@ -140,7 +149,6 @@ async def remediate_incident(request: Request, incident_id: int, current_user: U
     if incident.get("status") == "RESOLVED":
         raise HTTPException(status_code=400, detail="Incident is already resolved")
 
-    # Simulate execution delay
     await asyncio.sleep(2)
 
     updated = update_incident_status(
@@ -148,17 +156,30 @@ async def remediate_incident(request: Request, incident_id: int, current_user: U
         status="RESOLVED",
         execution_logs=MOCK_RUNBOOK_LOGS,
     )
+    try:
+        append_timeline_event(
+            incident_id,
+            event_type="executed",
+            detail="Automated runbook remediation completed",
+            actor=current_user.username,
+        )
+    except Exception:
+        pass
 
     create_notification(
         message=f"✅ Incident #{incident_id} auto-remediated via Automated Runbook",
         type="info",
         incident_id=incident_id,
     )
+    write_audit(
+        actor=current_user.username,
+        actor_role=current_user.role,
+        event_type="REMEDIATE",
+        resource=f"incident:{incident_id}",
+        detail="runbook executed",
+    )
 
-    return updated
-
-class ApprovalRequest(BaseModel):
-    approved_by_role: str = "Admin"
+    return enrich_incident_detail(updated)
 
 
 @router.post("/api/incidents/{incident_id}/dry-run")
@@ -168,13 +189,39 @@ async def dry_run_incident(request: Request, incident_id: int, current_user: Use
     if not incident:
         raise HTTPException(404, "Incident not found")
     plan = incident.get("proposed_remediation_plan") or []
-    commands = [s for s in (plan if isinstance(plan, list) else []) if s.startswith("Run:") or "kubectl" in s or "docker" in s or "git" in s]
-    return await safe_executor.dry_run(commands)
+    commands = extract_executable_commands(plan, incident.get("commands"))
+    result = await safe_executor.dry_run(commands)
+    try:
+        append_timeline_event(
+            incident_id,
+            event_type="dry_run",
+            detail=f"Dry-run of {len(commands)} command(s) — all_safe={result.get('all_safe')}",
+            actor=current_user.username,
+            meta={"all_safe": result.get("all_safe"), "steps": len(result.get("steps") or [])},
+        )
+    except Exception:
+        pass
+    write_audit(
+        actor=current_user.username,
+        actor_role=current_user.role,
+        event_type="DRY_RUN",
+        resource=f"incident:{incident_id}",
+        detail=f"all_safe={result.get('all_safe')}",
+    )
+    return result
+
 
 @router.post("/api/incidents/{incident_id}/approve")
 @limiter.limit("5/minute")
-async def approve_incident(request: Request, incident_id: int, body: ApprovalRequest, current_user: User = Depends(get_current_user)):
-    import json as _json
+async def approve_incident(
+    request: Request,
+    incident_id: int,
+    body: ApprovalRequest,
+    current_user: User = Depends(get_current_user),
+):
+    from datetime import datetime, timezone
+    import os
+
     incident = get_incident(incident_id, tenant_id=require_tenant(request))
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -184,34 +231,77 @@ async def approve_incident(request: Request, incident_id: int, body: ApprovalReq
     plan = incident.get("proposed_remediation_plan") or []
     if isinstance(plan, str):
         try:
-            plan = _json.loads(plan)
+            plan = json.loads(plan)
         except Exception:
             plan = []
     steps = plan if isinstance(plan, list) else []
+    commands = extract_executable_commands(steps, incident.get("commands"))
 
-    await asyncio.sleep(3)   # simulate execution
+    dry = await safe_executor.dry_run(commands)
+    try:
+        append_timeline_event(
+            incident_id,
+            event_type="dry_run",
+            detail=f"Pre-approve dry-run — all_safe={dry.get('all_safe')}",
+            actor=current_user.username,
+            meta={"all_safe": dry.get("all_safe")},
+        )
+    except Exception:
+        pass
+    if commands and not dry.get("all_safe", True):
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Dry-run failed safety checks", "dry_run": dry},
+        )
 
-    logs = AGENT_APPROVED_LOGS.format(
-        role=current_user.role,
-        id=incident_id,
-        step1=steps[0] if len(steps) > 0 else "Isolating affected service",
-        step2=steps[1] if len(steps) > 1 else "Applying remediation patch",
-        step3=steps[2] if len(steps) > 2 else "Restarting and validating services",
-        sn_url=_SERVICENOW_MOCK_URL,
-    )
+    live = (os.getenv("ENABLE_LIVE_EXECUTION") or "").strip().lower() in ("1", "true", "yes", "on")
+    if commands and live:
+        exec_result = await safe_executor.execute(
+            commands, incident_id=incident_id, approved_by=current_user.username
+        )
+        logs = exec_result.get("logs") or ""
+        success = bool(exec_result.get("success"))
+    else:
+        logs = AGENT_APPROVED_LOGS.format(
+            role=current_user.role,
+            id=incident_id,
+            step1=steps[0] if len(steps) > 0 else "Isolating affected service",
+            step2=steps[1] if len(steps) > 1 else "Applying remediation patch",
+            step3=steps[2] if len(steps) > 2 else "Restarting and validating services",
+            sn_url="(skipped)",
+        )
+        success = True
 
     try:
         updated = update_incident_status(
             incident_id,
-            status="RESOLVED_BY_AGENT",
+            status="RESOLVED_BY_AGENT" if success else "AWAITING_APPROVAL",
             agent_execution_logs=logs,
         )
     except ValueError:
         raise HTTPException(status_code=404, detail="Incident not found during update")
-    ACTIVE_APPROVALS.dec()
-    try:
-        from datetime import datetime, timezone
 
+    if success:
+        ACTIVE_APPROVALS.dec()
+        try:
+            append_timeline_event(
+                incident_id,
+                event_type="approved",
+                detail=f"Approved by {current_user.username}",
+                actor=current_user.username,
+                meta={"role": current_user.role},
+            )
+            append_timeline_event(
+                incident_id,
+                event_type="executed",
+                detail="Remediation executed after approval",
+                actor="agent",
+                meta={"live": live, "commands": len(commands)},
+            )
+        except Exception:
+            pass
+
+    try:
         inc_ts = datetime.fromisoformat(incident["timestamp"])
         approval_seconds = (datetime.now(timezone.utc) - inc_ts).total_seconds()
         HITL_APPROVAL_SECONDS.observe(approval_seconds)
@@ -222,7 +312,7 @@ async def approve_incident(request: Request, incident_id: int, body: ApprovalReq
         actor_role=current_user.role,
         event_type="APPROVE",
         resource=f"incident:{incident_id}",
-        detail="plan approved"
+        detail="plan approved and executed" if success else "execution failed",
     )
 
     create_notification(
@@ -231,29 +321,40 @@ async def approve_incident(request: Request, incident_id: int, body: ApprovalReq
         incident_id=incident_id,
     )
 
-    # Fire mock ServiceNow ticket-close webhook (fire-and-forget)
-    asyncio.create_task(close_servicenow_ticket(incident_id))
+    if success:
+        asyncio.create_task(close_servicenow_ticket(incident_id))
 
-    from .ws_portal import broadcast_json
+    try:
+        from .ws_portal import broadcast_json
 
-    asyncio.create_task(
-        broadcast_json(
-            {
-                "type": "approval_update",
-                "incident_id": str(incident_id),
-                "action": "approved",
-                "approved_by": current_user.username,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
+        asyncio.create_task(
+            broadcast_json(
+                {
+                    "type": "approval_update",
+                    "incident_id": str(incident_id),
+                    "action": "approved",
+                    "approved_by": current_user.username,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
         )
-    )
+    except Exception:
+        pass
 
-    return updated
+    refreshed = get_incident(incident_id, tenant_id=require_tenant(request))
+    return enrich_incident_detail(refreshed or updated)
 
 
 @router.post("/api/incidents/{incident_id}/reject")
 @limiter.limit("5/minute")
-async def reject_incident(request: Request, incident_id: int, current_user: User = Depends(get_current_user)):
+async def reject_incident(
+    request: Request,
+    incident_id: int,
+    body: ApprovalRequest | None = None,
+    current_user: User = Depends(get_current_user),
+):
+    from datetime import datetime, timezone
+
     incident = get_incident(incident_id, tenant_id=require_tenant(request))
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -265,9 +366,17 @@ async def reject_incident(request: Request, incident_id: int, current_user: User
     except ValueError:
         raise HTTPException(status_code=404, detail="Incident not found during update")
     ACTIVE_APPROVALS.dec()
+    reason = (body.reason if body else None) or "plan rejected"
     try:
-        from datetime import datetime, timezone
-
+        append_timeline_event(
+            incident_id,
+            event_type="rejected",
+            detail=f"Rejected by {current_user.username}: {reason}",
+            actor=current_user.username,
+        )
+    except Exception:
+        pass
+    try:
         inc_ts = datetime.fromisoformat(incident["timestamp"])
         approval_seconds = (datetime.now(timezone.utc) - inc_ts).total_seconds()
         HITL_APPROVAL_SECONDS.observe(approval_seconds)
@@ -278,7 +387,7 @@ async def reject_incident(request: Request, incident_id: int, current_user: User
         actor_role=current_user.role,
         event_type="REJECT",
         resource=f"incident:{incident_id}",
-        detail="plan rejected"
+        detail=reason,
     )
     create_notification(
         message=f"🚫 Incident #{incident_id} agent execution rejected by operator",
@@ -286,21 +395,145 @@ async def reject_incident(request: Request, incident_id: int, current_user: User
         incident_id=incident_id,
     )
 
-    from .ws_portal import broadcast_json
+    try:
+        from .ws_portal import broadcast_json
 
-    asyncio.create_task(
-        broadcast_json(
-            {
-                "type": "approval_update",
-                "incident_id": str(incident_id),
-                "action": "rejected",
-                "approved_by": current_user.username,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
+        asyncio.create_task(
+            broadcast_json(
+                {
+                    "type": "approval_update",
+                    "incident_id": str(incident_id),
+                    "action": "rejected",
+                    "approved_by": current_user.username,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
         )
-    )
+    except Exception:
+        pass
 
-    return updated
+    refreshed = get_incident(incident_id, tenant_id=require_tenant(request))
+    return enrich_incident_detail(refreshed or updated)
+
+
+@router.post("/api/incidents/{incident_id}/retriage")
+@limiter.limit("10/minute")
+async def retriage_incident(
+    request: Request,
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
+    incident = get_incident(incident_id, tenant_id=tenant_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    logs = (incident.get("raw_logs") or "").strip()
+    if not logs:
+        raise HTTPException(status_code=400, detail="Incident has no raw logs to re-triage")
+    try:
+        result = await incidents_service.run_triage(
+            logs,
+            source=incident.get("source") or "manual",
+            owner_role=incident.get("owner_role") or "Admin",
+            tenant_id=tenant_id,
+            workspace_id=incident.get("workspace_id") or getattr(request.state, "workspace_id", None),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI provider error: {str(exc)}")
+    try:
+        append_timeline_event(
+            incident_id,
+            event_type="retriaged",
+            detail=f"Re-triage spawned incident #{result.get('id')}",
+            actor=current_user.username,
+            meta={"new_incident_id": result.get("id")},
+        )
+    except Exception:
+        pass
+    write_audit(
+        actor=current_user.username,
+        actor_role=current_user.role,
+        event_type="RETRIAGE",
+        resource=f"incident:{incident_id}",
+        detail=f"new_incident={result.get('id')}",
+    )
+    return {"ok": True, "original_id": incident_id, "new_incident": result}
+
+
+@router.post("/api/incidents/{incident_id}/run-agent")
+@limiter.limit("10/minute")
+async def run_incident_agent(
+    request: Request,
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """Run incident_agent with PlatformContext stamped from the authenticated user."""
+    from sqlmodel import Session
+
+    from ..context import PlatformContext
+    from ..database import UserContext, engine as db_engine
+    from ..pipeline.orchestrator import orchestrator_agent
+
+    tenant_id = require_tenant(request)
+    incident = get_incident(incident_id, tenant_id=tenant_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    uid = str(current_user.id) if current_user.id is not None else str(current_user.username)
+    pinned: dict = {}
+    with Session(db_engine) as session:
+        row = session.get(UserContext, uid)
+        if row and row.active_accounts:
+            try:
+                pinned = json.loads(row.active_accounts or "{}")
+            except Exception:
+                pinned = {}
+        ctx = PlatformContext.from_dict(
+            {
+                "user_id": uid,
+                "user_role": "Admin" if (current_user.role or "") == "Admin" else "User",
+                "workspace_id": incident.get("workspace_id")
+                or getattr(request.state, "workspace_id", None)
+                or getattr(current_user, "workspace_id", None),
+                "tenant_id": tenant_id,
+                "environment": "production",
+                "tool_accounts": pinned if isinstance(pinned, dict) else {},
+                "workspace_name": "incident-command",
+            },
+            user_id=uid,
+            user_role="Admin" if (current_user.role or "") == "Admin" else "User",
+        )
+        result = await orchestrator_agent.run(
+            f"Investigate and triage incident #{incident_id}: {incident.get('summary')}",
+            ctx,
+            session,
+            override_agents=["incident_agent"],
+            agent_params={
+                "incident_id": incident_id,
+                "severity": incident.get("severity"),
+                "summary": incident.get("summary"),
+            },
+        )
+
+    try:
+        append_timeline_event(
+            incident_id,
+            event_type="agent_run",
+            detail=f"incident_agent: {result.status} — {result.summary}"[:300],
+            actor=current_user.username,
+            meta={"run_id": result.run_id, "status": result.status},
+        )
+    except Exception:
+        pass
+    write_audit(
+        actor=current_user.username,
+        actor_role=current_user.role,
+        event_type="AGENT_RUN",
+        resource=f"incident:{incident_id}",
+        detail=f"incident_agent status={result.status}",
+    )
+    detail = enrich_incident_detail(get_incident(incident_id, tenant_id=tenant_id) or incident)
+    return {"ok": True, "agent_result": result.to_dict(), "incident": detail}
 
 
 JIRA_FORMAT_PROMPT = """You are a senior SRE writing a Jira incident ticket.

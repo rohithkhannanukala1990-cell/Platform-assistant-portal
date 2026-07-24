@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   History,
   AlertTriangle,
@@ -8,6 +9,7 @@ import {
   ChevronRight,
   RefreshCw,
   Inbox,
+  ExternalLink,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -48,6 +50,7 @@ function formatTime(iso) {
 
 export default function IncidentHistory({ version, onSelectIncident, selectedId }) {
   const { authFetch } = useAuth()
+  const navigate = useNavigate()
   const [incidents, setIncidents]   = useState([])
   const [loading, setLoading]       = useState(false)
   const [collapsed, setCollapsed]   = useState(false)
@@ -140,23 +143,35 @@ export default function IncidentHistory({ version, onSelectIncident, selectedId 
           <ul className="flex flex-col divide-y divide-border">
             {incidents.map((inc) => (
               <li key={inc.id}>
-                <button
-                  onClick={() => onSelectIncident(inc)}
+                <div
                   className={`w-full text-left px-4 py-3 hover:bg-card transition-colors ${
                     selectedId === inc.id ? 'bg-card border-l-2 border-accent' : ''
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1.5 gap-2">
-                    <SeverityBadge severity={inc.severity} />
-                    <span className="text-[10px] text-slate-600 shrink-0">
-                      {formatTime(inc.timestamp)}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">
-                    {inc.summary}
-                  </p>
-                  <p className="text-[10px] text-slate-600 mt-1">{inc.model_used}</p>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => onSelectIncident(inc)}
+                    className="w-full text-left"
+                  >
+                    <div className="flex items-center justify-between mb-1.5 gap-2">
+                      <SeverityBadge severity={inc.severity} />
+                      <span className="text-[10px] text-slate-600 shrink-0">
+                        {formatTime(inc.timestamp)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">
+                      {inc.summary}
+                    </p>
+                    <p className="text-[10px] text-slate-600 mt-1">{inc.model_used}</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/incidents/${inc.id}`)}
+                    className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-accent hover:underline"
+                  >
+                    Command center <ExternalLink className="w-2.5 h-2.5" />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

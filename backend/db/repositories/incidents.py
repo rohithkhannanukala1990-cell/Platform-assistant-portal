@@ -22,6 +22,28 @@ def _safe_json_loads(value, fallback=None):
 
 
 def save_incident(data: dict) -> Incident:
+    from datetime import datetime, timezone
+
+    timeline = data.get("timeline")
+    if timeline is None:
+        ts = datetime.now(timezone.utc).isoformat()
+        timeline = [
+            {
+                "type": "detected",
+                "at": ts,
+                "actor": "system",
+                "detail": f"Incident detected (source={data.get('source') or 'manual'})",
+                "meta": {},
+            },
+            {
+                "type": "triaged",
+                "at": ts,
+                "actor": "ai",
+                "detail": f"Triaged as {data.get('severity', 'Unknown')}: {str(data.get('summary') or '')[:200]}",
+                "meta": {"model_used": data.get("model_used")},
+            },
+        ]
+    timeline_json = timeline if isinstance(timeline, str) else json.dumps(timeline)
     incident = Incident(
         severity=data["severity"],
         summary=data["summary"],
@@ -38,6 +60,7 @@ def save_incident(data: dict) -> Incident:
         owner_role=data.get("owner_role", "Admin"),
         tenant_id=(data.get("tenant_id") or "default"),
         workspace_id=(data.get("workspace_id") or None),
+        timeline_json=timeline_json,
     )
     with Session(engine) as session:
         session.add(incident)
@@ -123,6 +146,8 @@ def serialize_incident(i: Incident) -> dict:
         "agent_execution_logs": getattr(i, "agent_execution_logs", None),
         "tenant_id": getattr(i, "tenant_id", None) or "default",
         "workspace_id": getattr(i, "workspace_id", None),
+        "timeline_json": getattr(i, "timeline_json", None) or "[]",
+        "timeline": _safe_json_loads(getattr(i, "timeline_json", None) or "[]", fallback=[]),
     }
 
 
