@@ -46,6 +46,7 @@ from .routers.imports_api import router as imports_api_router
 from .routers.incidents import router as incidents_router
 from .routers.infra_cicd import router as infra_cicd_router
 from .routers.llm_config import router as llm_config_router
+from .routers.mcp_api import router as mcp_api_router
 from .routers.notifications import router as notifications_router
 from .routers.platform_misc import router as platform_misc_router
 from .routers.rbac import router as rbac_router
@@ -153,6 +154,7 @@ app.include_router(templates_router)
 app.include_router(rbac_router)
 app.include_router(ai_router)
 app.include_router(llm_config_router)
+app.include_router(mcp_api_router)
 app.include_router(agents_router)
 app.include_router(audit_router, prefix="")
 app.include_router(users_router, prefix="")

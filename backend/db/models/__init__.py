@@ -18,6 +18,7 @@ from .tools import (
     ToolConnectionLog,
 )
 from .context_models import AccessRequest, UserAccountAccess, UserContext
+from .mcp_models import MCPServer, MCPToolCall
 from .workspace import (
     Template,
     TemplateApplication,
@@ -68,4 +69,6 @@ __all__ = [
     "AIToolExecution",
     "UserAgentPermission",
     "AgentRun",
+    "MCPServer",
+    "MCPToolCall",
 ]

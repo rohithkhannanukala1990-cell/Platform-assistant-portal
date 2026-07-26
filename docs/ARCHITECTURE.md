@@ -98,6 +98,16 @@ Backup steps: see [`RUNBOOK_BACKUP.md`](./RUNBOOK_BACKUP.md).
 - Alert recipes: [`deploy/grafana/ALERT_RULES.md`](../deploy/grafana/ALERT_RULES.md).
 - Beta go/no-go: [`BETA_GONOGO.md`](./BETA_GONOGO.md); smoke via `scripts/beta_smoke.sh` or `pytest -m smoke`.
 
+## MCP client (Phase M1)
+
+The portal is an MCP **client** only (not a server). Package: `backend/mcp/`.
+
+- Speaks MCP JSON-RPC 2.0 directly over **stdio** or **HTTP/SSE** (no official `mcp` SDK dependency — see `backend/mcp/types.py`).
+- Config: `mcp_servers` table; env secrets encrypted with `SECRETS_ENCRYPTION_KEY`; GET returns `env_keys` / `has_env` only.
+- Every `tools/call` goes through `hitl_bridge` (auth + tenant + audit). Read tools may auto-run; write/dangerous tools (or servers with `require_hitl`) create `mcp_tool_calls` rows in `pending_approval`.
+- API: `/api/mcp/servers`, `/api/mcp/tools`, `/api/mcp/tools/call`, `/api/mcp/calls/{id}/approve|reject`.
+- Optional chat loop: `POST /api/ai/chat` with `use_mcp=true` → `backend/ai/tool_loop.py` (`max_rounds=3`).
+
 ## Run docker-compose locally
 
 ```bash

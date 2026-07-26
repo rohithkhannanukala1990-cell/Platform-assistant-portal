@@ -45,6 +45,8 @@ class ChatRequest(BaseModel):
     workspace_id: Optional[str] = None
     environment: Optional[str] = "production"
     model: Optional[str] = "gpt-4o-mini"
+    # Opt-in MCP tool loop; tool calls still go through the HITL bridge.
+    use_mcp: Optional[bool] = False
 
 
 class ApproveExecutionRequest(BaseModel):
@@ -689,7 +691,25 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
             llm_router.build_system_prompt(ctx)
             + _grounding_system_prompt(platform_context)
         )
-        response_text = await llm_router.chat(llm_messages, model=model, system_prompt=system_prompt)
+        mcp_tool_calls: list[dict[str, Any]] = []
+        mcp_pending: list[dict[str, Any]] = []
+        if req.use_mcp:
+            from ..ai.tool_loop import chat_with_tools
+            from ..services.isolation import tenant_of
+
+            loop_result = await chat_with_tools(
+                messages=llm_messages,
+                user=current_user,
+                tenant_id=tenant_of(current_user),
+                model=model,
+                system_prompt=system_prompt,
+                source="chat",
+            )
+            response_text = loop_result.get("reply") or ""
+            mcp_tool_calls = loop_result.get("tool_calls") or []
+            mcp_pending = loop_result.get("pending_approvals") or []
+        else:
+            response_text = await llm_router.chat(llm_messages, model=model, system_prompt=system_prompt)
 
         # Separate prose from the structured ACTIONS_JSON block (if present).
         natural_response, structured_actions, parse_errors = _parse_actions_json(
@@ -710,6 +730,8 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
                     {
                         "has_actions_json": bool(structured_actions),
                         "raw_response_included": display_response != (response_text or ""),
+                        "mcp_tool_calls": mcp_tool_calls,
+                        "mcp_pending_approvals": [c.get("id") for c in mcp_pending],
                     }
                 ),
                 created_at=_now(),

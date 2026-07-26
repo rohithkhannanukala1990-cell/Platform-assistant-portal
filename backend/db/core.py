@@ -52,6 +52,7 @@ def _import_models():
     from backend.db.models import (  # noqa: F401
         ai_models,
         context_models,
+        mcp_models,
         ops,
         rbac_tables,
         tools,

@@ -19,6 +19,8 @@ import {
 } from 'lucide-react'
 import { API_BASE } from '../config/apiBase'
 import LLMProvidersPanel from './LLMProvidersPanel'
+import MCPServersPanel from './MCPServersPanel'
+import MCPToolsCatalog from './MCPToolsCatalog'
 
 const API = `${API_BASE}/api/settings`
 
@@ -97,6 +99,10 @@ export default function SettingsModal({ onClose, embedded = false }) {
 
           {/* LLM providers */}
           <LLMProvidersPanel />
+
+          {/* MCP client (external servers) */}
+          <MCPServersPanel />
+          <MCPToolsCatalog />
 
           {/* Slack */}
           <Section title="Slack Integration" icon={Webhook} iconColor="text-violet-400">

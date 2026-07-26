@@ -47,6 +47,8 @@ _ENFORCE_ALLOWLIST_PREFIXES: tuple[str, ...] = (
     "/api/health",
     "/api/llm",
     "/api/settings",
+    # Admin-only MCP server config, like LLM providers. Tool calls stay enforced.
+    "/api/mcp/servers",
 )
 
 

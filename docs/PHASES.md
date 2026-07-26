@@ -1,4 +1,4 @@
-# Platform phases (0–15 + L1–L2)
+# Platform phases (0–15 + L1–L2 + M1)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -104,3 +104,12 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Production sample env (`.env.production.example`): demo off, isolation on, required secrets listed
 - [x] `docs/BETA_GONOGO.md` checklist
 - [x] Smoke: `scripts/beta_smoke.sh` + `pytest -m smoke`
+
+## Phase M1 — MCP client (external servers)
+- [x] `backend/mcp/`: types, client (JSON-RPC stdio|sse), registry, hitl_bridge
+- [x] `MCPServer` / `MCPToolCall` tables; env encrypted; secrets masked on GET
+- [x] `/api/mcp/servers` CRUD + test; `/api/mcp/tools` catalog; `/api/mcp/tools/call` → HITL
+- [x] Read tools may auto-run; write/dangerous → `pending_approval`
+- [x] `chat_with_tools` max_rounds=3; optional `use_mcp` on chat
+- [x] Settings UI: MCP servers panel + read-only tools catalog
+- [x] Tests mock tools/list + tools/call; dangerous tool never executes until approved
