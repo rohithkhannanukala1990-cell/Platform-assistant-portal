@@ -8,7 +8,10 @@ from sqlmodel import Field, SQLModel
 
 class Incident(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
     severity: str
     summary: str
     root_cause: str
@@ -21,7 +24,7 @@ class Incident(SQLModel, table=True):
     model_used: str
     raw_response: str
     source: str = Field(default="manual")        # "manual" | "webhook:<source-name>"
-    status: str = Field(default="OPEN")
+    status: str = Field(default="OPEN", index=True)
     # OPEN | RESOLVED | AWAITING_APPROVAL | RESOLVED_BY_AGENT | REJECTED
     execution_logs: Optional[str] = Field(default=None)
     owner_role: str = Field(default="Admin")     # Admin | Developer | DataEngineer | NetworkEngineer
@@ -72,14 +75,14 @@ class UserSetting(SQLModel, table=True):
 
 class WebhookEvent(SQLModel, table=True):
     id: Optional[int]   = Field(default=None, primary_key=True)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
     source: str                              # github | airflow | snowflake | aws | datadog | …
     event_type: str    = Field(default="")  # push | alert | dag_failure | …
     owner_role: str    = Field(default="Admin")
     status: str        = Field(default="accepted")   # accepted | processed | error
     incident_id: Optional[int] = Field(default=None)
     raw_payload: str   = Field(default="{}")         # JSON-encoded original body
-    cloud_event_id: str = Field(default="")          # generated CE id
+    cloud_event_id: str = Field(default="", index=True)  # delivery / CE id for idempotency lookup
 
 
 class WebhookDelivery(SQLModel, table=True):

@@ -114,6 +114,10 @@ Full guide: [`MCP.md`](./MCP.md).
 - Control mapping: [`COMPLIANCE.md`](./COMPLIANCE.md); STRIDE: [`THREAT_MODEL.md`](./THREAT_MODEL.md).
 - CI dependency scans: `pip-audit` + `npm audit` (and `safety` in `ci.yml`).
 
+## Scaling / HA (Phase 17)
+
+See [`SCALING.md`](./SCALING.md): multi-replica API + shared Redis for lockout/rate limits, JWT (no sticky sessions), Celery worker scale-out, list pagination defaults, and load smoke notes.
+
 ## Run docker-compose locally
 
 ```bash

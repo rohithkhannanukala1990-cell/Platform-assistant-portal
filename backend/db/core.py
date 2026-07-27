@@ -578,6 +578,38 @@ def _migrate():
                 session.rollback()
                 print(f"[migrate] golden_path_runs.entity_id type: {exc}")
 
+        _ensure_scale_indexes(session)
+
+
+def _ensure_scale_indexes(session) -> None:
+    """Idempotent indexes for tenant/workspace filters and hot list columns (Phase 17)."""
+    indexes = [
+        ("ix_incident_tenant_id", "incident", "tenant_id"),
+        ("ix_incident_workspace_id", "incident", "workspace_id"),
+        ("ix_incident_timestamp", "incident", "timestamp"),
+        ("ix_incident_status", "incident", "status"),
+        ("ix_user_tenant_id", "user", "tenant_id"),
+        ("ix_user_workspace_id", "user", "workspace_id"),
+        ("ix_workspaces_tenant_id", "workspaces", "tenant_id"),
+        ("ix_catalog_entities_tenant_id", "catalog_entities", "tenant_id"),
+        ("ix_tool_accounts_tenant_id", "tool_accounts", "tenant_id"),
+        ("ix_tool_accounts_workspace_id", "tool_accounts", "workspace_id"),
+        ("ix_agent_runs_tenant_id", "agent_runs", "tenant_id"),
+        ("ix_webhookevent_timestamp", "webhookevent", "timestamp"),
+        ("ix_webhookevent_cloud_event_id", "webhookevent", "cloud_event_id"),
+        # delivery_id is the PK; named index documents the HA lookup path
+        ("ix_webhook_delivery_delivery_id", "webhook_delivery", "delivery_id"),
+    ]
+    for name, table, column in indexes:
+        try:
+            session.exec(
+                sa_text(f'CREATE INDEX IF NOT EXISTS "{name}" ON "{table}" ("{column}")')
+            )
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            print(f"[migrate] index {name}: {exc}")
+
 
 def _seed_settings():
     """Insert default settings only if they don't already exist."""

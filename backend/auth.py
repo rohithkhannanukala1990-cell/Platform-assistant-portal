@@ -52,10 +52,9 @@ def _login_fail_key(username: str, ip: str) -> str:
 def _redis_client():
     """Return a Redis client or None. Failures fall back to in-process lockout."""
     global _REDIS_LOCKOUT_WARNED
-    url = (
-        (os.getenv("CELERY_BROKER_URL") or "").strip()
-        or (os.getenv("REDIS_URL") or "").strip()
-    )
+    from .services.redis_url import redis_url
+
+    url = redis_url()
     if not url:
         return None
     try:

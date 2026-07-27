@@ -6,17 +6,17 @@ import json
 import re
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from ..ai.ai_utils import call_llm
 from ..auth import User, get_current_user, write_audit
 from ..database import (
     create_notification,
-    get_all_incidents,
     get_incident,
     get_pending_approvals,
     get_settings,
+    list_incidents as repo_list_incidents,
     update_incident_status,
 )
 from ..executor.safe_executor import safe_executor
@@ -29,6 +29,7 @@ from ..services.incident_timeline import (
     extract_executable_commands,
 )
 from ..services.isolation import require_tenant
+from ..services.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, clamp_page
 from ..services.incidents_service import (
     AGENT_APPROVED_LOGS,
     MOCK_RUNBOOK_LOGS,
@@ -105,14 +106,19 @@ async def triage_logs(request: Request, triage_in: TriageRequest, current_user: 
 def list_incidents(
     request: Request,
     role: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     current_user: User = Depends(get_current_user),
 ):
-    """Return incidents for the caller's tenant."""
+    """Return a page of incidents for the caller's tenant (newest first)."""
     tenant_id = require_tenant(request)
-    incidents = get_all_incidents(tenant_id=tenant_id)
+    _, size, offset = clamp_page(page, page_size)
     if role and role != "Admin":
-        incidents = [i for i in incidents if i.get("owner_role", "Admin") == role]
-    return incidents
+        # Role filter is post-query; page within the filtered set.
+        pool = repo_list_incidents(limit=500, offset=0, tenant_id=tenant_id)
+        pool = [i for i in pool if i.get("owner_role", "Admin") == role]
+        return pool[offset : offset + size]
+    return repo_list_incidents(limit=size, offset=offset, tenant_id=tenant_id)
 
 
 @router.get("/api/incidents/approvals")

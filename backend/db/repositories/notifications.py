@@ -18,17 +18,21 @@ def create_notification(
     return n
 
 
-def list_notifications(limit: int = 200) -> list[dict]:
-    limit = max(1, min(int(limit or 200), 500))
+def list_notifications(limit: int = 50, offset: int = 0) -> list[dict]:
+    limit = max(1, min(int(limit or 50), 500))
+    offset = max(0, int(offset or 0))
     with Session(engine) as session:
         rows = session.exec(
-            select(Notification).order_by(Notification.timestamp.desc()).limit(limit)
+            select(Notification)
+            .order_by(Notification.timestamp.desc())
+            .offset(offset)
+            .limit(limit)
         ).all()
     return [_serialize_notification(r) for r in rows]
 
 
 def get_all_notifications() -> list[dict]:
-    return list_notifications(limit=200)
+    return list_notifications(limit=200, offset=0)
 
 
 def mark_notification_read(notification_id: int) -> dict | None:

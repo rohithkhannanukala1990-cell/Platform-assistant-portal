@@ -6,19 +6,20 @@ import asyncio
 import json
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from ..ai.llm_service import llm_service
 from ..auth import User, get_current_user
 from ..database import (
     create_notification,
-    get_all_cicd,
-    get_all_infra,
+    list_cicd as repo_list_cicd,
+    list_infra as repo_list_infra,
     save_cicd,
     save_incident,
     save_infra,
 )
+from ..services.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, clamp_page
 from ..observability.logger import logger
 from ..rate_limit import limiter
 from ..services.demo_fixtures import (
@@ -209,8 +210,13 @@ async def generate_infra(
 
 
 @router.get("/api/infra/history")
-def list_infra(current_user: User = Depends(get_current_user)):
-    return get_all_infra()
+def list_infra(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    current_user: User = Depends(get_current_user),
+):
+    _, size, offset = clamp_page(page, page_size)
+    return repo_list_infra(limit=size, offset=offset)
 
 
 # ── CI/CD Pipeline Generator ─────────────────────────────────────────────────
@@ -358,8 +364,13 @@ async def generate_cicd(
 
 
 @router.get("/api/cicd/history")
-def list_cicd(current_user: User = Depends(get_current_user)):
-    return get_all_cicd()
+def list_cicd(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    current_user: User = Depends(get_current_user),
+):
+    _, size, offset = clamp_page(page, page_size)
+    return repo_list_cicd(limit=size, offset=offset)
 
 
 @router.get("/api/cicd/active-runs")

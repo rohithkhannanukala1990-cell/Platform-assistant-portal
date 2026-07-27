@@ -4,7 +4,7 @@ import asyncio
 import json
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -358,5 +358,8 @@ async def github_native_webhook(request: Request):
 
 
 @router.get("/api/webhooks/activity")
-def webhook_activity(limit: int = 40, current_user: User = Depends(get_current_user)):
+def webhook_activity(
+    limit: int = Query(40, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
+):
     return get_recent_webhook_events(limit=limit)

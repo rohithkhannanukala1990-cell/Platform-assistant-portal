@@ -6,10 +6,12 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlmodel import Session, select
+
+from ..services.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, clamp_page
 
 from ..auth import (
     VALID_ROLES,
@@ -109,8 +111,13 @@ def _audit_action(
 
 
 @router.get("/", response_model=list[UserOut])
-def list_users(_admin: User = Depends(require_admin)):
+def list_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    _admin: User = Depends(require_admin),
+):
     tenant = _admin_tenant(_admin)
+    _, size, offset = clamp_page(page, page_size)
     with Session(engine) as session:
         q = select(User).order_by(User.username)
         # Scope to the admin's tenant; legacy NULL/empty tenant rows count as default.
@@ -124,7 +131,7 @@ def list_users(_admin: User = Depends(require_admin)):
             )
         else:
             q = q.where(User.tenant_id == tenant)
-        rows = session.exec(q).all()
+        rows = session.exec(q.offset(offset).limit(size)).all()
     return [_user_out(u) for u in rows]
 
 

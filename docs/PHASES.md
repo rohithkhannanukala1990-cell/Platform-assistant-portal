@@ -1,4 +1,4 @@
-# Platform phases (0–16 + L1–L2 + M1–M2)
+# Platform phases (0–17 + L1–L2 + M1–M2)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -128,3 +128,9 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] CI: `pip-audit` + `npm audit` on ci.yml and pr-check.yml
 - [x] Dependency pin review noted in COMPLIANCE.md / requirements
 - [x] Privacy: audit detail redaction; tests assert tokens/passwords never stored
+
+## Phase 17 — HA / scale hardening
+- [x] Login lockout + SlowAPI rate limits Redis-backed when Redis URL set (`RATELIMIT_STORAGE_URL` / `CELERY_BROKER_URL` / `REDIS_URL`)
+- [x] DB indexes: tenant_id, workspace_id, incident timestamp, webhook delivery_id (+ related hot columns)
+- [x] Pagination defaults (`page`/`page_size`, default 50) on large list endpoints
+- [x] `docs/SCALING.md` — multi-replica API, JWT (no sticky sessions), Celery workers, load smoke notes

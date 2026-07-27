@@ -69,12 +69,21 @@ def save_infra(data: dict) -> InfraGeneration:
     return record
 
 
-def get_all_infra() -> list[dict]:
+def list_infra(limit: int = 50, offset: int = 0) -> list[dict]:
+    limit = max(1, min(int(limit or 50), 500))
+    offset = max(0, int(offset or 0))
     with Session(engine) as session:
         rows = session.exec(
-            select(InfraGeneration).order_by(InfraGeneration.timestamp.desc())
+            select(InfraGeneration)
+            .order_by(InfraGeneration.timestamp.desc())
+            .offset(offset)
+            .limit(limit)
         ).all()
     return [_serialize_infra(r) for r in rows]
+
+
+def get_all_infra() -> list[dict]:
+    return list_infra(limit=200, offset=0)
 
 
 def _serialize_infra(r: InfraGeneration) -> dict:
@@ -107,12 +116,21 @@ def save_cicd(data: dict) -> CICDPipeline:
     return record
 
 
-def get_all_cicd() -> list[dict]:
+def list_cicd(limit: int = 50, offset: int = 0) -> list[dict]:
+    limit = max(1, min(int(limit or 50), 500))
+    offset = max(0, int(offset or 0))
     with Session(engine) as session:
         rows = session.exec(
-            select(CICDPipeline).order_by(CICDPipeline.timestamp.desc())
+            select(CICDPipeline)
+            .order_by(CICDPipeline.timestamp.desc())
+            .offset(offset)
+            .limit(limit)
         ).all()
     return [_serialize_cicd(r) for r in rows]
+
+
+def get_all_cicd() -> list[dict]:
+    return list_cicd(limit=200, offset=0)
 
 
 def _serialize_cicd(r: CICDPipeline) -> dict:
@@ -134,9 +152,11 @@ __all__ = [
     "create_tool_connection",
     "update_tool_connection_status",
     "save_infra",
+    "list_infra",
     "get_all_infra",
     "_serialize_infra",
     "save_cicd",
+    "list_cicd",
     "get_all_cicd",
     "_serialize_cicd",
 ]

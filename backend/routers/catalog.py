@@ -171,9 +171,14 @@ def list_catalog(
         None,
         description="Return entities containing any requested tag; repeat the parameter",
     ),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
     current_user: User = Depends(get_current_user),
 ):
+    from ..services.pagination import clamp_page
+
     tenant_id = require_tenant(request)
+    _, size, offset = clamp_page(page, page_size)
     with Session(engine) as session:
         q = select(CatalogEntity).where(CatalogEntity.is_active == 1)
         q = apply_tenant_filter(q, CatalogEntity, tenant_id)
@@ -184,7 +189,6 @@ def list_catalog(
         if owner_team:
             q = q.where(CatalogEntity.owner_team == owner_team)
         q = q.order_by(CatalogEntity.name.asc())
-        rows = session.exec(q).all()
         requested_tags = {
             tag.strip().lower()
             for value in (tags or [])
@@ -192,6 +196,7 @@ def list_catalog(
             if tag.strip()
         }
         if requested_tags:
+            rows = session.exec(q).all()
             rows = [
                 row
                 for row in rows
@@ -199,6 +204,9 @@ def list_catalog(
                     tag.lower() for tag in _tags_parse(row.tags)
                 )
             ]
+            rows = rows[offset : offset + size]
+        else:
+            rows = session.exec(q.offset(offset).limit(size)).all()
         return [_serialize(r) for r in rows]
 
 
