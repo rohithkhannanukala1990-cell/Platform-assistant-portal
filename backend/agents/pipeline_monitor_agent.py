@@ -23,7 +23,7 @@ class PipelineMonitorAgent(BaseAgent):
     primary_tools = ["Jenkins", "CircleCI", "GitHub Actions", "ArgoCD"]
     read_only = True
 
-    async def _repos(self, params: dict, db: Session, connector) -> list[str]:
+    async def _repos(self, params: dict, db: Session, connector, context: PlatformContext) -> list[str]:
         if params.get("repo"):
             repo = str(params["repo"]).strip()
             owner = (params.get("owner") or "").strip()
@@ -47,15 +47,28 @@ class PipelineMonitorAgent(BaseAgent):
             pass
         if repos:
             return repos
-        try:
-            listed = await connector.list_repos(per_page=10)
-            return [
-                str(r.get("full_name"))
-                for r in listed
-                if isinstance(r, dict) and r.get("full_name")
-            ]
-        except Exception:
-            return []
+
+        from ..mcp.agent_mcp import list_github_repos_prefer_mcp, mcp_enabled
+
+        if mcp_enabled() or connector is not None:
+            listed, _source = await list_github_repos_prefer_mcp(context, db, per_page=10)
+            if listed:
+                return [
+                    str(r.get("full_name"))
+                    for r in listed
+                    if isinstance(r, dict) and r.get("full_name")
+                ]
+        if connector is not None:
+            try:
+                listed = await connector.list_repos(per_page=10)
+                return [
+                    str(r.get("full_name"))
+                    for r in listed
+                    if isinstance(r, dict) and r.get("full_name")
+                ]
+            except Exception:
+                return []
+        return []
 
     def _run_id(self, params: dict) -> int | None:
         raw = params.get("run_id") or params.get("workflow_run_id")
@@ -92,7 +105,7 @@ class PipelineMonitorAgent(BaseAgent):
                 details={"reason": "github_not_configured", "failures": []},
             )
 
-        repos = await self._repos(params, db, connector)
+        repos = await self._repos(params, db, connector, context)
         run_id = self._run_id(params)
 
         # Single failed-run triage with jobs

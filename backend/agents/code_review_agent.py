@@ -10,7 +10,6 @@ from sqlmodel import Session
 
 from ..connectors.github_connector import GitHubAPIError
 from ..context import PlatformContext
-from ..services.github_access import try_github_connector_from_context
 from .base import BaseAgent
 
 
@@ -52,8 +51,16 @@ class CodeReviewAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session):
+        from ..mcp.agent_mcp import list_github_repos_prefer_mcp, mcp_enabled
+        from ..services.github_access import try_github_connector_from_context
+
         connector = try_github_connector_from_context(context, db=db)
-        if connector is None:
+        mcp_repos = None
+        github_source = "connector"
+        if mcp_enabled() or connector is None:
+            mcp_repos, github_source = await list_github_repos_prefer_mcp(context, db, per_page=5)
+
+        if connector is None and not mcp_repos:
             return self._build_result(
                 context,
                 status="skipped",
@@ -66,6 +73,13 @@ class CodeReviewAgent(BaseAgent):
 
         try:
             if pr_number and owner and repo_name:
+                if connector is None:
+                    return self._build_result(
+                        context,
+                        status="skipped",
+                        summary="GitHub connector required for PR detail; MCP repo list alone is not enough.",
+                        details={"reason": "github_connector_required", "github_source": github_source},
+                    )
                 pr = await connector.get_pull_request(owner, repo_name, int(pr_number))
                 files = await connector.list_pull_request_files(
                     owner, repo_name, int(pr_number)
@@ -83,6 +97,7 @@ class CodeReviewAgent(BaseAgent):
                     "pr": pr,
                     "files": files[:40],
                     "file_count": len(files),
+                    "github_source": github_source,
                 }
                 prompt = (
                     f"You are a code review assistant. Ground your analysis ONLY on these "
@@ -112,9 +127,12 @@ class CodeReviewAgent(BaseAgent):
 
             repo = full
             if not repo:
-                repos = await connector.list_repos(per_page=5)
-                if repos:
-                    repo = str(repos[0].get("full_name") or "")
+                if mcp_repos:
+                    repo = str(mcp_repos[0].get("full_name") or "")
+                elif connector is not None:
+                    repos = await connector.list_repos(per_page=5)
+                    if repos:
+                        repo = str(repos[0].get("full_name") or "")
             if not repo:
                 return self._build_result(
                     context,

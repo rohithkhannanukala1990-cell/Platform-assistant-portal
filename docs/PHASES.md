@@ -1,4 +1,4 @@
-# Platform phases (0–15 + L1–L2 + M1)
+# Platform phases (0–15 + L1–L2 + M1–M2)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -113,3 +113,10 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] `chat_with_tools` max_rounds=3; optional `use_mcp` on chat
 - [x] Settings UI: MCP servers panel + read-only tools catalog
 - [x] Tests mock tools/list + tools/call; dangerous tool never executes until approved
+
+## Phase M2 — Portal as MCP server + agent integration
+- [x] `python -m backend.mcp.server_app` — stdio MCP server, `PORTAL_MCP_TOKEN` auth
+- [x] Read tools: incidents, catalog, search, health, GitHub repos (scoped)
+- [x] Write tools (HITL only): `portal_propose_remediation`, `portal_run_agent`
+- [x] Agents: MCP catalog in context when `MCP_ENABLED`; GitHub agents prefer MCP then connector
+- [x] `docs/MCP.md` + ARCHITECTURE / `.env.example` updates

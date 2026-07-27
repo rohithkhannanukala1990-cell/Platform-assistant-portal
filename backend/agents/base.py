@@ -50,14 +50,27 @@ class BaseAgent(ABC):
         return env in [e.lower() for e in self.requires_approval_envs]
 
     async def _call_llm(self, prompt: str, context: PlatformContext) -> str:
+        tools_hint = list(context.tool_accounts.keys()) or self.primary_tools
+        mcp_block = ""
+        try:
+            from ..mcp.agent_mcp import format_mcp_catalog_for_prompt, mcp_enabled, mcp_tool_catalog
+
+            if mcp_enabled():
+                catalog = await mcp_tool_catalog(context.tenant_id)
+                mcp_block = format_mcp_catalog_for_prompt(catalog)
+        except Exception:
+            mcp_block = ""
+
         system = llm_router.build_system_prompt(
             {
                 "workspace_name": context.workspace_name or "default",
                 "environment": context.environment,
-                "tools": list(context.tool_accounts.keys()) or self.primary_tools,
+                "tools": tools_hint,
                 "production_operating": context.is_production(),
             }
         )
+        if mcp_block:
+            system = f"{system}\n\n{mcp_block}"
         messages = [{"role": "user", "content": prompt}]
         model = (os.getenv("LLM_DEFAULT_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
         return await llm_router.chat(messages, model=model, system_prompt=system)
