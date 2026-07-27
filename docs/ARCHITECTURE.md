@@ -107,6 +107,13 @@ Full guide: [`MCP.md`](./MCP.md).
 - Read tools query incidents/catalog/health/GitHub; write tools (`portal_propose_remediation`, `portal_run_agent`) only create HITL-pending portal work.
 - Agents optionally inject the MCP tool catalog; GitHub agents prefer MCP repo tools when configured.
 
+## Compliance (Phase 16)
+
+- Audit retention: setting / env `audit_log_retention_days` (default 90); admin API `/api/audit/retention`.
+- Immutable export: `GET /api/audit/export?immutable=true&format=json` (SHA-256 hash chain).
+- Control mapping: [`COMPLIANCE.md`](./COMPLIANCE.md); STRIDE: [`THREAT_MODEL.md`](./THREAT_MODEL.md).
+- CI dependency scans: `pip-audit` + `npm audit` (and `safety` in `ci.yml`).
+
 ## Run docker-compose locally
 
 ```bash

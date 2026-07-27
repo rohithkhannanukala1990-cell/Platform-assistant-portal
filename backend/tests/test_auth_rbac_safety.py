@@ -28,6 +28,14 @@ def _create_user(
             select(User).where(User.username == username)
         ).first()
         if existing:
+            existing.role = normalize_role(role)
+            existing.hashed_password = hash_password(password)
+            existing.is_active = True
+            existing.mfa_enabled = bool(mfa_secret)
+            existing.mfa_secret = mfa_secret
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
             return existing
         user = User(
             username=username,
@@ -39,8 +47,9 @@ def _create_user(
             mfa_secret=mfa_secret,
         )
         session.add(user)
-        session.flush()
-        sync_user_rbac_role(session, user, granted_by="pytest")
+        session.commit()
+        session.refresh(user)
+        sync_user_rbac_role(session, user, granted_by="test")
         session.commit()
         session.refresh(user)
         return user

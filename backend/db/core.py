@@ -75,6 +75,8 @@ DEFAULT_SETTINGS = {
     "jira_api_token": "",
     "jira_project_key": "",
     "mfa_required_roles": "",
+    # Compliance (Phase 16) — days to retain audit log rows before prune job.
+    "audit_log_retention_days": "90",
 }
 
 

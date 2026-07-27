@@ -222,7 +222,8 @@ def verify_password(plain: str, hashed: str) -> bool:
 def verify_mfa_code(secret: str | None, totp_code: str) -> bool:
     if not secret or not totp_code:
         return False
-    return bool(pyotp.TOTP(secret).verify(totp_code))
+    # valid_window=1 tolerates clock skew / 30s boundary races in tests and prod.
+    return bool(pyotp.TOTP(secret).verify(totp_code, valid_window=1))
 
 
 def get_mfa_required_roles() -> set[str]:
@@ -451,6 +452,12 @@ def write_audit(
     ip_address: str = "",
 ) -> None:
     try:
+        from .services.audit_compliance import sanitize_audit_detail
+
+        safe_detail = sanitize_audit_detail(detail or "")
+    except Exception:
+        safe_detail = detail or ""
+    try:
         with Session(engine) as session:
             session.add(
                 AuditLog(
@@ -459,7 +466,7 @@ def write_audit(
                     actor_role=actor_role,
                     event_type=event_type,
                     resource=resource,
-                    detail=detail,
+                    detail=safe_detail,
                     ip_address=ip_address,
                 )
             )

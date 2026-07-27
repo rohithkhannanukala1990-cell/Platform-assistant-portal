@@ -25,11 +25,16 @@ jobs:
           pip install pytest pytest-asyncio httpx
       - name: Run tests
         run: pytest backend/tests/ -v --tb=short
-      - name: Security scan
+      - name: Security scan (pip-audit)
         continue-on-error: true
         run: |
           pip install pip-audit
           pip-audit --requirement backend/requirements.txt
+      - name: Security scan (safety)
+        continue-on-error: true
+        run: |
+          pip install safety
+          safety check -r backend/requirements.txt || true
 
   frontend-lint:
     runs-on: ubuntu-latest

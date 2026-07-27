@@ -15,6 +15,12 @@ from sqlmodel import Session, select
 
 from ..auth import AuditLog, User, require_admin, write_audit
 from ..database import AgentRun, engine
+from ..services.audit_compliance import (
+    attach_hash_chain,
+    get_audit_retention_days,
+    redact_secrets,
+    set_audit_retention_days,
+)
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -33,22 +39,13 @@ CSV_COLUMNS = [
     "account_id",
     "parameters",
     "result",
+    "prev_hash",
+    "entry_hash",
 ]
 
 
-_SECRET_KEY_MARKERS = ("secret", "token", "password", "api_key", "apikey", "credential", "private_key")
-
-
 def _redact_secrets(value: Any) -> Any:
-    """Recursively strip values whose keys look secret-bearing."""
-    if isinstance(value, dict):
-        return {
-            k: ("[REDACTED]" if any(m in str(k).lower() for m in _SECRET_KEY_MARKERS) else _redact_secrets(v))
-            for k, v in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_secrets(v) for v in value]
-    return value
+    return redact_secrets(value)
 
 
 def log_audit_event(
@@ -222,6 +219,38 @@ def list_audit_logs(
     }
 
 
+@router.get("/retention")
+def get_retention(_admin: User = Depends(require_admin)):
+    """Admin: current audit log retention policy (days)."""
+    days = get_audit_retention_days()
+    return {
+        "audit_log_retention_days": days,
+        "source": "settings",
+        "description": "Audit rows older than this many days are pruned by the archive job.",
+    }
+
+
+@router.put("/retention")
+def put_retention(body: dict[str, Any], admin: User = Depends(require_admin)):
+    """Admin: update audit_log_retention_days (also stored in /api/settings)."""
+    raw = body.get("audit_log_retention_days", body.get("days"))
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="audit_log_retention_days must be an integer")
+    if days < 1 or days > 3650:
+        raise HTTPException(status_code=400, detail="retention days must be between 1 and 3650")
+    applied = set_audit_retention_days(days)
+    write_audit(
+        actor=admin.username,
+        actor_role=admin.role,
+        event_type="audit_retention_updated",
+        resource="audit",
+        detail=json.dumps({"audit_log_retention_days": applied}),
+    )
+    return {"ok": True, "audit_log_retention_days": applied}
+
+
 @router.get("/export")
 def export_audit(
     user_id: Optional[str] = None,
@@ -238,9 +267,16 @@ def export_audit(
         default=None,
         description="Comma-separated event types filter (e.g. login_failed,login_success,mfa,APPROVE,REJECT)",
     ),
+    immutable: bool = Query(
+        default=False,
+        description="When true, attach a SHA-256 hash chain for tamper-evident export",
+    ),
     _admin: User = Depends(require_admin),
 ):
-    """Admin-only audit export as CSV or JSON (supports from/to date aliases)."""
+    """Admin-only audit export as CSV or JSON (supports from/to date aliases).
+
+    Immutable exports are chronological and include prev_hash/entry_hash per row.
+    """
     start = from_ or from_date
     end = to_ or to_date
     with Session(engine) as session:
@@ -264,17 +300,28 @@ def export_audit(
                 if "LOGIN" in aliases:
                     aliases.add("login_success")
                 q = q.where(AuditLog.event_type.in_(list(aliases)))  # type: ignore[arg-type]
-        rows = session.exec(q.order_by(AuditLog.timestamp.desc()).limit(10000)).all()
+        # Chronological for hash chain; reverse for default UX when not immutable.
+        order = AuditLog.timestamp.asc() if immutable else AuditLog.timestamp.desc()
+        rows = session.exec(q.order_by(order).limit(10000)).all()
 
     records = [audit_row_to_dict(r) for r in rows]
 
     if format == "json":
+        if immutable:
+            payload = attach_hash_chain(records)
+            payload["from"] = start
+            payload["to"] = end
+            return payload
         return {
             "count": len(records),
             "from": start,
             "to": end,
+            "immutable": False,
             "results": records,
         }
+
+    if immutable:
+        records = attach_hash_chain(records)["results"]
 
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS)
@@ -296,14 +343,20 @@ def export_audit(
                 "account_id": d["account_id"],
                 "parameters": json.dumps(d["parameters"]) if d["parameters"] is not None else "",
                 "result": json.dumps(d["result"]) if isinstance(d["result"], (dict, list)) else (d["result"] or ""),
+                "prev_hash": d.get("prev_hash") or "",
+                "entry_hash": d.get("entry_hash") or "",
             }
         )
 
     buf.seek(0)
+    filename = "audit_export_immutable.csv" if immutable else "audit_export.csv"
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=audit_export.csv"},
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "X-Audit-Immutable": "1" if immutable else "0",
+        },
     )
 
 

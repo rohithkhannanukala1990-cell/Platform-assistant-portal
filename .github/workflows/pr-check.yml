@@ -28,10 +28,18 @@ jobs:
           pip install -r backend/requirements.txt
           pip install pytest httpx pytest-asyncio
           pytest backend/tests/ -v
+      - name: Python dependency audit
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit --requirement backend/requirements.txt
       - name: Frontend lint
         run: |
           npm ci
           npm run lint
+      - name: npm audit
+        continue-on-error: true
+        run: npm audit --audit-level=moderate
       - name: Comment on PR if failed
         if: failure() && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v7

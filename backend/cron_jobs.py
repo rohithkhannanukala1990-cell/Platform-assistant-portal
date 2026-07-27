@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlmodel import Session, delete
 
-from .auth import AuditLog
 from .auto_heal import auto_healer
 from .database import HealthAlert, engine
 from .health import health_checker
@@ -36,12 +35,14 @@ async def run_auto_heal() -> None:
 
 
 def archive_old_logs() -> None:
-    """Prune old audit logs and resolved health alerts (sync; runs in executor thread)."""
+    """Prune old audit logs (retention setting) and resolved health alerts."""
+    from .services.audit_compliance import get_audit_retention_days, prune_audit_logs
+
     now = datetime.now(timezone.utc)
-    cut_audit = now - timedelta(days=90)
+    retention_days = get_audit_retention_days()
     cut_alerts = now - timedelta(days=30)
+    deleted = prune_audit_logs(retention_days=retention_days)
     with Session(engine) as session:
-        session.exec(delete(AuditLog).where(AuditLog.timestamp < cut_audit))
         session.exec(
             delete(HealthAlert).where(
                 HealthAlert.status == "resolved",
@@ -51,7 +52,11 @@ def archive_old_logs() -> None:
         session.commit()
     logger.info(
         "Archived old logs",
-        extra={"audit_cutoff": cut_audit.isoformat(), "alerts_cutoff": cut_alerts.isoformat()},
+        extra={
+            "audit_retention_days": retention_days,
+            "audit_deleted": deleted,
+            "alerts_cutoff": cut_alerts.isoformat(),
+        },
     )
 
 

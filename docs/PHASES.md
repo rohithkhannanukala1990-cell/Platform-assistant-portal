@@ -1,4 +1,4 @@
-# Platform phases (0–15 + L1–L2 + M1–M2)
+# Platform phases (0–16 + L1–L2 + M1–M2)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -120,3 +120,11 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Write tools (HITL only): `portal_propose_remediation`, `portal_run_agent`
 - [x] Agents: MCP catalog in context when `MCP_ENABLED`; GitHub agents prefer MCP then connector
 - [x] `docs/MCP.md` + ARCHITECTURE / `.env.example` updates
+
+## Phase 16 — Compliance pack
+- [x] Audit retention setting (`audit_log_retention_days`) + prune job uses it
+- [x] Immutable audit export with simple SHA-256 hash chain (`?immutable=true`)
+- [x] `docs/THREAT_MODEL.md` (STRIDE) + `docs/COMPLIANCE.md` control mapping
+- [x] CI: `pip-audit` + `npm audit` on ci.yml and pr-check.yml
+- [x] Dependency pin review noted in COMPLIANCE.md / requirements
+- [x] Privacy: audit detail redaction; tests assert tokens/passwords never stored
