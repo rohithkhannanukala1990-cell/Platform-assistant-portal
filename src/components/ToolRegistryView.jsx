@@ -48,6 +48,8 @@ const INSTANCE_URL_TOOLS = new Set([
   'jenkins',
   'argocd',
   'github',
+  'outbound_webhook',
+  'servicenow',
 ])
 
 const AUTH_LABELS = {

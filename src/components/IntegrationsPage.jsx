@@ -242,6 +242,35 @@ export default function IntegrationsPage() {
   return (
     <div className="flex flex-col gap-6 max-w-6xl mx-auto pb-16 animate-fade-in">
 
+      <div className="rounded-xl border border-border bg-card/40 p-4">
+        <p className="text-sm font-semibold text-white">First-class connectors vs MCP</p>
+        <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+          Slack, Prometheus, Argo CD, Outbound Webhook, GitHub, Kubernetes, and PagerDuty are
+          first-class Tool Registry connectors (scoped accounts, read-first ops panels).
+          MCP remains the long-tail protocol for edge tools — it does not replace these connectors.
+        </p>
+        <div className="flex flex-wrap gap-2 mt-3">
+          {[
+            ['/tool-registry', 'Tool Registry'],
+            ['/slack', 'Slack'],
+            ['/prometheus', 'Prometheus'],
+            ['/argocd', 'Argo CD'],
+            ['/outbound-webhook', 'Outbound Webhook'],
+            ['/k8s', 'Kubernetes'],
+            ['/pagerduty', 'PagerDuty'],
+          ].map(([to, label]) => (
+            <button
+              key={to}
+              type="button"
+              onClick={() => navigate(to)}
+              className="px-2.5 py-1 rounded-lg border border-border text-[11px] text-slate-300 hover:text-white hover:bg-card"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {rotateName && (
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-100">
           <p className="text-sm">

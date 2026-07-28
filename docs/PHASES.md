@@ -1,4 +1,4 @@
-# Platform phases (0–17 + L1–L2 + M1–M2 + G1–G4)
+# Platform phases (0–17 + L1–L2 + M1–M2 + G1–G5)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -173,3 +173,13 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Admin CRUD: `/api/alert-rules` + Settings **Alert rules (v1)** table
 - [x] `alert_noise_agent` uses configured rules; UI label **Rules-based correlation** (never ML)
 - [x] `backend/tests/test_phase_g4_oncall_alerts.py` — suppress, group window, oncall mock, tenant scope
+
+## Phase G5 — Connector pack (first-class vs MCP long-tail)
+- [x] Slack — scoped access, channels read, notify (Admin/HITL), webhook in SecretBox
+- [x] Prometheus — scoped access, alerts + query (read-only)
+- [x] Outbound Webhook — customer URL for portal events (deliver = Admin/HITL)
+- [x] Argo CD — scoped access, applications health (read-only)
+- [x] Optional ServiceNow — incident create via webhook HITL
+- [x] Registry `get_connector` + health probes; UI empty states + Integrations banner
+- [x] `docs/ARCHITECTURE.md` first-class vs MCP; `backend/tests/test_phase_g5_connectors.py`
+

@@ -223,6 +223,7 @@ def _seed_tools() -> None:
         ("aws_sm", "AWS Secrets Manager", "secrets", "AWS Secrets Manager", "🔑"),
         ("jenkins", "Jenkins", "cicd", "Jenkins CI/CD", "⚙️"),
         ("argocd", "ArgoCD", "cicd", "ArgoCD GitOps", "🐙"),
+        ("outbound_webhook", "Outbound Webhook", "comms", "Customer HTTP webhook for portal events", "🔗"),
     ]
     with Session(engine) as session:
         for tid, name, cat, desc, icon in rows:

@@ -78,6 +78,21 @@ CONNECTOR_MAP: dict[str, dict[str, Any]] = {
         "required_fields": ["instance_url"],
         "optional_fields": ["namespace", "mount_path"],
     },
+    "argocd": {
+        "auth_types": ["token", "bearer_token"],
+        "required_fields": ["instance_url"],
+        "optional_fields": [],
+    },
+    "outbound_webhook": {
+        "auth_types": ["webhook", "api_key"],
+        "required_fields": ["instance_url"],
+        "optional_fields": [],
+    },
+    "servicenow": {
+        "auth_types": ["webhook", "api_token", "oauth2"],
+        "required_fields": [],
+        "optional_fields": ["instance_url"],
+    },
 }
 
 
@@ -305,6 +320,26 @@ def get_connector(tool_id: str, account: dict[str, Any]) -> BaseConnector:
         from .pagerduty_connector import PagerDutyConnector as RealPdConnector
 
         return RealPdConnector(account)
+    if tool_id == "slack":
+        from .slack_connector import SlackConnector as RealSlackConnector
+
+        return RealSlackConnector(account)
+    if tool_id == "prometheus":
+        from .prometheus_connector import PrometheusConnector as RealPromConnector
+
+        return RealPromConnector(account)
+    if tool_id == "outbound_webhook":
+        from .outbound_webhook_connector import OutboundWebhookConnector as RealOwConnector
+
+        return RealOwConnector(account)
+    if tool_id == "argocd":
+        from .argocd_connector import ArgoCDConnector as RealArgoConnector
+
+        return RealArgoConnector(account)
+    if tool_id == "servicenow":
+        from .servicenow_connector import ServiceNowConnector as RealSnowConnector
+
+        return RealSnowConnector(account)
     connector_class = CONNECTOR_CLASSES.get(tool_id, BaseConnector)
     return connector_class(account)
 

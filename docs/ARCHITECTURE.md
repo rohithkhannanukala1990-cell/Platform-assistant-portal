@@ -36,6 +36,9 @@ UI (authFetch)
 | `catalog` / `scorecards` / `standards` / `golden_paths` | Service catalog & platform paths |
 | `tools` / `imports_api` / `user_context` | Tool Registry, CSV import, active accounts |
 | `github_ops` | Read-only GitHub repos / PRs / Actions (+ PR/run detail & jobs) |
+| `k8s_ops` / `pagerduty_ops` / `oncall` | Kubernetes + PagerDuty + on-call now |
+| `slack_ops` / `prometheus_ops` / `argocd_ops` / `outbound_webhook_ops` | Phase G5 first-class connectors |
+| `servicenow_ops` | Optional ServiceNow incident create (HITL) |
 | `incidents` / `webhooks_api` / `notifications` | Triage, inbound + native GitHub webhooks, alerts |
 | `infra_cicd` | Infra generator, CI/CD generate, active runs, DORA |
 | `agents` | Agent run / approve / reject |
@@ -97,6 +100,21 @@ Backup steps: see [`RUNBOOK_BACKUP.md`](./RUNBOOK_BACKUP.md).
 - Grafana provisions datasources from `grafana/provisioning/` and dashboards from `deploy/grafana/dashboards/`.
 - Alert recipes: [`deploy/grafana/ALERT_RULES.md`](../deploy/grafana/ALERT_RULES.md).
 - Beta go/no-go: [`BETA_GONOGO.md`](./BETA_GONOGO.md); smoke via `scripts/beta_smoke.sh` or `pytest -m smoke`.
+
+## First-class connectors vs MCP (Phase G5)
+
+**First-class connectors** live in Tool Registry with scoped `*_access.py` (owner / workspace / tenant — **no global env fallback** on API paths), real `*_connector.py` modules, and authenticated `*_ops` routers:
+
+| Connector | Read | Write |
+|-----------|------|-------|
+| Slack | channels | notify (Admin or HITL `approved=true`; webhook URL in SecretBox) |
+| Prometheus | alerts / PromQL query | — |
+| Outbound Webhook | status | deliver events (Admin or HITL) |
+| Argo CD | applications health | — |
+| ServiceNow (optional) | status | create incident via webhook (HITL) |
+| GitHub / K8s / PagerDuty | existing Phase 12 panels | HITL where applicable |
+
+**MCP** is the long-tail edge protocol for tools we do not first-class. It does **not** replace Tool Registry connectors.
 
 ## MCP (Phases M1–M2)
 

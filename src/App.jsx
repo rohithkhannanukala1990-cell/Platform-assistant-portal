@@ -49,6 +49,10 @@ const GitHubPRsView = lazy(() => import('./components/GitHubPRsView'))
 const GitHubActionsView = lazy(() => import('./components/GitHubActionsView'))
 const K8sResourcesView = lazy(() => import('./components/K8sResourcesView'))
 const PagerDutyView = lazy(() => import('./components/PagerDutyView'))
+const SlackView = lazy(() => import('./components/SlackView'))
+const PrometheusView = lazy(() => import('./components/PrometheusView'))
+const ArgoCDView = lazy(() => import('./components/ArgoCDView'))
+const OutboundWebhookView = lazy(() => import('./components/OutboundWebhookView'))
 const SchemaBrowserView = lazy(() => import('./components/SchemaBrowserView'))
 const DataLineageView = lazy(() => import('./components/DataLineageView'))
 const NotificationsPage = lazy(() => import('./components/NotificationsPage'))
@@ -224,6 +228,10 @@ function AuthenticatedRoutes() {
           <Route path="/github/actions" element={<PrivateRoute><GitHubActionsView /></PrivateRoute>} />
           <Route path="/k8s" element={<PrivateRoute><K8sResourcesView /></PrivateRoute>} />
           <Route path="/pagerduty" element={<PrivateRoute><PagerDutyView /></PrivateRoute>} />
+          <Route path="/slack" element={<PrivateRoute><SlackView /></PrivateRoute>} />
+          <Route path="/prometheus" element={<PrivateRoute><PrometheusView /></PrivateRoute>} />
+          <Route path="/argocd" element={<PrivateRoute><ArgoCDView /></PrivateRoute>} />
+          <Route path="/outbound-webhook" element={<PrivateRoute><OutboundWebhookView /></PrivateRoute>} />
           <Route path="/live-pipelines" element={<PrivateRoute><LivePipelinesView /></PrivateRoute>} />
           <Route path="/deployments" element={<PrivateRoute><DeploymentsView /></PrivateRoute>} />
           <Route path="/schema-browser" element={<PrivateRoute><SchemaBrowserView /></PrivateRoute>} />

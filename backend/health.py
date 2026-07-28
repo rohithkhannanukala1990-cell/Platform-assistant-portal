@@ -577,6 +577,106 @@ def _sync_pagerduty_probe(tool_accounts: list | None = None) -> dict[str, Any]:
     return _finalize_connector_probe("pagerduty", _timed_probe("pagerduty", _run))
 
 
+
+def _sync_scoped_connector_probe(
+    tool_id: str,
+    *,
+    import_path: str,
+    class_name: str,
+    label: str,
+    tool_accounts: list | None = None,
+) -> dict[str, Any]:
+    """Health probe for a first-class scoped connector (no inventing success)."""
+
+    def _run() -> dict[str, Any]:
+        accounts = _accounts_for(tool_accounts, tool_id)
+        picked = _pick_account(accounts)
+        if not picked:
+            return {
+                "status": "healthy",
+                "latency_ms": None,
+                "message": f"{label} not configured (no tool account)",
+                "configured": False,
+                "accounts": len(accounts),
+            }
+        account = {**picked, "tool_id": tool_id}
+
+        async def _check() -> dict[str, Any]:
+            import importlib
+
+            mod = importlib.import_module(import_path)
+            cls = getattr(mod, class_name)
+            connector = cls(account)
+            start = time.perf_counter()
+            result = await connector.execute_action("ping", {})
+            latency_ms = round((time.perf_counter() - start) * 1000, 2)
+            if result.get("ok"):
+                return {
+                    "status": "healthy",
+                    "latency_ms": latency_ms,
+                    "configured": True,
+                    "accounts": len(accounts),
+                    "account_name": account.get("account_name"),
+                    "message": f"{label} reachable",
+                }
+            error = result.get("error") or (result.get("result") or {}).get("error") or {}
+            err_type = error.get("type") if isinstance(error, dict) else None
+            return {
+                "status": "critical" if err_type == "auth_failed" else "warning",
+                "latency_ms": latency_ms,
+                "configured": True,
+                "accounts": len(accounts),
+                "account_name": account.get("account_name"),
+                "message": (error.get("message") if isinstance(error, dict) else None)
+                or f"{label} probe failed",
+                "error": error if isinstance(error, dict) else {"type": "probe_failed", "message": str(error)},
+            }
+
+        return _async_probe_result(_check())
+
+    return _finalize_connector_probe(tool_id, _timed_probe(tool_id, _run))
+
+
+def _sync_slack_probe(tool_accounts: list | None = None) -> dict[str, Any]:
+    return _sync_scoped_connector_probe(
+        "slack",
+        import_path="backend.connectors.slack_connector",
+        class_name="SlackConnector",
+        label="Slack",
+        tool_accounts=tool_accounts,
+    )
+
+
+def _sync_prometheus_probe(tool_accounts: list | None = None) -> dict[str, Any]:
+    return _sync_scoped_connector_probe(
+        "prometheus",
+        import_path="backend.connectors.prometheus_connector",
+        class_name="PrometheusConnector",
+        label="Prometheus",
+        tool_accounts=tool_accounts,
+    )
+
+
+def _sync_argocd_probe(tool_accounts: list | None = None) -> dict[str, Any]:
+    return _sync_scoped_connector_probe(
+        "argocd",
+        import_path="backend.connectors.argocd_connector",
+        class_name="ArgoCDConnector",
+        label="ArgoCD",
+        tool_accounts=tool_accounts,
+    )
+
+
+def _sync_outbound_webhook_probe(tool_accounts: list | None = None) -> dict[str, Any]:
+    return _sync_scoped_connector_probe(
+        "outbound_webhook",
+        import_path="backend.connectors.outbound_webhook_connector",
+        class_name="OutboundWebhookConnector",
+        label="Outbound Webhook",
+        tool_accounts=tool_accounts,
+    )
+
+
 def _sync_tool_accounts_probe(tool_accounts: list | None = None) -> dict[str, Any]:
     """Aggregate per-connector reachability into a tools health summary."""
     accounts = (
@@ -593,9 +693,13 @@ def _sync_tool_accounts_probe(tool_accounts: list | None = None) -> dict[str, An
         "aws": (_sync_aws_probe, accounts),
         "kubernetes": (_sync_kubernetes_probe, accounts),
         "pagerduty": (_sync_pagerduty_probe, accounts),
+        "slack": (_sync_slack_probe, accounts),
+        "prometheus": (_sync_prometheus_probe, accounts),
+        "argocd": (_sync_argocd_probe, accounts),
+        "outbound_webhook": (_sync_outbound_webhook_probe, accounts),
     }
     connectors: dict[str, Any] = {}
-    with ThreadPoolExecutor(max_workers=5) as pool:
+    with ThreadPoolExecutor(max_workers=9) as pool:
         futures = {
             pool.submit(fn, accs): name for name, (fn, accs) in probes.items()
         }

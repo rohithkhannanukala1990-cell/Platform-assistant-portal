@@ -171,7 +171,7 @@ def test_github_probe_uses_tool_accounts(monkeypatch):
 
 def test_tool_accounts_probe_includes_connector_statuses():
     summary = _sync_tool_accounts_probe(tool_accounts=[])
-    assert summary["total"] == 5
+    assert summary["total"] == 9
     assert summary["tool_account_count"] == 0
     assert set(summary["connectors"]) == {
         "github",
@@ -179,6 +179,10 @@ def test_tool_accounts_probe_includes_connector_statuses():
         "aws",
         "kubernetes",
         "pagerduty",
+        "slack",
+        "prometheus",
+        "argocd",
+        "outbound_webhook",
     }
     for name, row in summary["connectors"].items():
         assert "status" in row
