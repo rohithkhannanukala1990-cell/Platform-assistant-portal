@@ -1,4 +1,4 @@
-# Platform phases (0–17 + L1–L2 + M1–M2 + G1–G7)
+# Platform phases (0–17 + L1–L2 + M1–M2 + G1–G7 + P0…)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -201,4 +201,8 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] `scripts/pilot_smoke.sh` extends `beta_smoke.sh`
 - [x] `docs/BETA_GONOGO.md` G1–G6 + G7 checkboxes; `docs/product_comparison.md`
 - [x] `backend/tests/test_phase_g7_ha_pilot.py` — ready logic + compose/config defaults
+
+## Phase P0 — Full repo audit inventory (no fixes)
+- [x] `docs/PRODUCTION_BUG_BACKLOG.md` — P0–P3 + wontfix issues with file:line, invariants, P1–P8 mapping
+- [x] Pytest collect-only green (258); no code behavior changes in P0
 
