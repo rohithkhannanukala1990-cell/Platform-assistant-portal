@@ -16,6 +16,7 @@ backend/.env
 # Whitelist example/template files so they are always committed
 !*.env.example
 !**/.env.example
+!.env.production.example
 
 # ── Databases ─────────────────────────────────────────────────────────────────
 backend/*.db
