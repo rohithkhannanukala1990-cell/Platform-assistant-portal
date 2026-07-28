@@ -79,10 +79,19 @@ class BaseAgent(ABC):
         self, commands: list[str], context: PlatformContext, incident_id: int = 0
     ) -> dict[str, Any]:
         approved_by = context.user_id or "system"
+        policy_context = {
+            "role": context.user_role,
+            "environment": context.environment,
+            "tool": context.active_tool or "shell",
+            "tenant_id": context.tenant_id,
+            "approved": False,  # agent auto-execution never carries HITL approval
+        }
         if self.read_only or not commands:
-            preview = await safe_executor.dry_run(commands or ["echo noop"])
+            preview = await safe_executor.dry_run(commands or ["echo noop"], context=policy_context)
             return {"success": True, "dry_run": True, "logs": json.dumps(preview, indent=2)}
-        return await safe_executor.execute(commands, incident_id=incident_id, approved_by=approved_by)
+        return await safe_executor.execute(
+            commands, incident_id=incident_id, approved_by=approved_by, context=policy_context
+        )
 
     def _parse_llm_json(self, text: str) -> dict[str, Any]:
         text = (text or "").strip()
@@ -149,7 +158,13 @@ class BaseAgent(ABC):
             )
 
         if commands:
-            check = CommandValidator.validate(commands)
+            check = CommandValidator.validate_with_context(
+                commands,
+                role=context.user_role,
+                environment=context.environment,
+                tool=context.active_tool or "shell",
+                tenant_id=context.tenant_id,
+            )
             if not check.safe:
                 return self._build_result(
                     context,
@@ -158,6 +173,8 @@ class BaseAgent(ABC):
                     details={"violations": check.violations, **details},
                     execution_log=str(check.violations),
                 )
+            if check.requires_approval:
+                needs_hitl = True
 
         if needs_hitl:
             return self._build_result(

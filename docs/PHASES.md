@@ -1,4 +1,4 @@
-# Platform phases (0–17 + L1–L2 + M1–M2)
+# Platform phases (0–17 + L1–L2 + M1–M2 + G1)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -134,3 +134,13 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] DB indexes: tenant_id, workspace_id, incident timestamp, webhook delivery_id (+ related hot columns)
 - [x] Pagination defaults (`page`/`page_size`, default 50) on large list endpoints
 - [x] `docs/SCALING.md` — multi-replica API, JWT (no sticky sessions), Celery workers, load smoke notes
+
+## Phase G1 — Guardrails v2: command policy engine
+- [x] `CommandPolicyRule` table + seeded defaults (deny / allow / require_approval, production catch-all)
+- [x] `backend/services/command_policy.py` — allow | deny | require_approval with reasons + matched_rule_ids; shlex prefix matching; parse failure fails closed
+- [x] Baseline regex blocklist still runs first (unconditional deny)
+- [x] `CommandValidator.validate_with_context`; SafeExecutor re-evaluates per step with audit (`command_policy_denied` / `command_policy_approval_required`)
+- [x] Orchestrator: deny → failed run; require_approval → forced `requires_approval`
+- [x] Incident + agent-run approval endpoints pass `approved=True` (HITL); ws terminal refuses approval-gated commands
+- [x] `/api/policies/commands` CRUD (admin) + `/evaluate` (any user); Settings → Command policy panel
+- [x] `docs/COMMAND_POLICY.md`

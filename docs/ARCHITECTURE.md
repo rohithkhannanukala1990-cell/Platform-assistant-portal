@@ -118,6 +118,10 @@ Full guide: [`MCP.md`](./MCP.md).
 
 See [`SCALING.md`](./SCALING.md): multi-replica API + shared Redis for lockout/rate limits, JWT (no sticky sessions), Celery worker scale-out, list pagination defaults, and load smoke notes.
 
+## Command guardrails (Phase G1)
+
+See [`COMMAND_POLICY.md`](./COMMAND_POLICY.md). Execution guardrails are a structured policy engine (v1), not regex-only: a baseline regex blocklist runs first (unconditional deny), then DB-backed `CommandPolicyRule` rows decide allow / deny / require_approval per role, environment, tool, and tenant. SafeExecutor re-evaluates per step; denies and approval requirements are audited.
+
 ## Run docker-compose locally
 
 ```bash

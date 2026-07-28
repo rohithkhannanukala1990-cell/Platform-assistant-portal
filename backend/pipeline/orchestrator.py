@@ -128,7 +128,9 @@ def _notify(session: Session, message: str, ntype: str = "info") -> None:
     session.commit()
 
 
-def _validate_commands_in_result(result: AgentResult) -> AgentResult:
+def _validate_commands_in_result(
+    result: AgentResult, context: PlatformContext | None = None
+) -> AgentResult:
     commands: list[str] = []
     if isinstance(result.details.get("commands"), list):
         commands = [str(c) for c in result.details["commands"]]
@@ -139,19 +141,68 @@ def _validate_commands_in_result(result: AgentResult) -> AgentResult:
     if not commands:
         return result
 
-    check = CommandValidator.validate(commands)
-    if check.safe:
-        return result
-
-    return AgentResult(
-        **{
-            **result.model_dump(),
-            "status": "failed",
-            "summary": "Command validation failed at orchestrator",
-            "details": {**result.details, "violations": check.violations},
-            "execution_log": str(check.violations),
-        }
+    check = CommandValidator.validate_with_context(
+        commands,
+        role=(context.user_role if context else "User"),
+        environment=(context.environment if context else "development"),
+        tool=(context.active_tool if context and context.active_tool else "shell"),
+        tenant_id=(context.tenant_id if context else None),
     )
+    decision = check.decision
+    reasons = list(decision.reasons) if decision else list(check.violations)
+
+    if not check.safe:
+        # Policy deny: fail the run — no pending_approval carrying bad commands.
+        write_audit(
+            (context.user_id if context else "system") or "system",
+            (context.user_role if context else "User") or "User",
+            "command_policy_denied",
+            resource=result.agent,
+            detail="; ".join(reasons)[:500],
+        )
+        return AgentResult(
+            **{
+                **result.model_dump(),
+                "status": "failed",
+                "summary": "Command validation failed at orchestrator",
+                "details": {
+                    **result.details,
+                    "violations": check.violations,
+                    "policy_effect": "deny",
+                    "policy_reasons": reasons,
+                },
+                "requires_approval": False,
+                "approval_payload": {},
+                "execution_log": str(check.violations),
+            }
+        )
+
+    if check.requires_approval and not result.requires_approval:
+        write_audit(
+            (context.user_id if context else "system") or "system",
+            (context.user_role if context else "User") or "User",
+            "command_policy_approval_required",
+            resource=result.agent,
+            detail="; ".join(reasons)[:500],
+        )
+        return AgentResult(
+            **{
+                **result.model_dump(),
+                "requires_approval": True,
+                "approval_payload": {
+                    **(result.approval_payload or {}),
+                    "commands": commands,
+                    "policy_reasons": reasons,
+                },
+                "details": {
+                    **result.details,
+                    "policy_effect": "require_approval",
+                    "policy_reasons": reasons,
+                },
+            }
+        )
+
+    return result
 
 
 def _timeout_result(agent_name: str, context: PlatformContext) -> AgentResult:
@@ -231,7 +282,7 @@ class OrchestratorAgent:
             except Exception as exc:
                 result = _error_result(name, context, exc)
 
-            result = _validate_commands_in_result(result)
+            result = _validate_commands_in_result(result, context)
             _complete_run(run_id, result)
             result.run_id = run_id
 
@@ -286,7 +337,16 @@ class OrchestratorAgent:
 
         if commands and final.status == "success":
             exec_out = await safe_executor.execute(
-                commands, incident_id=0, approved_by=context.user_id or "system"
+                commands,
+                incident_id=0,
+                approved_by=context.user_id or "system",
+                context={
+                    "role": context.user_role,
+                    "environment": context.environment,
+                    "tool": context.active_tool or "shell",
+                    "tenant_id": context.tenant_id,
+                    "approved": False,  # auto path — approval-required commands must refuse
+                },
             )
             final.execution_log = exec_out.get("logs")
             if not exec_out.get("success"):

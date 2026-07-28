@@ -11,6 +11,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlmodel import Session, select
 
 from .auth import User, decode_token
+from .context import PlatformContext
 from .database import AgentRun, engine
 
 _user_clients: Dict[str, List[WebSocket]] = {}
@@ -274,12 +275,25 @@ async def terminal_ws(
 
         from .command_validator import CommandValidator
 
-        check = CommandValidator.validate([command])
+        check = CommandValidator.validate_with_context(
+            [command],
+            role=user.role,
+            environment=PlatformContext.current_env(),
+            tool="shell",
+            tenant_id=getattr(user, "tenant_id", None),
+        )
         if not check.safe:
             violations = "; ".join(check.violations or [])
             await websocket.send_json({
                 "type": "output",
                 "data": f"\r\n⛔ Validation failed: {violations}\r\n$ ",
+            })
+            continue
+        if check.requires_approval:
+            reasons = "; ".join(check.decision.reasons if check.decision else [])
+            await websocket.send_json({
+                "type": "output",
+                "data": f"\r\n⛔ Requires approval — run via an incident/agent approval flow. {reasons}\r\n$ ",
             })
             continue
 
@@ -290,6 +304,13 @@ async def terminal_ws(
                 [command],
                 incident_id=0,
                 approved_by=user.username,
+                context={
+                    "role": user.role,
+                    "environment": PlatformContext.current_env(),
+                    "tool": "shell",
+                    "tenant_id": getattr(user, "tenant_id", None),
+                    "approved": False,
+                },
             )
             logs = result.get("logs") or ""
             success = result.get("success", False)

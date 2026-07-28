@@ -140,8 +140,16 @@ class MigrationAgent:
         ]
         result = await safe_executor.execute(
             commands=commands,
-            incident_id=f"migration-{service_name}-{timestamp}",
+            incident_id=0,
             approved_by=user_id,
+            context={
+                "role": "User",
+                "environment": environment,
+                "tool": "shell",
+                "tenant_id": None,
+                "approved": False,
+                "approved_by": user_id,
+            },
         )
 
         return {

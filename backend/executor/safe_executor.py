@@ -6,6 +6,38 @@ from datetime import datetime
 from ..command_validator import CommandValidator
 
 
+def _default_context() -> dict:
+    """Conservative context for legacy callers that do not pass one.
+
+    Uses the process ENV as environment so production deployments stay
+    fail-closed even when a call site predates Phase G1.
+    """
+    import os
+
+    return {
+        "role": "User",
+        "environment": (os.getenv("ENV") or "development").strip().lower(),
+        "tool": "shell",
+        "tenant_id": None,
+        "approved": False,
+    }
+
+
+def _audit_policy_event(event_type: str, context: dict, command: str, reasons: list[str]) -> None:
+    try:
+        from ..auth import write_audit
+
+        write_audit(
+            actor=str(context.get("approved_by") or context.get("user_id") or "system"),
+            actor_role=str(context.get("role") or "User"),
+            event_type=event_type,
+            resource=f"incident:{context.get('incident_id') or 0}",
+            detail=f"{command[:200]} — {'; '.join(reasons)[:300]}",
+        )
+    except Exception:
+        pass  # audit must never break execution handling
+
+
 class ExecutionStep:
     def __init__(self, command: str, description: str, rollback_cmd: str = None):
         self.command = command
@@ -19,15 +51,27 @@ class SafeExecutor:
     MAX_EXECUTION_SECONDS = 30
     APPROVAL_TIMEOUT_MINUTES = 30
 
-    async def dry_run(self, commands: list[str]) -> dict:
+    async def dry_run(self, commands: list[str], context: dict | None = None) -> dict:
         """Preview execution without running — validates + explains each command."""
+        ctx = {**_default_context(), **(context or {})}
         results = []
         for cmd in commands:
-            check = CommandValidator.validate([cmd])
+            check = CommandValidator.validate_with_context(
+                [cmd],
+                role=str(ctx.get("role") or "User"),
+                environment=str(ctx.get("environment") or "development"),
+                tool=str(ctx.get("tool") or "shell"),
+                tenant_id=ctx.get("tenant_id"),
+            )
+            decision = check.decision
             results.append({
                 "command": cmd,
                 "safe": check.safe,
+                "effect": check.effect,
+                "requires_approval": check.requires_approval,
                 "violations": check.violations if not check.safe else [],
+                "reasons": list(decision.reasons) if decision else [],
+                "matched_rule_ids": list(decision.matched_rule_ids) if decision else [],
                 "dry_run": True,
                 "preview": f"WOULD EXECUTE: {cmd}",
             })
@@ -36,21 +80,71 @@ class SafeExecutor:
             "timestamp": datetime.utcnow().isoformat(),
             "steps": results,
             "all_safe": all(r["safe"] for r in results),
+            "any_requires_approval": any(r["requires_approval"] for r in results),
         }
 
-    async def execute(self, commands: list[str], incident_id: int, approved_by: str) -> dict:
-        """Execute commands with per-step validation, logging, and rollback on failure."""
+    async def execute(
+        self,
+        commands: list[str],
+        incident_id: int,
+        approved_by: str,
+        context: dict | None = None,
+    ) -> dict:
+        """Execute commands with per-step policy evaluation, logging, and rollback.
+
+        ``context`` keys: role, environment, tool, tenant_id, approved_by,
+        incident_id, approved (bool — set True only after HITL approval).
+        """
+        ctx = {**_default_context(), **(context or {})}
+        ctx.setdefault("approved_by", approved_by)
+        ctx.setdefault("incident_id", incident_id)
+        approved = bool(ctx.get("approved"))
+
         logs = [f"[SafeExecutor] Execution started for Incident #{incident_id}"]
         logs.append(f"[SafeExecutor] Approved by: {approved_by}")
         logs.append(f"[SafeExecutor] Commands: {len(commands)}")
+        logs.append(
+            f"[SafeExecutor] Policy context: role={ctx.get('role')} "
+            f"env={ctx.get('environment')} tool={ctx.get('tool')} approved={approved}"
+        )
 
         executed = []
         for i, cmd in enumerate(commands):
-            # Re-validate at execution time
-            check = CommandValidator.validate([cmd])
+            # Re-evaluate policy at execution time (per step)
+            check = CommandValidator.validate_with_context(
+                [cmd],
+                role=str(ctx.get("role") or "User"),
+                environment=str(ctx.get("environment") or "development"),
+                tool=str(ctx.get("tool") or "shell"),
+                tenant_id=ctx.get("tenant_id"),
+            )
+            decision = check.decision
+            reasons = list(decision.reasons) if decision else list(check.violations)
+
             if not check.safe:
-                logs.append(f"[BLOCKED] Step {i+1}: {cmd} — {check.violations}")
-                return {"success": False, "logs": "\n".join(logs), "blocked_at": i}
+                logs.append(f"[BLOCKED] Step {i+1}: {cmd} — policy deny: {reasons}")
+                _audit_policy_event("command_policy_denied", ctx, cmd, reasons)
+                return {
+                    "success": False,
+                    "logs": "\n".join(logs),
+                    "blocked_at": i,
+                    "policy_effect": "deny",
+                    "policy_reasons": reasons,
+                }
+
+            if check.requires_approval and not approved:
+                logs.append(
+                    f"[REFUSED] Step {i+1}: {cmd} — requires approval and no approval flag set"
+                )
+                _audit_policy_event("command_policy_approval_required", ctx, cmd, reasons)
+                return {
+                    "success": False,
+                    "logs": "\n".join(logs),
+                    "blocked_at": i,
+                    "policy_effect": "require_approval",
+                    "policy_reasons": reasons,
+                    "requires_approval": True,
+                }
 
             logs.append(f"[Step {i+1}/{len(commands)}] Executing: {cmd}")
             try:
@@ -107,4 +201,3 @@ class SafeExecutor:
 
 
 safe_executor = SafeExecutor()
-

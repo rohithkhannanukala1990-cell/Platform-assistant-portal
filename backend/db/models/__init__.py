@@ -19,6 +19,7 @@ from .tools import (
 )
 from .context_models import AccessRequest, UserAccountAccess, UserContext
 from .mcp_models import MCPServer, MCPToolCall
+from .policy import CommandPolicyRule
 from .workspace import (
     Template,
     TemplateApplication,
@@ -71,4 +72,5 @@ __all__ = [
     "AgentRun",
     "MCPServer",
     "MCPToolCall",
+    "CommandPolicyRule",
 ]

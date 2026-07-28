@@ -191,12 +191,21 @@ async def remediate_incident(request: Request, incident_id: int, current_user: U
 @router.post("/api/incidents/{incident_id}/dry-run")
 @limiter.limit("5/minute")
 async def dry_run_incident(request: Request, incident_id: int, current_user: User = Depends(get_current_user)):
-    incident = get_incident(incident_id, tenant_id=require_tenant(request))
+    tenant_id = require_tenant(request)
+    incident = get_incident(incident_id, tenant_id=tenant_id)
     if not incident:
         raise HTTPException(404, "Incident not found")
     plan = incident.get("proposed_remediation_plan") or []
     commands = extract_executable_commands(plan, incident.get("commands"))
-    result = await safe_executor.dry_run(commands)
+    result = await safe_executor.dry_run(
+        commands,
+        context={
+            "role": current_user.role,
+            "tenant_id": tenant_id,
+            "tool": "shell",
+            "incident_id": incident_id,
+        },
+    )
     try:
         append_timeline_event(
             incident_id,
@@ -228,7 +237,8 @@ async def approve_incident(
     from datetime import datetime, timezone
     import os
 
-    incident = get_incident(incident_id, tenant_id=require_tenant(request))
+    tenant_id = require_tenant(request)
+    incident = get_incident(incident_id, tenant_id=tenant_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     if incident.get("status") != "AWAITING_APPROVAL":
@@ -243,7 +253,14 @@ async def approve_incident(
     steps = plan if isinstance(plan, list) else []
     commands = extract_executable_commands(steps, incident.get("commands"))
 
-    dry = await safe_executor.dry_run(commands)
+    policy_context = {
+        "role": current_user.role,
+        "tenant_id": tenant_id,
+        "tool": "shell",
+        "incident_id": incident_id,
+        "approved_by": current_user.username,
+    }
+    dry = await safe_executor.dry_run(commands, context=policy_context)
     try:
         append_timeline_event(
             incident_id,
@@ -263,7 +280,11 @@ async def approve_incident(
     live = (os.getenv("ENABLE_LIVE_EXECUTION") or "").strip().lower() in ("1", "true", "yes", "on")
     if commands and live:
         exec_result = await safe_executor.execute(
-            commands, incident_id=incident_id, approved_by=current_user.username
+            commands,
+            incident_id=incident_id,
+            approved_by=current_user.username,
+            # This endpoint IS the HITL approval, so approval-gated commands may run.
+            context={**policy_context, "approved": True},
         )
         logs = exec_result.get("logs") or ""
         success = bool(exec_result.get("success"))

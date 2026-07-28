@@ -54,6 +54,7 @@ def _import_models():
         context_models,
         mcp_models,
         ops,
+        policy,
         rbac_tables,
         tools,
         workspace,
@@ -89,6 +90,7 @@ def create_db_and_tables():
     _seed_workspaces()
     _seed_templates()
     _seed_rbac()
+    _seed_command_policies()
     with Session(engine) as session:
         from backend.routers.standards import seed_production_readiness_standard
 
@@ -99,6 +101,93 @@ def create_db_and_tables():
         from backend.routers.golden_paths import seed_golden_path_templates
 
         seed_golden_path_templates(session)
+
+
+def _seed_command_policies() -> None:
+    """Idempotent seed of global default command policy rules (Phase G1).
+
+    Only seeds when the table has no global (tenant_id NULL) rows, so admin
+    edits are never overwritten on restart.
+    """
+    from backend.db.models.policy import CommandPolicyRule
+
+    defaults = [
+        # ── deny (priority 10) ── destructive, never auto-runnable
+        ("deny-rm-rf-root", 10, "deny", ["rm -rf /", "rm -fr /"], None,
+         "Recursive delete of filesystem root"),
+        ("deny-mkfs", 10, "deny", ["mkfs"], r"\bmkfs(\.\w+)?\b",
+         "Filesystem format"),
+        ("deny-dd", 10, "deny", ["dd if="], r"\bdd\s+if=",
+         "Raw disk write via dd"),
+        ("deny-drop-database", 10, "deny", [], r"\bDROP\s+(DATABASE|SCHEMA)\b",
+         "SQL drop database/schema"),
+        ("deny-kubectl-delete-namespace", 10, "deny",
+         ["kubectl delete namespace", "kubectl delete ns"], None,
+         "Delete Kubernetes namespace"),
+        ("deny-chmod-777-root", 10, "deny", ["chmod -R 777 /"], r"chmod\s+-R\s+777\s+/",
+         "Recursive world-writable on root"),
+        ("deny-fork-bomb", 10, "deny", [], r":\(\)\s*\{.*\};\s*:",
+         "Fork bomb"),
+        # ── require_approval (priority 50) ── mutating infra commands
+        ("approval-kubectl-delete", 50, "require_approval", ["kubectl delete"], None,
+         "Any kubectl delete needs human approval"),
+        ("approval-kubectl-scale", 50, "require_approval", ["kubectl scale"], None,
+         "Scaling workloads needs human approval"),
+        ("approval-helm-uninstall", 50, "require_approval", ["helm uninstall", "helm delete"], None,
+         "Helm uninstall needs human approval"),
+        ("approval-terraform-apply", 50, "require_approval",
+         ["terraform apply", "terraform destroy"], None,
+         "Terraform apply/destroy needs human approval"),
+        # ── allow (priority 30, before generic approval rules) ── read-only
+        ("allow-kubectl-readonly", 30, "allow",
+         ["kubectl get", "kubectl describe", "kubectl logs", "kubectl top"], None,
+         "Read-only kubectl"),
+        ("allow-git-status", 30, "allow", ["git status", "git log", "git diff"], None,
+         "Read-only git"),
+        ("allow-health-curl", 30, "allow", [], r"^curl\s+(-[sSfkL]+\s+)*https?://\S*/(health|healthz|ready|metrics)\b",
+         "Read-only curl to health endpoints"),
+    ]
+    with Session(engine) as session:
+        existing = session.exec(
+            select(CommandPolicyRule).where(CommandPolicyRule.tenant_id == None)  # noqa: E711
+        ).first()
+        if existing:
+            return
+        for name, priority, effect, prefixes, regex, description in defaults:
+            session.add(
+                CommandPolicyRule(
+                    name=name,
+                    priority=priority,
+                    enabled=True,
+                    match_roles='["*"]',
+                    match_environments='["*"]',
+                    match_tools='["*"]',
+                    match_command_prefixes=json.dumps(prefixes),
+                    match_regex=regex,
+                    effect=effect,
+                    description=description,
+                    tenant_id=None,
+                )
+            )
+        # Production catch-all: any mutating shell command in production
+        # requires approval unless an allow rule matched earlier.
+        session.add(
+            CommandPolicyRule(
+                name="production-default-approval",
+                priority=900,
+                enabled=True,
+                match_roles='["*"]',
+                match_environments='["production", "prod", "dr"]',
+                match_tools='["*"]',
+                match_command_prefixes="[]",
+                match_regex=None,
+                effect="require_approval",
+                description="Production catch-all: every command not explicitly allowed requires approval",
+                tenant_id=None,
+            )
+        )
+        session.commit()
+        print(f"[seed] command policy defaults ({len(defaults) + 1} rules)")
 
 
 def _seed_tools() -> None:

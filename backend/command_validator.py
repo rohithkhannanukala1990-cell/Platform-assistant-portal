@@ -81,11 +81,26 @@ _COMPILED: list[tuple[re.Pattern, str]] = [
 # ── Public API ────────────────────────────────────────────────────────────────
 
 class ValidationResult:
-    __slots__ = ("safe", "violations")
+    """Baseline result. When produced via ``validate_with_context`` the
+    ``decision`` attribute carries the structured PolicyDecision (effect,
+    reasons, matched_rule_ids); otherwise it is None."""
 
-    def __init__(self, safe: bool, violations: list[str]):
+    __slots__ = ("safe", "violations", "decision")
+
+    def __init__(self, safe: bool, violations: list[str], decision=None):
         self.safe       = safe
         self.violations = violations
+        self.decision   = decision
+
+    @property
+    def effect(self) -> str:
+        if self.decision is not None:
+            return self.decision.effect
+        return "allow" if self.safe else "deny"
+
+    @property
+    def requires_approval(self) -> bool:
+        return self.effect == "require_approval"
 
     def __bool__(self):
         return self.safe
@@ -96,19 +111,31 @@ class ValidationResult:
 
 class CommandValidator:
     """
-    Validates AI-generated command lists and remediation plan steps against
-    a blocklist of dangerous patterns.
+    Validates AI-generated command lists and remediation plan steps.
+
+    Two layers:
+      1. Baseline regex blocklist (always runs; catastrophic patterns).
+      2. Structured CommandPolicy engine (when context is provided via
+         ``validate_with_context``) — allow | deny | require_approval.
+
+    Execution paths MUST use ``validate_with_context``; context-free
+    ``validate()`` is retained for content scanning (plans, raw AI output)
+    where role/environment are not yet known.
 
     Usage:
-        result = CommandValidator.validate(plan_steps)
-        if not result.safe:
+        result = CommandValidator.validate_with_context(
+            commands, role="Admin", environment="production", tool="kubernetes"
+        )
+        if not result.safe:            # deny
             # escalate
+        elif result.requires_approval: # queue for HITL
+            ...
     """
 
     @staticmethod
     def validate(items: list[str]) -> ValidationResult:
         """
-        Scan every string in *items* against the blocklist.
+        Baseline-only scan of every string in *items* against the blocklist.
 
         Returns a ValidationResult:
           .safe       → True if nothing dangerous was found
@@ -127,3 +154,41 @@ class CommandValidator:
     def validate_text(text: str) -> ValidationResult:
         """Single-string variant — useful for validating a raw log or command string."""
         return CommandValidator.validate([text])
+
+    @staticmethod
+    def validate_with_context(
+        commands: list[str],
+        *,
+        role: str = "User",
+        environment: str = "development",
+        tool: str = "shell",
+        tenant_id: str | None = None,
+    ) -> ValidationResult:
+        """Baseline blocklist first, then the structured policy engine.
+
+        ``safe`` is False only on deny. A ``require_approval`` decision keeps
+        ``safe`` True but sets ``requires_approval`` — callers on execution
+        paths must check both.
+        """
+        baseline = CommandValidator.validate(commands)
+        from .services.command_policy import evaluate_commands
+
+        decision = evaluate_commands(
+            commands,
+            role=role,
+            environment=environment,
+            tool=tool,
+            tenant_id=tenant_id,
+        )
+        if not baseline.safe:
+            # evaluate_commands already denies baseline hits; merge messages.
+            violations = baseline.violations + [
+                r for r in decision.reasons if r not in baseline.violations
+            ]
+            return ValidationResult(safe=False, violations=violations, decision=decision)
+
+        return ValidationResult(
+            safe=decision.effect != "deny",
+            violations=list(decision.reasons) if decision.effect == "deny" else [],
+            decision=decision,
+        )

@@ -258,7 +258,17 @@ async def approve_run(
         exec_log = None
         if commands:
             out = await safe_executor.execute(
-                commands, incident_id=0, approved_by=current_user.username
+                commands,
+                incident_id=0,
+                approved_by=current_user.username,
+                # This endpoint IS the HITL approval for the run.
+                context={
+                    "role": current_user.role,
+                    "environment": row.environment or "development",
+                    "tool": "shell",
+                    "tenant_id": getattr(row, "tenant_id", None),
+                    "approved": True,
+                },
             )
             exec_log = out.get("logs")
             row.status = "success" if out.get("success") else "failed"
