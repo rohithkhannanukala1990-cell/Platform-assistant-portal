@@ -15,7 +15,7 @@ import { usePortalContext } from '../contexts/PortalContext'
 
 const TRIAGE_TABS = [
   { id: 'logs', label: 'Log Triage' },
-  { id: 'noise', label: 'Noise Analysis' },
+  { id: 'noise', label: 'Rules-based correlation' },
 ]
 
 const ACTIVE_STATUSES = new Set(['OPEN', 'AWAITING_APPROVAL', 'open', 'awaiting_approval'])
@@ -64,9 +64,9 @@ function NoiseAnalysisTab({ workspaceId, authFetch }) {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-white font-semibold text-lg">Alert Noise Analysis</h3>
+          <h3 className="text-white font-semibold text-lg">Rules-based correlation</h3>
           <p className="text-gray-400 text-sm mt-0.5">
-            Identify and suppress noisy, low-signal alerts
+            Identify noisy alerts using configured rules — not ML
           </p>
         </div>
         <button
@@ -81,7 +81,7 @@ function NoiseAnalysisTab({ workspaceId, authFetch }) {
               Analyzing…
             </>
           ) : (
-            'Analyze Noise (7d)'
+            'Run rules-based correlation (7d)'
           )}
         </button>
       </div>

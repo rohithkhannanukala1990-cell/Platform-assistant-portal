@@ -86,6 +86,16 @@ WEBHOOK_DUPLICATES_TOTAL = Counter(
     "Webhook deliveries ignored as duplicates",
     ["source"],
 )
+ALERTS_SUPPRESSED_TOTAL = Counter(
+    "alerts_suppressed_total",
+    "Alerts suppressed by rules-based correlation",
+    ["source", "rule_id"],
+)
+ALERTS_GROUPED_TOTAL = Counter(
+    "alerts_grouped_total",
+    "Alerts grouped into existing incidents by rules-based correlation",
+    ["source", "rule_id"],
+)
 CELERY_TASK_RETRIES_TOTAL = Counter(
     "celery_task_retries_total",
     "Celery task retry attempts",
@@ -144,6 +154,26 @@ def record_webhook_signature_failure() -> None:
 def record_webhook_duplicate(source: str) -> None:
     try:
         WEBHOOK_DUPLICATES_TOTAL.labels(source=source or "unknown").inc()
+    except Exception:
+        pass
+
+
+def record_alert_suppressed(source: str, rule_id: str) -> None:
+    try:
+        ALERTS_SUPPRESSED_TOTAL.labels(
+            source=source or "unknown",
+            rule_id=rule_id or "unknown",
+        ).inc()
+    except Exception:
+        pass
+
+
+def record_alert_grouped(source: str, rule_id: str) -> None:
+    try:
+        ALERTS_GROUPED_TOTAL.labels(
+            source=source or "unknown",
+            rule_id=rule_id or "unknown",
+        ).inc()
     except Exception:
         pass
 

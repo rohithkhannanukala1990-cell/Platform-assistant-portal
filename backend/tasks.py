@@ -86,25 +86,36 @@ def _dead_letter(task_self, *, queue: str, args, error: BaseException) -> None:
     queue="triage",
 )
 def process_inbound_webhook(self, payload: dict, source: str, event_id: int):
-    """Normalize inbound payload → AI triage. Retries with exponential backoff."""
-    from .main import _run_triage, _map_to_cloud_event, _route_owner
+    """Normalize inbound payload → rules-based correlation → AI triage."""
+    from .main import _map_to_cloud_event, _route_owner
+    from .services.incidents_service import ingest_webhook_alert
 
     logger.info("[celery] process_inbound_webhook source=%s event_id=%s", source, event_id)
 
     try:
         _event_type, log_text, _ = _map_to_cloud_event(payload, source)
         owner_role = _route_owner(source)
+        tenant_id = str(payload.get("tenant_id") or "default")
 
         async def _run():
-            result = await _run_triage(
+            result = await ingest_webhook_alert(
                 log_text,
                 source=f"webhook:{source}",
                 owner_role=owner_role,
+                tenant_id=tenant_id,
+                payload=payload,
             )
-            update_webhook_event(event_id, status="processed", incident_id=result.get("id"))
+            status = result.get("status") or "processed"
+            if status in ("suppressed", "grouped"):
+                update_webhook_event(event_id, status=status, incident_id=result.get("id"))
+            else:
+                update_webhook_event(event_id, status="processed", incident_id=result.get("id"))
             logger.info(
-                "[celery] %s → Incident #%s routed to %s",
-                source, result.get("id"), owner_role,
+                "[celery] %s → %s incident=%s routed to %s",
+                source,
+                status,
+                result.get("id"),
+                owner_role,
             )
 
         _run_async(_run())
@@ -136,14 +147,14 @@ def process_inbound_webhook(self, payload: dict, source: str, event_id: int):
     queue="triage",
 )
 def process_webhook_log(self, log_text: str, source: str):
-    """AI triage on raw log string. Retries with exponential backoff."""
-    from .main import _run_triage
+    """Rules-based correlation + AI triage on raw log string."""
+    from .services.incidents_service import ingest_webhook_alert
 
     logger.info("[celery] process_webhook_log source=%s", source)
 
     try:
         async def _run():
-            await _run_triage(log_text, source=f"webhook:{source}")
+            await ingest_webhook_alert(log_text, source=f"webhook:{source}")
 
         _run_async(_run())
 

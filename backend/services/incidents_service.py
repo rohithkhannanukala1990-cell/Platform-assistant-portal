@@ -180,6 +180,72 @@ async def run_triage(
         "model_used":      model_used,
     }
 
+
+async def ingest_webhook_alert(
+    log_text: str,
+    source: str = "manual",
+    owner_role: str = "Admin",
+    *,
+    tenant_id: str | None = None,
+    workspace_id: str | None = None,
+    payload: dict | None = None,
+) -> dict:
+    """Apply rules-based alert correlation before triage (Phase G4)."""
+    from sqlmodel import Session
+
+    from ..db.core import engine
+    from .alert_rules import (
+        evaluate_alert_ingest,
+        extract_alert_fields,
+        get_rule_for_followup,
+        register_grouped_incident,
+    )
+
+    tid = tenant_id or "default"
+    clean_source = source.removeprefix("webhook:")
+    decision = evaluate_alert_ingest(
+        tenant_id=tid,
+        source=clean_source,
+        log_text=log_text,
+        payload=payload,
+    )
+    if not decision.proceed:
+        return {
+            "id": decision.incident_id,
+            "suppressed": decision.action == "suppress",
+            "grouped": decision.action == "attach_existing",
+            "rule_id": decision.rule_id,
+            "rule_name": decision.rule_name,
+            "reason": decision.reason,
+            "status": "suppressed" if decision.action == "suppress" else "grouped",
+        }
+
+    result = await run_triage(
+        log_text,
+        source=source,
+        owner_role=owner_role,
+        tenant_id=tid,
+        workspace_id=workspace_id,
+    )
+
+    if decision.rule_id and result.get("id"):
+        fields = extract_alert_fields(payload, source=clean_source, log_text=log_text)
+        with Session(engine) as session:
+            rule = get_rule_for_followup(session, decision.rule_id, tid)
+            if rule and rule.group_window_sec > 0:
+                register_grouped_incident(
+                    tenant_id=tid,
+                    rule_id=rule.id,
+                    fields=fields,
+                    incident_id=int(result["id"]),
+                    group_window_sec=rule.group_window_sec,
+                )
+
+    if decision.rule_id:
+        result["alert_rule_id"] = decision.rule_id
+        result["alert_rule_name"] = decision.rule_name
+    return result
+
 # ── HITL Agentic Processor ────────────────────────────────────────────────────
 
 _AUTO_RESOLVE_SEVERITIES = {"Low", "Warning", "Medium"}

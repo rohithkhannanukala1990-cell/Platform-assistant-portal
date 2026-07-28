@@ -94,24 +94,41 @@ class PagerDutyConnector(_BasePd):
         except Exception:
             return []
 
-    async def list_oncalls(self, limit: int = 20) -> list[dict[str, Any]]:
+    async def list_oncalls(
+        self,
+        limit: int = 20,
+        *,
+        schedule_id: str | None = None,
+        service_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         def _sync() -> list[dict[str, Any]]:
             session = self._session()
             if not session:
                 return []
-            rows = session.list_all("oncalls", params={"limit": limit})
+            params: dict[str, Any] = {"limit": limit}
+            if schedule_id:
+                params["schedule_ids[]"] = schedule_id
+            if service_id:
+                params["service_ids[]"] = service_id
+            rows = session.list_all("oncalls", params=params)
             out: list[dict[str, Any]] = []
             for row in rows:
                 user = row.get("user") or {}
                 schedule = row.get("schedule") or {}
                 escalation = row.get("escalation_policy") or {}
+                service = row.get("service") or {}
                 out.append(
                     {
                         "user": user.get("summary") or user.get("id"),
+                        "user_id": user.get("id"),
                         "schedule": schedule.get("summary") or schedule.get("id"),
+                        "schedule_id": schedule.get("id"),
                         "escalation_policy": escalation.get("summary") or escalation.get("id"),
+                        "service": service.get("summary") or service.get("id"),
+                        "service_id": service.get("id"),
                         "start": row.get("start"),
                         "end": row.get("end"),
+                        "html_url": schedule.get("html_url") or user.get("html_url"),
                     }
                 )
             return out[:limit]

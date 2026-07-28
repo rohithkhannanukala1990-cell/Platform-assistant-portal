@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Bell, Loader2, RefreshCw, Users, Wrench } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import OncallWidget from './OncallWidget'
 
 function EmptyConnected({ title, subtitle }) {
   return (
@@ -101,6 +102,8 @@ export default function PagerDutyView() {
           {error}
         </div>
       )}
+
+      <OncallWidget compact />
 
       <div className="flex flex-wrap gap-2">
         <button

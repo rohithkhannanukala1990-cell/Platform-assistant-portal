@@ -28,7 +28,13 @@ async def api_pagerduty_incidents(
 @router.get("/oncalls")
 async def api_pagerduty_oncalls(
     limit: int = Query(default=20, ge=1, le=100),
+    schedule_id: str | None = Query(default=None),
+    service: str | None = Query(default=None, description="PagerDuty service id"),
     current_user: User = Depends(get_current_user),
 ):
     connector = _connector(current_user)
-    return await connector.list_oncalls(limit=limit)
+    return await connector.list_oncalls(
+        limit=limit,
+        schedule_id=schedule_id,
+        service_id=service,
+    )

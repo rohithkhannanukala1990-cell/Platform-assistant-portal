@@ -24,7 +24,10 @@ router = APIRouter(tags=["webhooks"])
 async def _webhook_background_fallback(log_text: str, source: str):
     """In-process fallback used when Redis/Celery is unavailable (local dev)."""
     try:
-        await incidents_service.run_triage(log_text, source=f"webhook:{source}")
+        await incidents_service.ingest_webhook_alert(
+            log_text,
+            source=f"webhook:{source}",
+        )
     except Exception as exc:
         logger.error("Webhook fallback triage failed", extra={"source": source, "error": str(exc)})
 
@@ -34,8 +37,19 @@ async def _inbound_webhook_background_fallback(payload: dict, source: str, event
     try:
         _event_type, log_text, _ = _map_to_cloud_event(payload, source)
         owner_role = _route_owner(source)
-        result = await incidents_service.run_triage(log_text, source=f"webhook:{source}", owner_role=owner_role)
-        update_webhook_event(event_id, status="processed", incident_id=result.get("id"))
+        tenant_id = str(payload.get("tenant_id") or "default")
+        result = await incidents_service.ingest_webhook_alert(
+            log_text,
+            source=f"webhook:{source}",
+            owner_role=owner_role,
+            tenant_id=tenant_id,
+            payload=payload,
+        )
+        status = result.get("status") or "processed"
+        if status in ("suppressed", "grouped"):
+            update_webhook_event(event_id, status=status, incident_id=result.get("id"))
+        else:
+            update_webhook_event(event_id, status="processed", incident_id=result.get("id"))
     except Exception as exc:
         update_webhook_event(event_id, status="error")
         logger.error("Webhook fallback triage failed", extra={"source": source, "error": str(exc)})

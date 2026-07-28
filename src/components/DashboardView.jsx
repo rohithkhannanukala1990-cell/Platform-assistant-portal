@@ -15,6 +15,7 @@ import {
   BookOpen, Zap,
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
+import OncallWidget from './OncallWidget'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import { API_BASE } from '../config/apiBase'
@@ -521,6 +522,8 @@ export default function DashboardView() {
 
       {/* ── Agent Pending Approvals ───────────────────────────────────────── */}
       <AgentApprovalsWidget />
+
+      <OncallWidget />
 
       {/* ── Predictive Log Scan ───────────────────────────────────────────── */}
       <div className="flex flex-col gap-3 p-5 rounded-2xl border border-amber-500/20 bg-amber-500/5">

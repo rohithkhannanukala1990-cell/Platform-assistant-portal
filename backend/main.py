@@ -48,6 +48,8 @@ from .routers.infra_cicd import router as infra_cicd_router
 from .routers.llm_config import router as llm_config_router
 from .routers.mcp_api import router as mcp_api_router
 from .routers.notifications import router as notifications_router
+from .routers.oncall import router as oncall_router
+from .routers.alert_rules import router as alert_rules_router
 from .routers.platform_misc import router as platform_misc_router
 from .routers.policies import router as policies_router
 from .routers.rbac import router as rbac_router
@@ -184,6 +186,8 @@ app.include_router(platform_misc_router)
 app.include_router(github_ops_router)
 app.include_router(k8s_ops_router)
 app.include_router(pagerduty_ops_router)
+app.include_router(oncall_router)
+app.include_router(alert_rules_router)
 app.include_router(policies_router)
 
 from .ws_portal import router as ws_portal_router

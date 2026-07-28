@@ -22,6 +22,7 @@ import LLMProvidersPanel from './LLMProvidersPanel'
 import MCPServersPanel from './MCPServersPanel'
 import MCPToolsCatalog from './MCPToolsCatalog'
 import CommandPolicyPanel from './CommandPolicyPanel'
+import AlertRulesPanel from './AlertRulesPanel'
 
 const API = `${API_BASE}/api/settings`
 
@@ -107,6 +108,9 @@ export default function SettingsModal({ onClose, embedded = false }) {
 
           {/* Command policy guardrails (Phase G1) */}
           <CommandPolicyPanel />
+
+          {/* Alert correlation rules (Phase G4) */}
+          <AlertRulesPanel />
 
           {/* Slack */}
           <Section title="Slack Integration" icon={Webhook} iconColor="text-violet-400">

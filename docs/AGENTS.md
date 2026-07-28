@@ -22,7 +22,7 @@ Every agent must:
 | `incident_agent` | mutating writes | PagerDuty | ack/resolve/create |
 | `infra_agent` | mutating | Kubernetes | delete/scale |
 | `auto_heal_agent` | mutating | Kubernetes | always in prod |
-| `alert_noise_agent` | read_only (rules-based) | PagerDuty | — |
+| `alert_noise_agent` | read_only (Rules-based correlation) | PagerDuty + AlertRule | — |
 | `scorecard_agent` | read_only | Scorecards DB | — |
 | `deploy_agent` | mutating | K8s / Helm / Actions | prod |
 | `migration_agent` | mutating | kubectl/helm/terraform | prod + backup reminder |

@@ -1,4 +1,4 @@
-# Platform phases (0–17 + L1–L2 + M1–M2 + G1–G3)
+# Platform phases (0–17 + L1–L2 + M1–M2 + G1–G4)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -162,3 +162,14 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Audit event `postmortem_generated`
 - [x] Incident Command Center UI — Generate / Regenerate, Edit, Download
 - [x] `backend/tests/test_phase_g3_postmortem.py` — mock LLM sections, cross-tenant 404, version + audit
+
+## Phase G4 — On-call visibility + rules-based alert correlation
+- [x] `pagerduty_access` + connector `list_oncalls` with schedule/service filters
+- [x] `GET /api/oncall/now?service=&schedule_id=` — tenant-scoped on-call now
+- [x] Ops dashboard + PagerDuty view: **Who is on-call** widget + link to PagerDuty (`docs/ONCALL.md` — scheduling stays in PD)
+- [x] `AlertRule` model: match service/severity/title_regex, `group_window_sec`, actions (`create_incident` | `suppress` | `attach_existing`), priority, enabled
+- [x] Rules applied on webhook ingest (`ingest_webhook_alert` / Celery tasks) before triage
+- [x] Metrics: `alerts_suppressed_total`, `alerts_grouped_total`
+- [x] Admin CRUD: `/api/alert-rules` + Settings **Alert rules (v1)** table
+- [x] `alert_noise_agent` uses configured rules; UI label **Rules-based correlation** (never ML)
+- [x] `backend/tests/test_phase_g4_oncall_alerts.py` — suppress, group window, oncall mock, tenant scope

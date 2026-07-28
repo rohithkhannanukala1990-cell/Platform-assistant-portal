@@ -51,6 +51,7 @@ def get_db():
 def _import_models():
     from backend.db.models import (  # noqa: F401
         ai_models,
+        alerts,
         context_models,
         mcp_models,
         ops,
