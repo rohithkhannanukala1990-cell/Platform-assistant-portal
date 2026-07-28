@@ -1,4 +1,4 @@
-# Platform phases (0–17 + L1–L2 + M1–M2 + G1–G2)
+# Platform phases (0–17 + L1–L2 + M1–M2 + G1–G3)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -152,3 +152,13 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Orchestrator: require user_id, persist evidence/grounding, command cap 25, secret redaction, audit started/completed/denied_policy
 - [x] UI: grounding badge, evidence list, policy summary, Tool Registry link on none
 - [x] `docs/AGENTS.md` catalog + HITL matrix
+
+## Phase G3 — Postmortem generation (incident.io / PD Scribe gap)
+- [x] `IncidentPostmortem` model — versioned markdown per incident + tenant
+- [x] `POST /api/incidents/{id}/postmortem/generate` — auth + tenant-scoped; builds context from incident fields, timeline, triage, commands, agent-run evidence
+- [x] LLM via `llm_service` only; `LLM_MOCK` returns deterministic section markdown (Summary, Impact, Detection, Root cause, What went well, What went wrong, Action items, Timeline)
+- [x] Timeline section grounded — only events from stored/synthesized timeline data
+- [x] `GET /api/incidents/{id}/postmortem` — latest version; `PUT` edit; `GET .../download` markdown attachment
+- [x] Audit event `postmortem_generated`
+- [x] Incident Command Center UI — Generate / Regenerate, Edit, Download
+- [x] `backend/tests/test_phase_g3_postmortem.py` — mock LLM sections, cross-tenant 404, version + audit

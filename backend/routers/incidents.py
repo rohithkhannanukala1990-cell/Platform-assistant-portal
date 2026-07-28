@@ -7,6 +7,7 @@ import re
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ..ai.ai_utils import call_llm
@@ -30,6 +31,11 @@ from ..services.incident_timeline import (
 )
 from ..services.isolation import require_tenant
 from ..services.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, clamp_page
+from ..services.postmortem_service import (
+    generate_postmortem_for_incident,
+    get_latest_postmortem,
+    update_postmortem,
+)
 from ..services.incidents_service import (
     AGENT_APPROVED_LOGS,
     MOCK_RUNBOOK_LOGS,
@@ -561,6 +567,97 @@ async def run_incident_agent(
     )
     detail = enrich_incident_detail(get_incident(incident_id, tenant_id=tenant_id) or incident)
     return {"ok": True, "agent_result": result.to_dict(), "incident": detail}
+
+
+class PostmortemUpdateBody(BaseModel):
+    markdown: str
+
+
+@router.post("/api/incidents/{incident_id}/postmortem/generate")
+@limiter.limit("5/minute")
+async def generate_incident_postmortem(
+    request: Request,
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """Generate a versioned postmortem from incident data, timeline, triage, and agent runs."""
+    tenant_id = require_tenant(request)
+    incident = get_incident(incident_id, tenant_id=tenant_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    try:
+        postmortem = await generate_postmortem_for_incident(
+            incident_id,
+            tenant_id=tenant_id,
+            actor=current_user.username,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Postmortem generation failed: {exc}") from exc
+    write_audit(
+        actor=current_user.username,
+        actor_role=current_user.role,
+        event_type="postmortem_generated",
+        resource=f"incident:{incident_id}",
+        detail=f"version={postmortem.get('version')}",
+    )
+    return postmortem
+
+
+@router.get("/api/incidents/{incident_id}/postmortem")
+def get_incident_postmortem(
+    request: Request,
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
+    if not get_incident(incident_id, tenant_id=tenant_id):
+        raise HTTPException(status_code=404, detail="Incident not found")
+    postmortem = get_latest_postmortem(incident_id, tenant_id=tenant_id)
+    if not postmortem:
+        raise HTTPException(status_code=404, detail="Postmortem not found")
+    return postmortem
+
+
+@router.put("/api/incidents/{incident_id}/postmortem")
+def edit_incident_postmortem(
+    request: Request,
+    incident_id: int,
+    body: PostmortemUpdateBody,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
+    if not get_incident(incident_id, tenant_id=tenant_id):
+        raise HTTPException(status_code=404, detail="Incident not found")
+    updated = update_postmortem(
+        incident_id,
+        tenant_id=tenant_id,
+        markdown=body.markdown,
+        editor=current_user.username,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Postmortem not found")
+    return updated
+
+
+@router.get("/api/incidents/{incident_id}/postmortem/download")
+def download_incident_postmortem(
+    request: Request,
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
+    if not get_incident(incident_id, tenant_id=tenant_id):
+        raise HTTPException(status_code=404, detail="Incident not found")
+    postmortem = get_latest_postmortem(incident_id, tenant_id=tenant_id)
+    if not postmortem:
+        raise HTTPException(status_code=404, detail="Postmortem not found")
+    version = postmortem.get("version", 1)
+    filename = f"postmortem-incident-{incident_id}-v{version}.md"
+    return Response(
+        content=postmortem.get("markdown") or "",
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 JIRA_FORMAT_PROMPT = """You are a senior SRE writing a Jira incident ticket.

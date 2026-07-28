@@ -4,6 +4,7 @@ from .ops import (
     CeleryTaskFailure,
     HealthAlert,
     Incident,
+    IncidentPostmortem,
     InfraGeneration,
     Notification,
     UserSetting,
@@ -39,6 +40,7 @@ from .ai_models import (
 
 __all__ = [
     "Incident",
+    "IncidentPostmortem",
     "InfraGeneration",
     "CICDPipeline",
     "Notification",

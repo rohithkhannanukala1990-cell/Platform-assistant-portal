@@ -8,7 +8,9 @@ import {
   CheckCircle2,
   ClipboardCopy,
   Clock,
+  Download,
   ExternalLink,
+  FileText,
   GitBranch,
   Info,
   Loader2,
@@ -138,6 +140,25 @@ export default function IncidentCommandCenter() {
   const [busy, setBusy] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [copiedIdx, setCopiedIdx] = useState(null)
+  const [postmortem, setPostmortem] = useState(null)
+  const [postmortemEditing, setPostmortemEditing] = useState(false)
+  const [postmortemDraft, setPostmortemDraft] = useState('')
+
+  const loadPostmortem = useCallback(async () => {
+    if (!id) return
+    try {
+      const res = await authFetch(`/api/incidents/${id}/postmortem`)
+      if (res.status === 404) {
+        setPostmortem(null)
+        return
+      }
+      if (res.ok) {
+        setPostmortem(await res.json())
+      }
+    } catch {
+      setPostmortem(null)
+    }
+  }, [authFetch, id])
 
   const load = useCallback(async () => {
     if (!id) return
@@ -166,6 +187,10 @@ export default function IncidentCommandCenter() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    void loadPostmortem()
+  }, [loadPostmortem])
 
   async function runAction(key, path, options = {}) {
     setBusy(key)
@@ -216,6 +241,81 @@ export default function IncidentCommandCenter() {
       setCopiedIdx(idx)
       setTimeout(() => setCopiedIdx(null), 1500)
     })
+  }
+
+  async function generatePostmortem() {
+    setBusy('postmortem-generate')
+    try {
+      const res = await authFetch(`/api/incidents/${id}/postmortem/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || `Generate failed (${res.status})`)
+      }
+      setPostmortem(data)
+      setPostmortemDraft(data.markdown || '')
+      setPostmortemEditing(false)
+      showToast(`Postmortem v${data.version} generated`, 'success')
+    } catch (e) {
+      showToast(e.message || 'Postmortem generation failed', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function savePostmortemEdit() {
+    setBusy('postmortem-save')
+    try {
+      const res = await authFetch(`/api/incidents/${id}/postmortem`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markdown: postmortemDraft }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || `Save failed (${res.status})`)
+      }
+      setPostmortem(data)
+      setPostmortemEditing(false)
+      showToast('Postmortem saved', 'success')
+    } catch (e) {
+      showToast(e.message || 'Save failed', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function downloadPostmortem() {
+    setBusy('postmortem-download')
+    try {
+      const res = await authFetch(`/api/incidents/${id}/postmortem/download`)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || `Download failed (${res.status})`)
+      }
+      const blob = await res.blob()
+      const version = postmortem?.version || 1
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `postmortem-incident-${id}-v${version}.md`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      showToast('Postmortem downloaded', 'success')
+    } catch (e) {
+      showToast(e.message || 'Download failed', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  function startPostmortemEdit() {
+    setPostmortemDraft(postmortem?.markdown || '')
+    setPostmortemEditing(true)
   }
 
   if (loading) return <Skeleton />
@@ -538,6 +638,103 @@ export default function IncidentCommandCenter() {
           </pre>
         ) : (
           <p className="text-xs text-slate-500">No execution log yet. Approve a plan or run remediation to populate.</p>
+        )}
+      </section>
+
+      {/* Postmortem */}
+      <section className="rounded-xl border border-border bg-card/40 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-accent" />
+            <h2 className="text-sm font-semibold text-white">Postmortem</h2>
+            {postmortem?.version && (
+              <span className="text-[10px] font-mono text-slate-500">v{postmortem.version}</span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => generatePostmortem()}
+              disabled={!!busy}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-accent/40 bg-accent/10 text-xs font-semibold text-accent hover:bg-accent/20 disabled:opacity-50 transition-colors"
+            >
+              {busy === 'postmortem-generate' ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Bot className="w-3 h-3" />
+              )}
+              {postmortem ? 'Regenerate' : 'Generate'}
+            </button>
+            {postmortem && !postmortemEditing && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => startPostmortemEdit()}
+                  disabled={!!busy}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs text-slate-300 hover:text-white hover:bg-card disabled:opacity-50 transition-colors"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadPostmortem()}
+                  disabled={!!busy}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs text-slate-300 hover:text-white hover:bg-card disabled:opacity-50 transition-colors"
+                >
+                  {busy === 'postmortem-download' ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Download className="w-3 h-3" />
+                  )}
+                  Download
+                </button>
+              </>
+            )}
+            {postmortemEditing && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => savePostmortemEdit()}
+                  disabled={!!busy}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-green-500/40 bg-green-500/10 text-xs font-semibold text-green-400 hover:bg-green-500/20 disabled:opacity-50 transition-colors"
+                >
+                  {busy === 'postmortem-save' ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-3 h-3" />
+                  )}
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPostmortemEditing(false)}
+                  disabled={!!busy}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs text-slate-400 hover:text-white disabled:opacity-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {!postmortem && !postmortemEditing && (
+          <p className="text-xs text-slate-500">
+            Generate a structured postmortem from incident fields, timeline, triage, commands, and agent-run evidence.
+          </p>
+        )}
+        {postmortemEditing && (
+          <textarea
+            value={postmortemDraft}
+            onChange={(e) => setPostmortemDraft(e.target.value)}
+            rows={16}
+            className="w-full text-xs font-mono text-slate-300 bg-black/40 rounded-lg border border-border p-3 focus:outline-none focus:ring-1 focus:ring-accent/50 resize-y min-h-[12rem]"
+            spellCheck={false}
+          />
+        )}
+        {postmortem && !postmortemEditing && (
+          <pre className="text-xs text-slate-300 whitespace-pre-wrap break-words bg-black/30 rounded-lg border border-border p-3 max-h-96 overflow-y-auto leading-relaxed">
+            {postmortem.markdown}
+          </pre>
         )}
       </section>
     </div>

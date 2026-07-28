@@ -35,6 +35,22 @@ class Incident(SQLModel, table=True):
     timeline_json: Optional[str] = Field(default="[]")  # JSON array of timeline events
 
 
+class IncidentPostmortem(SQLModel, table=True):
+    """Versioned postmortem document for an incident (Phase G3)."""
+
+    __tablename__ = "incident_postmortems"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    incident_id: int = Field(index=True)
+    tenant_id: str = Field(default="default", index=True)
+    version: int = Field(default=1, index=True)
+    markdown: str = Field(default="")
+    sections_json: str = Field(default="{}")
+    generated_by: str = Field(default="")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class InfraGeneration(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
