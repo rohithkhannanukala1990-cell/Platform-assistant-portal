@@ -1,4 +1,4 @@
-"""Merge multiple AgentResult payloads."""
+"""Merge multiple AgentResult payloads (Phase G2)."""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ class ResultAggregator:
                 triggered_by="",
                 workspace="",
                 environment="",
+                grounding="none",
+                errors=["no_results"],
             )
         if len(results) == 1:
             return results[0]
@@ -27,14 +29,30 @@ class ResultAggregator:
         status = "pending_approval" if requires else "success"
         if any(r.status == "failed" for r in results):
             status = "failed" if not requires else "pending_approval"
+        if all(r.status == "skipped" for r in results):
+            status = "skipped"
 
         summaries = [f"[{r.agent}] {r.summary}" for r in results]
         details: dict = {}
         logs: list[str] = []
+        evidence: list[dict] = []
+        errors: list[str] = []
+        actions: list[dict] = []
+        groundings = []
         for r in results:
             details[r.agent] = r.details
             if r.execution_log:
                 logs.append(f"--- {r.agent} ---\n{r.execution_log}")
+            evidence.extend(r.evidence or [])
+            errors.extend(r.errors or [])
+            actions.extend(r.recommended_actions or [])
+            groundings.append(r.grounding or "none")
+
+        # live > partial > demo > none
+        order = {"live": 3, "partial": 2, "demo": 1, "none": 0}
+        grounding = max(groundings, key=lambda g: order.get(g, 0)) if groundings else "none"
+        if len(set(groundings)) > 1 and grounding == "live":
+            grounding = "partial"
 
         base = results[0]
         return AgentResult(
@@ -49,6 +67,10 @@ class ResultAggregator:
             triggered_by=base.triggered_by,
             workspace=base.workspace,
             environment=base.environment,
+            evidence=evidence,
+            grounding=grounding,
+            errors=errors,
+            recommended_actions=actions,
         )
 
 

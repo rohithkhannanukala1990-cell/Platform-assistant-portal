@@ -1,173 +1,168 @@
-"""Migration agent — plans and executes infra/DB migrations with HITL approval."""
+"""Migration agent — plans infra/DB migrations with HITL and command policy."""
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 
 from sqlmodel import Session
 
-from ..ai.llm_router import llm_router
-from ..executor.safe_executor import safe_executor
+from ..context import PlatformContext
+from .base import AgentResult, BaseAgent
 
 
-class MigrationAgent:
+class MigrationAgent(BaseAgent):
     name = "migration_agent"
     description = (
         "Plans and executes infrastructure and database "
         "migrations with full HITL approval gate"
     )
-    requires_approval = True
-    requires_approval_envs: list[str] = ["production"]
-    primary_tools: list[str] = ["kubectl", "helm", "terraform", "flyway", "liquibase"]
+    requires_approval_envs = ["production"]
+    primary_tools = ["kubectl", "helm", "terraform", "flyway", "liquibase"]
 
-    async def run(
-        self,
-        service_name: str,
-        migration_type: str,
-        source: str,
-        target: str,
-        dry_run: bool = True,
-        tool_accounts: dict = {},
-        context=None,
-        db: Session = None,
-    ) -> dict:
-        timestamp = datetime.now(timezone.utc).isoformat()
-        workspace = context.workspace_name if context else "default"
-        environment = context.environment if context else "production"
-        user_id = context.user_id if context else "system"
-
-        system_prompt = llm_router.build_system_prompt({
-            "workspace_name": workspace,
-            "environment": environment,
-            "tools": list(tool_accounts.keys()),
-            "tool_statuses_line": "connected",
-            "production_operating": environment == "production",
-        })
-
-        plan_prompt = (
-            f"Create a step-by-step migration plan for service "
-            f"'{service_name}'.\n"
-            f"Migration type: {migration_type}\n"
-            f"Source: {source}\n"
-            f"Target: {target}\n"
-            f"Environment: {environment}\n"
-            f"Tool accounts available: {json.dumps(tool_accounts)}\n\n"
-            f"Return a JSON object with:\n"
-            f"  steps: list of migration steps with commands\n"
-            f"  estimated_downtime: string\n"
-            f"  rollback_steps: list of rollback commands\n"
-            f"  risks: list of risk strings\n"
-            f"  pre_checks: list of checks to run first"
+    async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        service_name = (
+            params.get("service_name")
+            or params.get("service")
+            or "unknown-service"
         )
+        migration_type = params.get("migration_type") or params.get("type") or "generic"
+        source = params.get("source") or ""
+        target = params.get("target") or ""
+        dry_run = params.get("dry_run", True)
+        if isinstance(dry_run, str):
+            dry_run = dry_run.lower() not in ("false", "0", "no")
 
-        plan_raw = await llm_router.chat(
-            messages=[{"role": "user", "content": plan_prompt}],
-            model=None,
-            system_prompt=system_prompt,
-        )
+        evidence: list[dict] = [
+            self._evidence(
+                type="migration_request",
+                title=f"{migration_type}: {source} → {target}",
+                source="params",
+                snippet=json.dumps(
+                    {
+                        "service_name": service_name,
+                        "migration_type": migration_type,
+                        "source": source,
+                        "target": target,
+                        "dry_run": dry_run,
+                        "environment": context.environment,
+                    },
+                    default=str,
+                ),
+            )
+        ]
 
+        # Optional k8s grounding when cluster context is available.
+        k8s = await self._ground_k8s(context, db)
+        grounding = "partial"
+        if k8s is not None:
+            try:
+                pods = await k8s.list_pods(params.get("namespace") or "default")
+                evidence.append(
+                    self._evidence(
+                        type="k8s_snapshot",
+                        title="Cluster pods (pre-migration)",
+                        source="kubernetes",
+                        snippet=f"pod_count={len(pods)}",
+                    )
+                )
+                grounding = "live"
+            except Exception as exc:
+                evidence.append(
+                    self._evidence(
+                        type="error",
+                        title="k8s grounding failed",
+                        source="kubernetes",
+                        snippet=str(exc)[:300],
+                    )
+                )
+
+        plan: dict = {}
         try:
-            plan = json.loads(plan_raw)
-        except Exception:
+            raw = await self._call_llm(
+                (
+                    f"Create a migration plan for service '{service_name}'. "
+                    f"Type={migration_type}. Source={source}. Target={target}. "
+                    "Only use EVIDENCE. Do not invent cluster state. "
+                    "Return JSON with steps (list of {name,command}), "
+                    "estimated_downtime, rollback_steps, risks, pre_checks."
+                ),
+                context,
+                evidence=evidence,
+            )
+            plan = self._parse_llm_json(raw)
+        except Exception as exc:
             plan = {
-                "steps": [plan_raw],
+                "steps": [],
                 "estimated_downtime": "unknown",
                 "rollback_steps": [],
-                "risks": ["Unable to parse structured plan"],
-                "pre_checks": [],
+                "risks": [f"Plan generation failed: {str(exc)[:200]}"],
+                "pre_checks": ["Verify backups before any migration"],
             }
 
-        if dry_run:
-            return {
-                "agent": self.name,
-                "status": "dry_run",
-                "summary": (
-                    f"Migration plan generated for {service_name} "
-                    f"({source} → {target}). "
-                    f"Estimated downtime: "
-                    f"{plan.get('estimated_downtime', 'unknown')}. "
-                    f"Awaiting approval to execute."
-                ),
-                "details": plan,
-                "requires_approval": True,
-                "approval_payload": {
-                    "service_name": service_name,
-                    "migration_type": migration_type,
-                    "source": source,
-                    "target": target,
-                    "plan": plan,
-                    "tool_accounts": tool_accounts,
-                },
-                "execution_log": None,
-                "timestamp": timestamp,
-                "triggered_by": user_id,
-                "workspace": workspace,
-                "environment": environment,
-            }
+        if not isinstance(plan, dict):
+            plan = {"steps": [str(plan)], "risks": [], "rollback_steps": [], "pre_checks": []}
 
-        # Production requires approval — never auto-execute
-        if environment == "production":
-            return {
-                "agent": self.name,
-                "status": "pending_approval",
-                "summary": (
-                    f"Migration plan ready for {service_name}. "
-                    f"Production execution requires admin approval."
-                ),
-                "details": plan,
-                "requires_approval": True,
-                "approval_payload": {
-                    "service_name": service_name,
-                    "migration_type": migration_type,
-                    "source": source,
-                    "target": target,
-                    "plan": plan,
-                    "tool_accounts": tool_accounts,
-                },
-                "execution_log": None,
-                "timestamp": timestamp,
-                "triggered_by": user_id,
-                "workspace": workspace,
-                "environment": environment,
-            }
+        commands: list[str] = []
+        for step in plan.get("steps") or []:
+            if isinstance(step, dict) and step.get("command"):
+                commands.append(str(step["command"]))
+            elif isinstance(step, str) and step.strip().startswith(
+                ("kubectl", "helm", "terraform", "flyway", "liquibase", "psql", "aws")
+            ):
+                commands.append(step.strip())
 
-        # Non-production: execute via safe_executor
-        commands = [
-            s.get("command", s) if isinstance(s, dict) else s
-            for s in plan.get("steps", [])
-            if isinstance(s, (dict, str))
-        ]
-        result = await safe_executor.execute(
-            commands=commands,
-            incident_id=0,
-            approved_by=user_id,
-            context={
-                "role": "User",
-                "environment": environment,
-                "tool": "shell",
-                "tenant_id": None,
-                "approved": False,
-                "approved_by": user_id,
+        recommended = [
+            {
+                "title": "Take a backup / snapshot before migration",
+                "risk": "high",
+                "requires_approval": False,
             },
-        )
+            {
+                "title": "Review rollback steps",
+                "risk": "medium",
+                "requires_approval": False,
+            },
+        ]
 
-        return {
-            "agent": self.name,
-            "status": "success" if result.get("success") else "failed",
-            "summary": (
-                f"Migration executed for {service_name} "
-                f"({source} → {target}) in {environment}."
-            ),
-            "details": {**plan, "execution_result": result},
-            "requires_approval": False,
-            "approval_payload": None,
-            "execution_log": result.get("log"),
-            "timestamp": timestamp,
-            "triggered_by": user_id,
-            "workspace": workspace,
-            "environment": environment,
+        details = {
+            **plan,
+            "service_name": service_name,
+            "migration_type": migration_type,
+            "source": source,
+            "target": target,
+            "dry_run": dry_run,
         }
+
+        # Dry-run or production: never execute — finalize with policy / HITL.
+        if dry_run or self._should_require_approval(context) or context.is_production():
+            return self._finalize_with_policy(
+                context,
+                summary=(
+                    f"Migration plan for {service_name} ({source} → {target}). "
+                    f"Estimated downtime: {plan.get('estimated_downtime', 'unknown')}. "
+                    "Backup reminder: snapshot before execute."
+                ),
+                details=details,
+                commands=commands,
+                evidence=evidence,
+                grounding=grounding,
+                confidence=0.65 if grounding == "live" else 0.45,
+                task=f"migrate {service_name}",
+                recommended_actions=recommended,
+            )
+
+        # Non-prod + dry_run=False: still must pass command policy; never bypass.
+        return self._finalize_with_policy(
+            context,
+            summary=f"Migration ready for {service_name} ({source} → {target})",
+            details=details,
+            commands=commands,
+            evidence=evidence,
+            grounding=grounding,
+            confidence=0.6,
+            task=f"migrate {service_name}",
+            recommended_actions=recommended,
+        )
 
 
 migration_agent = MigrationAgent()

@@ -1,4 +1,4 @@
-# Platform phases (0–17 + L1–L2 + M1–M2 + G1)
+# Platform phases (0–17 + L1–L2 + M1–M2 + G1–G2)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -144,3 +144,11 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Incident + agent-run approval endpoints pass `approved=True` (HITL); ws terminal refuses approval-gated commands
 - [x] `/api/policies/commands` CRUD (admin) + `/evaluate` (any user); Settings → Command policy panel
 - [x] `docs/COMMAND_POLICY.md`
+
+## Phase G2 — Agent platform v2 (grounding + evidence + guardrails)
+- [x] `AgentResult` extended: evidence, confidence, grounding, policy, errors, recommended_actions
+- [x] BaseAgent helpers: `_no_data_result`, `_evidence`, `_ground_github/_k8s/_pd`, `_apply_command_policy`, `_finalize_with_policy`, `GROUNDING_RULES`
+- [x] All 17 agents upgraded — missing tools → no_data; live data → evidence; no invented connector facts
+- [x] Orchestrator: require user_id, persist evidence/grounding, command cap 25, secret redaction, audit started/completed/denied_policy
+- [x] UI: grounding badge, evidence list, policy summary, Tool Registry link on none
+- [x] `docs/AGENTS.md` catalog + HITL matrix

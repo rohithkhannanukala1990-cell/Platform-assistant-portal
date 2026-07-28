@@ -26,9 +26,25 @@ const AGENT_NAMES = [
   'scorecard_agent',
   'dependency_drift_agent',
   'alert_noise_agent',
+  'migration_agent',
 ]
 
-const TERMINAL_STATUSES = new Set(['success', 'failed', 'pending_approval'])
+const TERMINAL_STATUSES = new Set(['success', 'failed', 'pending_approval', 'skipped', 'dry_run'])
+
+function GroundingBadge({ grounding }) {
+  const g = (grounding || 'none').toLowerCase()
+  const styles = {
+    live: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    partial: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    demo: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    none: 'bg-neutral-700/40 text-neutral-400 border-neutral-600',
+  }
+  return (
+    <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold border ${styles[g] || styles.none}`}>
+      grounding: {g}
+    </span>
+  )
+}
 
 function buildAgentRunWsUrl(runId, token) {
   const qs = `token=${encodeURIComponent(token || '')}`
@@ -59,6 +75,9 @@ function parseMultiAgentCards(result, selectedAgents) {
         run_id: sub.run_id,
         status: sub.status,
         summary: sub.summary,
+        grounding: sub.grounding,
+        evidence: sub.evidence,
+        policy: sub.policy,
         startedAt: Date.now(),
       })
     }
@@ -77,6 +96,7 @@ function parseMultiAgentCards(result, selectedAgents) {
         summary = part.replace(`[${name}]`, '').trim()
         if (result.status === 'failed') status = 'failed'
         else if (result.status === 'pending_approval') status = 'pending_approval'
+        else if (result.status === 'skipped') status = 'skipped'
         else status = 'success'
       }
       cards.push({
@@ -84,6 +104,9 @@ function parseMultiAgentCards(result, selectedAgents) {
         run_id: result.run_id,
         status,
         summary,
+        grounding: result.grounding,
+        evidence: result.evidence,
+        policy: result.policy,
         startedAt: Date.now(),
       })
     }
@@ -95,6 +118,9 @@ function parseMultiAgentCards(result, selectedAgents) {
     run_id: result.run_id,
     status: result.status,
     summary: result.summary,
+    grounding: result.grounding,
+    evidence: result.evidence,
+    policy: result.policy,
     startedAt: Date.now(),
   }]
 }
@@ -124,6 +150,9 @@ function ElapsedTimer({ running, startedAt }) {
 function AgentRunCard({ card, onApprove, onReject, busy }) {
   const running = card.status === 'running'
   const pending = card.status === 'pending_approval'
+  const noData = card.status === 'skipped' || card.grounding === 'none'
+  const [showEvidence, setShowEvidence] = useState(false)
+  const evidence = Array.isArray(card.evidence) ? card.evidence : []
 
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 flex flex-col gap-2">
@@ -144,8 +173,50 @@ function AgentRunCard({ card, onApprove, onReject, busy }) {
         <ElapsedTimer running={running} startedAt={card.startedAt} />
       </div>
 
+      <div className="flex flex-wrap gap-1.5">
+        <GroundingBadge grounding={card.grounding} />
+        {card.policy?.effect && (
+          <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-neutral-800 text-neutral-300 border-neutral-600">
+            policy: {card.policy.effect}
+          </span>
+        )}
+      </div>
+
       {card.summary && (
         <p className="text-xs text-neutral-400 leading-relaxed">{card.summary}</p>
+      )}
+
+      {noData && !running && (
+        <p className="text-[11px] text-amber-300/90">
+          No live connector data.{' '}
+          <a href="/tools" className="underline hover:text-amber-200">Open Tool Registry</a>
+        </p>
+      )}
+
+      {evidence.length > 0 && (
+        <div className="rounded-lg border border-neutral-800 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowEvidence((v) => !v)}
+            className="w-full px-3 py-1.5 text-left text-[11px] font-semibold text-neutral-300 bg-neutral-950 hover:bg-neutral-900"
+          >
+            Evidence ({evidence.length}) {showEvidence ? '▾' : '▸'}
+          </button>
+          {showEvidence && (
+            <ul className="px-3 py-2 space-y-1.5 max-h-40 overflow-y-auto">
+              {evidence.map((ev, i) => (
+                <li key={i} className="text-[11px] text-neutral-400">
+                  <span className="text-neutral-200 font-medium">{ev.title || ev.type}</span>
+                  {ev.source ? <span className="text-neutral-500"> · {ev.source}</span> : null}
+                  {ev.url ? (
+                    <a href={ev.url} target="_blank" rel="noreferrer" className="ml-1 text-indigo-400 underline">link</a>
+                  ) : null}
+                  {ev.snippet ? <p className="text-neutral-500 truncate">{ev.snippet}</p> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {pending && (

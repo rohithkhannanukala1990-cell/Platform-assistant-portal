@@ -1,6 +1,9 @@
-"""Security scanning agent — AWS Security Hub findings."""
+"""Security scanning agent — grounded findings only (never invent clean)."""
 
 from __future__ import annotations
+
+import json
+import os
 
 from sqlmodel import Session
 
@@ -29,6 +32,16 @@ def is_security_source(source: str) -> bool:
     )
 
 
+def _aws_configured(context: PlatformContext) -> bool:
+    if context.tool_accounts.get("aws"):
+        return True
+    return bool(
+        (os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
+        or (os.getenv("AWS_PROFILE") or "").strip()
+        or (os.getenv("AWS_ROLE_ARN") or "").strip()
+    )
+
+
 class SecurityAgent(BaseAgent):
     name = "security_agent"
     description = "Security scans: Snyk, SonarQube, Wiz, Checkov, GuardDuty."
@@ -37,52 +50,100 @@ class SecurityAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
-        findings: list = []
-        try:
-            findings = await AWSConnector(_ACCOUNT).list_security_findings()
-        except Exception:
-            findings = []
+        # Prefer explicit findings payload when provided (already grounded).
+        injected = params.get("findings")
+        if isinstance(injected, list) and injected:
+            findings = injected
+            source = "params"
+        else:
+            if not _aws_configured(context):
+                return self._no_data_result(
+                    context,
+                    "No security findings source available. Connect AWS Security Hub "
+                    "or pass findings in params.",
+                    missing_tools=["GuardDuty", "AWS"],
+                )
+            try:
+                findings = await AWSConnector(_ACCOUNT).list_security_findings()
+                source = "aws_security_hub"
+            except Exception as exc:
+                return self._no_data_result(
+                    context,
+                    f"Security findings source failed: {str(exc)[:200]}",
+                    missing_tools=["GuardDuty", "AWS"],
+                )
 
-        critical = [f for f in findings if (f.get("severity") or "").upper() == "CRITICAL"]
-        high = [f for f in findings if (f.get("severity") or "").upper() == "HIGH"]
+            # Connector swallows errors as [] — without a successful signal treat as no source.
+            if not findings and params.get("accept_empty") is not True:
+                return self._no_data_result(
+                    context,
+                    "No security findings source returned data (not reporting clean). "
+                    "Connect Security Hub / GuardDuty or pass findings.",
+                    missing_tools=["GuardDuty", "AWS"],
+                )
+
+        evidence: list[dict] = []
+        severity_counts: dict[str, int] = {}
+        for f in findings:
+            sev = str(f.get("severity") or f.get("Severity") or "UNKNOWN").upper()
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+            evidence.append(
+                self._evidence(
+                    type="security_finding",
+                    title=str(f.get("title") or f.get("Title") or "finding")[:200],
+                    source=source,
+                    snippet=json.dumps(
+                        {
+                            "severity": sev,
+                            "resource": f.get("resource") or f.get("Resource"),
+                            "description": (f.get("description") or "")[:400],
+                        },
+                        default=str,
+                    )[:1200],
+                    severity=sev,
+                )
+            )
+
+        critical = [f for f in findings if str(f.get("severity") or "").upper() == "CRITICAL"]
+        high = [f for f in findings if str(f.get("severity") or "").upper() == "HIGH"]
         critical_count = len(critical)
         high_count = len(high)
 
-        requires = critical_count > 0
-        summary = (
-            f"{critical_count} critical and {high_count} high security findings"
-            if findings
-            else "No critical/high security findings"
-        )
+        summary = f"{critical_count} critical and {high_count} high security findings"
+        details = {
+            "findings": findings[:50],
+            "critical_count": critical_count,
+            "high_count": high_count,
+            "severity_counts": severity_counts,
+            "source": source,
+        }
 
-        if requires:
-            return self._build_result(
+        if critical_count > 0:
+            return self._result(
                 context,
                 status="pending_approval",
                 summary=summary,
-                details={
-                    "findings": findings[:50],
-                    "critical_count": critical_count,
-                    "high_count": high_count,
-                },
+                details=details,
                 requires_approval=True,
                 approval_payload={
                     "action": "remediate_security_findings",
                     "critical_count": critical_count,
                     "finding_ids": [f.get("title") for f in critical[:10]],
                 },
+                evidence=evidence,
+                grounding="live",
+                confidence=0.85,
                 execution_log="Critical findings require approval before remediation",
             )
 
-        return self._build_result(
+        return self._result(
             context,
             status="success",
             summary=summary,
-            details={
-                "findings": findings[:50],
-                "critical_count": critical_count,
-                "high_count": high_count,
-            },
+            details=details,
+            evidence=evidence,
+            grounding="live",
+            confidence=0.85 if findings else 0.7,
             execution_log="Read-only security analysis — no remediation executed",
         )
 

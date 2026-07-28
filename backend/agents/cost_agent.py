@@ -1,16 +1,27 @@
-"""Cost agent — AWS Cost Explorer breakdown."""
+"""Cost agent — AWS Cost Explorer breakdown (no fantasy $0.00)."""
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timezone
 
 from sqlmodel import Session
 
 from ..connectors.aws_connector import AWSConnector
 from ..context import PlatformContext
-from .base import BaseAgent
+from .base import AgentResult, BaseAgent
 
 _ACCOUNT: dict = {}
+
+
+def _aws_configured(context: PlatformContext) -> bool:
+    if context.tool_accounts.get("aws"):
+        return True
+    return bool(
+        (os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
+        or (os.getenv("AWS_PROFILE") or "").strip()
+        or (os.getenv("AWS_ROLE_ARN") or "").strip()
+    )
 
 
 class CostAgent(BaseAgent):
@@ -20,23 +31,51 @@ class CostAgent(BaseAgent):
     primary_tools = ["AWS", "GCP", "Azure"]
     read_only = True
 
-    async def run(self, params: dict, context: PlatformContext, db: Session):
+    async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
         today = date.today()
         start = params.get("start") or today.replace(day=1).isoformat()
         end = params.get("end") or today.isoformat()
 
-        services: list = []
+        if not _aws_configured(context):
+            return self._no_data_result(
+                context,
+                "AWS not connected. Connect AWS Cost Explorer credentials before cost analysis.",
+                missing_tools=["AWS"],
+            )
+
         try:
             services = await AWSConnector(_ACCOUNT).get_cost_explorer(start, end)
-        except Exception:
-            services = []
+        except Exception as exc:
+            return self._no_data_result(
+                context,
+                f"AWS Cost Explorer failed: {str(exc)[:200]}. Connect AWS and retry.",
+                missing_tools=["AWS"],
+            )
 
+        # Connector returns [] on auth/API failure — do not report $0.00 success.
+        if not services:
+            return self._no_data_result(
+                context,
+                "AWS Cost Explorer returned no data. Connect AWS / verify Cost Explorer access.",
+                missing_tools=["AWS"],
+                details={"period": {"start": start, "end": end}},
+            )
+
+        evidence = []
         amounts = []
         for row in services:
             try:
                 amounts.append(float(row.get("amount") or 0))
             except (TypeError, ValueError):
                 pass
+            evidence.append(
+                self._evidence(
+                    type="cost_row",
+                    title=str(row.get("service") or "service"),
+                    source="aws_cost_explorer",
+                    snippet=f"amount={row.get('amount')} {row.get('unit') or 'USD'}",
+                )
+            )
 
         total_usd = round(sum(amounts), 2)
         sorted_svcs = sorted(services, key=lambda r: float(r.get("amount") or 0), reverse=True)
@@ -56,7 +95,7 @@ class CostAgent(BaseAgent):
             elif second_half < first_half * 0.9:
                 trend = "decreasing"
 
-        return self._build_result(
+        return self._result(
             context,
             status="success",
             summary=f"Cloud spend ${total_usd:,.2f} ({start} → {end})",
@@ -69,6 +108,9 @@ class CostAgent(BaseAgent):
                 "daily_avg": daily_avg,
                 "trend": trend,
             },
+            evidence=evidence[:50],
+            grounding="live",
+            confidence=0.85,
             execution_log=f"Cost analysis at {datetime.now(timezone.utc).isoformat()}",
         )
 

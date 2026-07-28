@@ -1,14 +1,14 @@
-"""Incident agent — PagerDuty incident lifecycle."""
+"""Incident agent — PagerDuty incident lifecycle (grounded)."""
 
 from __future__ import annotations
 
+import json
 import re
 
 from sqlmodel import Session
 
 from ..context import PlatformContext
-from ..services.pagerduty_access import try_pagerduty_connector_from_context
-from .base import BaseAgent
+from .base import AgentResult, BaseAgent
 
 
 def _detect_action(task: str, params: dict) -> str:
@@ -24,36 +24,67 @@ def _detect_action(task: str, params: dict) -> str:
     return params.get("action") or "list_open"
 
 
+def _extract_incident_id(text: str) -> str | None:
+    m = re.search(r"(?:incident[_\s-]*)?([A-Z0-9]{7,})", text, re.I)
+    return m.group(1) if m else None
+
+
 class IncidentAgent(BaseAgent):
     name = "incident_agent"
     description = "Incident triage, paging, and remediation coordination."
     requires_approval_envs = ["production"]
     primary_tools = ["PagerDuty", "OpsGenie", "Kubernetes"]
 
-    async def run(self, params: dict, context: PlatformContext, db: Session):
+    async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
         task = str(params.get("task") or params.get("message") or "")
         action = _detect_action(task, params)
-        pd = try_pagerduty_connector_from_context(context, db=db)
+        pd = await self._ground_pd(context, db)
         if pd is None:
-            return self._build_result(
+            return self._no_data_result(
                 context,
-                status="skipped",
-                summary="PagerDuty not connected. Connect a PagerDuty account in Tool Registry.",
-                details={
-                    "incidents": [],
-                    "action_taken": action,
-                    "count": 0,
-                    "reason": "pagerduty_not_configured",
-                },
+                "PagerDuty not connected. Connect a PagerDuty account in Tool Registry.",
+                missing_tools=["PagerDuty"],
+                details={"action_taken": action, "incidents": [], "count": 0},
             )
 
         incidents: list = []
         action_taken = action
+        evidence: list[dict] = []
+        write_actions = {"create", "acknowledge", "resolve"}
 
         try:
             if action == "list_open":
                 incidents = await pd.list_incidents(status="triggered", limit=20)
             elif action == "create":
+                if self._should_require_approval(context):
+                    title = params.get("title") or task[:120] or "Platform incident"
+                    return self._result(
+                        context,
+                        status="pending_approval",
+                        summary=f"Production create incident requires approval: {title}",
+                        details={
+                            "incidents": [],
+                            "action_taken": "create",
+                            "count": 0,
+                        },
+                        requires_approval=True,
+                        approval_payload={
+                            "action": "create",
+                            "title": title,
+                            "service_id": params.get("service_id") or "",
+                            "urgency": params.get("urgency", "high"),
+                        },
+                        grounding="partial",
+                        confidence=0.5,
+                        evidence=[
+                            self._evidence(
+                                type="plan",
+                                title="Create PagerDuty incident (pending approval)",
+                                source="pagerduty",
+                                snippet=title,
+                            )
+                        ],
+                    )
                 result = await pd.create_incident(
                     title=params.get("title") or task[:120] or "Platform incident",
                     service_id=params.get("service_id") or "",
@@ -65,7 +96,7 @@ class IncidentAgent(BaseAgent):
             elif action in ("acknowledge", "resolve"):
                 incident_id = params.get("incident_id") or _extract_incident_id(task)
                 if context.is_production() and incident_id:
-                    return self._build_result(
+                    return self._result(
                         context,
                         status="pending_approval",
                         summary=f"Production {action} for incident {incident_id} requires approval",
@@ -79,6 +110,16 @@ class IncidentAgent(BaseAgent):
                             "action": action,
                             "incident_id": incident_id,
                         },
+                        grounding="partial",
+                        confidence=0.7,
+                        evidence=[
+                            self._evidence(
+                                type="incident",
+                                title=f"Incident {incident_id}",
+                                source="pagerduty",
+                                snippet=f"Pending {action} in production",
+                            )
+                        ],
                     )
                 if incident_id:
                     if action == "acknowledge":
@@ -91,10 +132,49 @@ class IncidentAgent(BaseAgent):
                     incidents = await pd.list_incidents(status="triggered", limit=5)
             else:
                 incidents = await pd.list_incidents(status="triggered", limit=20)
-        except Exception:
-            incidents = []
+        except Exception as exc:
+            return self._result(
+                context,
+                status="failed",
+                summary=f"PagerDuty {action} failed",
+                details={
+                    "incidents": [],
+                    "action_taken": action,
+                    "count": 0,
+                    "error": str(exc)[:300],
+                },
+                grounding="none",
+                confidence=0.0,
+                errors=[str(exc)[:300]],
+            )
 
-        return self._build_result(
+        for inc in incidents:
+            iid = inc.get("id") or inc.get("incident_id") or ""
+            evidence.append(
+                self._evidence(
+                    type="incident",
+                    title=str(inc.get("title") or f"Incident {iid}"),
+                    source="pagerduty",
+                    url=inc.get("html_url"),
+                    snippet=json.dumps(
+                        {
+                            "id": iid,
+                            "status": inc.get("status"),
+                            "urgency": inc.get("urgency"),
+                            "service": (inc.get("service") or {}).get("summary")
+                            if isinstance(inc.get("service"), dict)
+                            else inc.get("service"),
+                        },
+                        default=str,
+                    )[:1000],
+                )
+            )
+
+        if action in write_actions and self._should_require_approval(context):
+            # Defensive: write paths should already have returned pending_approval above.
+            pass
+
+        return self._result(
             context,
             status="success",
             summary=f"Incident {action_taken}: {len(incidents)} record(s)",
@@ -103,12 +183,10 @@ class IncidentAgent(BaseAgent):
                 "action_taken": action_taken,
                 "count": len(incidents),
             },
+            evidence=evidence,
+            grounding="live",
+            confidence=0.85 if incidents else 0.7,
         )
-
-
-def _extract_incident_id(text: str) -> str | None:
-    m = re.search(r"(?:incident[_\s-]*)?([A-Z0-9]{7,})", text, re.I)
-    return m.group(1) if m else None
 
 
 incident_agent = IncidentAgent()

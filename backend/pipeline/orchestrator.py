@@ -1,4 +1,4 @@
-"""Orchestrates intent classification, agent execution, validation, and HITL."""
+"""Orchestrates intent classification, agent execution, validation, and HITL (Phase G2)."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from typing import Optional
 from sqlmodel import Session
 
 from ..agents import get_agent
-from ..agents.base import AgentResult
+from ..agents.base import MAX_COMMANDS_PER_RESULT, AgentResult
 from ..auth import write_audit
 from ..command_validator import CommandValidator
-from ..context import PlatformContext
+from ..context import DEFAULT_TENANT_ID, PlatformContext
 from ..database import AgentRun, Notification, engine
 from ..executor.safe_executor import safe_executor
 from ..rbac_core import check_user_permission
@@ -35,6 +35,42 @@ def _normalize_role(role: str) -> str:
     return "User"
 
 
+def _ensure_context(context: PlatformContext) -> PlatformContext:
+    """Require identity fields; fill safe defaults for tenant/environment."""
+    if not (context.user_id or "").strip():
+        raise ValueError("user_id is required on PlatformContext for agent runs")
+    if not (context.tenant_id or "").strip():
+        context.tenant_id = DEFAULT_TENANT_ID
+    if not (context.environment or "").strip():
+        context.environment = "development"
+    return context
+
+
+def _redact_payload(value):
+    try:
+        from ..services.audit_compliance import redact_secrets
+
+        return redact_secrets(value)
+    except Exception:
+        return value
+
+
+def _details_for_persist(result: AgentResult) -> dict:
+    """Merge evidence/grounding/policy into details for AgentRun storage."""
+    details = dict(result.details or {})
+    details["evidence"] = list(result.evidence or [])
+    details["grounding"] = result.grounding or "none"
+    details["confidence"] = result.confidence
+    details["errors"] = list(result.errors or [])
+    details["recommended_actions"] = list(result.recommended_actions or [])
+    if result.policy:
+        details["policy"] = result.policy
+    # Cap commands
+    if isinstance(details.get("commands"), list):
+        details["commands"] = [str(c) for c in details["commands"]][:MAX_COMMANDS_PER_RESULT]
+    return _redact_payload(details)
+
+
 def _user_can_run_agent(session: Session, context: PlatformContext, agent_name: str) -> bool:
     role = _normalize_role(context.user_role)
     if role == "Admin":
@@ -51,8 +87,7 @@ def _user_can_run_agent(session: Session, context: PlatformContext, agent_name: 
 
 
 def _start_run(task: str, agent_name: str, context: PlatformContext) -> str:
-    if not (context.user_id or "").strip():
-        raise ValueError("user_id is required on PlatformContext for agent runs")
+    _ensure_context(context)
     with Session(engine) as session:
         row = AgentRun(
             agent=agent_name,
@@ -82,10 +117,16 @@ def _complete_run(run_id: str, result: AgentResult) -> None:
         row.agent = result.agent
         row.status = result.status
         row.summary = result.summary
-        row.details_json = json.dumps(result.details)
+        row.details_json = json.dumps(_details_for_persist(result), default=str)
         row.requires_approval = result.requires_approval
-        row.approval_payload_json = json.dumps(result.approval_payload or {})
-        row.execution_log = result.execution_log
+        payload = _redact_payload(result.approval_payload or {})
+        row.approval_payload_json = json.dumps(payload, default=str)
+        try:
+            from ..services.audit_compliance import redact_secret_text
+
+            row.execution_log = redact_secret_text(result.execution_log or "") or None
+        except Exception:
+            row.execution_log = result.execution_log
         row.updated_at = datetime.now(timezone.utc)
         session.add(row)
         session.commit()
@@ -100,9 +141,11 @@ def _persist_run(task: str, result: AgentResult, context: PlatformContext | None
             agent=result.agent,
             status=result.status,
             summary=result.summary,
-            details_json=json.dumps(result.details),
+            details_json=json.dumps(_details_for_persist(result), default=str),
             requires_approval=result.requires_approval,
-            approval_payload_json=json.dumps(result.approval_payload or {}),
+            approval_payload_json=json.dumps(
+                _redact_payload(result.approval_payload or {}), default=str
+            ),
             execution_log=result.execution_log,
             triggered_by=result.triggered_by or user_id,
             user_id=user_id,
@@ -138,6 +181,14 @@ def _validate_commands_in_result(
     if isinstance(payload.get("commands"), list):
         commands.extend(str(c) for c in payload["commands"])
 
+    # Cap
+    if len(commands) > MAX_COMMANDS_PER_RESULT:
+        commands = commands[:MAX_COMMANDS_PER_RESULT]
+        details = dict(result.details or {})
+        details["commands"] = commands
+        details["commands_truncated"] = True
+        result = AgentResult(**{**result.model_dump(), "details": details})
+
     if not commands:
         return result
 
@@ -150,13 +201,18 @@ def _validate_commands_in_result(
     )
     decision = check.decision
     reasons = list(decision.reasons) if decision else list(check.violations)
+    policy = decision.to_dict() if decision and hasattr(decision, "to_dict") else {
+        "effect": check.effect,
+        "reasons": reasons,
+        "matched_rule_ids": [],
+        "safe_for_auto": check.safe and not check.requires_approval,
+    }
 
     if not check.safe:
-        # Policy deny: fail the run — no pending_approval carrying bad commands.
         write_audit(
             (context.user_id if context else "system") or "system",
             (context.user_role if context else "User") or "User",
-            "command_policy_denied",
+            "agent_run_denied_policy",
             resource=result.agent,
             detail="; ".join(reasons)[:500],
         )
@@ -174,6 +230,8 @@ def _validate_commands_in_result(
                 "requires_approval": False,
                 "approval_payload": {},
                 "execution_log": str(check.violations),
+                "policy": policy,
+                "errors": reasons,
             }
         )
 
@@ -188,6 +246,7 @@ def _validate_commands_in_result(
         return AgentResult(
             **{
                 **result.model_dump(),
+                "status": "pending_approval" if result.status == "success" else result.status,
                 "requires_approval": True,
                 "approval_payload": {
                     **(result.approval_payload or {}),
@@ -196,12 +255,16 @@ def _validate_commands_in_result(
                 },
                 "details": {
                     **result.details,
+                    "commands": commands,
                     "policy_effect": "require_approval",
                     "policy_reasons": reasons,
                 },
+                "policy": policy,
             }
         )
 
+    if policy and not result.policy:
+        return AgentResult(**{**result.model_dump(), "policy": policy})
     return result
 
 
@@ -212,9 +275,11 @@ def _timeout_result(agent_name: str, context: PlatformContext) -> AgentResult:
         summary="Agent timed out after 30s",
         details={"timeout_seconds": AGENT_TIMEOUT_S},
         timestamp=datetime.now(timezone.utc).isoformat(),
-        triggered_by=context.user_id,
-        workspace=context.workspace_id,
-        environment=context.environment,
+        triggered_by=context.user_id or "",
+        workspace=context.workspace_id or "",
+        environment=context.environment or "development",
+        grounding="none",
+        errors=["timeout"],
     )
 
 
@@ -225,9 +290,11 @@ def _error_result(agent_name: str, context: PlatformContext, exc: Exception) -> 
         summary=f"Agent {agent_name} failed: {exc}",
         details={"error": str(exc)},
         timestamp=datetime.now(timezone.utc).isoformat(),
-        triggered_by=context.user_id,
-        workspace=context.workspace_id,
-        environment=context.environment,
+        triggered_by=context.user_id or "",
+        workspace=context.workspace_id or "",
+        environment=context.environment or "development",
+        grounding="none",
+        errors=[str(exc)],
     )
 
 
@@ -240,6 +307,37 @@ class OrchestratorAgent:
         override_agents: Optional[list[str]] = None,
         agent_params: Optional[dict] = None,
     ) -> AgentResult:
+        try:
+            _ensure_context(context)
+        except ValueError as exc:
+            write_audit(
+                "system",
+                context.user_role or "User",
+                "agent_run_denied_policy",
+                resource="orchestrator",
+                detail=str(exc),
+            )
+            return AgentResult(
+                agent="orchestrator",
+                status="failed",
+                summary=str(exc),
+                details={"error": str(exc)},
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                triggered_by="",
+                workspace=context.workspace_id or "",
+                environment=context.environment or "development",
+                grounding="none",
+                errors=[str(exc)],
+            )
+
+        write_audit(
+            context.user_id,
+            context.user_role,
+            "agent_run_started",
+            resource="orchestrator",
+            detail=task[:500],
+        )
+
         classified = await intent_classifier.classify(task, context)
         agent_names = override_agents or classified.suggested_agents
 
@@ -258,9 +356,11 @@ class OrchestratorAgent:
                 summary="Permission denied for suggested agents",
                 details={"suggested": agent_names, "intent": classified.intent},
                 timestamp=datetime.now(timezone.utc).isoformat(),
-                triggered_by=context.user_id,
-                workspace=context.workspace_id,
-                environment=context.environment,
+                triggered_by=context.user_id or "",
+                workspace=context.workspace_id or "",
+                environment=context.environment or "development",
+                grounding="none",
+                errors=["permission_denied"],
             )
 
         params = {"task": task, **classified.model_dump()}
@@ -329,11 +429,18 @@ class OrchestratorAgent:
                 resource=final.agent,
                 detail=task[:500],
             )
+            write_audit(
+                context.user_id,
+                context.user_role,
+                "agent_run_completed",
+                resource=final.agent,
+                detail=f"{task[:200]} → pending_approval",
+            )
             return final
 
         commands: list[str] = []
         if isinstance(final.details.get("commands"), list):
-            commands = [str(c) for c in final.details["commands"]]
+            commands = [str(c) for c in final.details["commands"]][:MAX_COMMANDS_PER_RESULT]
 
         if commands and final.status == "success":
             exec_out = await safe_executor.execute(
@@ -345,22 +452,30 @@ class OrchestratorAgent:
                     "environment": context.environment,
                     "tool": context.active_tool or "shell",
                     "tenant_id": context.tenant_id,
-                    "approved": False,  # auto path — approval-required commands must refuse
+                    "approved": False,
                 },
             )
             final.execution_log = exec_out.get("logs")
             if not exec_out.get("success"):
                 final.status = "failed"
                 final.details = {**final.details, "execution": exec_out}
+                if exec_out.get("policy_effect") == "deny":
+                    write_audit(
+                        context.user_id,
+                        context.user_role,
+                        "agent_run_denied_policy",
+                        resource=final.agent,
+                        detail=str(exec_out.get("policy_reasons") or "")[:500],
+                    )
             if final.run_id:
                 _complete_run(final.run_id, final)
 
         write_audit(
             context.user_id,
             context.user_role,
-            "agent_run",
+            "agent_run_completed",
             resource=final.agent,
-            detail=f"{task[:200]} → {final.status}",
+            detail=f"{task[:200]} → {final.status} grounding={final.grounding}",
         )
         _notify(db, f"Agent run completed: {final.agent} — {final.status}", "info")
 

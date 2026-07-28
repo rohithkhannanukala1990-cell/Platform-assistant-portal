@@ -1,4 +1,4 @@
-"""Catalog health agent — entity metadata completeness."""
+"""Catalog health agent — entity metadata completeness from DB (grounded)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from ..context import PlatformContext
 from ..routers.catalog import CatalogEntity
-from .base import BaseAgent
+from .base import AgentResult, BaseAgent
 
 
 def _score_entity(entity: CatalogEntity) -> tuple[int, dict]:
@@ -39,14 +39,22 @@ class CatalogHealthAgent(BaseAgent):
     primary_tools = ["Catalog DB"]
     read_only = True
 
-    async def run(self, params: dict, context: PlatformContext, db: Session):
-        entities: list = []
+    async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        evidence: list[dict] = []
         try:
             entities = list(
                 db.exec(select(CatalogEntity).where(CatalogEntity.is_active == 1)).all()
             )
-        except Exception:
-            entities = []
+        except Exception as exc:
+            return self._result(
+                context,
+                status="failed",
+                summary="Catalog DB query failed",
+                details={"error": str(exc)[:300]},
+                grounding="none",
+                confidence=0.0,
+                errors=[str(exc)[:300]],
+            )
 
         scored = []
         missing_owners = []
@@ -63,6 +71,14 @@ class CatalogHealthAgent(BaseAgent):
                 **checks,
             }
             scored.append(row)
+            evidence.append(
+                self._evidence(
+                    type="catalog_entity",
+                    title=ent.name,
+                    source="catalog_db",
+                    snippet=json.dumps(row, default=str)[:1000],
+                )
+            )
             if not checks["has_owner"]:
                 missing_owners.append(ent.name)
             if not checks["has_docs"]:
@@ -72,7 +88,17 @@ class CatalogHealthAgent(BaseAgent):
         incomplete = len(scored) - complete
         avg_score = round(total_score / len(scored), 1) if scored else 0.0
 
-        return self._build_result(
+        if not evidence:
+            evidence.append(
+                self._evidence(
+                    type="db_query",
+                    title="Catalog query succeeded (empty)",
+                    source="catalog_db",
+                    snippet="No active catalog entities",
+                )
+            )
+
+        return self._result(
             context,
             status="success",
             summary=f"Catalog health: {avg_score}% avg completeness ({len(scored)} entities)",
@@ -84,7 +110,11 @@ class CatalogHealthAgent(BaseAgent):
                 "missing_owners": missing_owners[:20],
                 "missing_docs": missing_docs[:20],
                 "entities": scored[:50],
+                "empty": len(scored) == 0,
             },
+            evidence=evidence[:80],
+            grounding="live",
+            confidence=0.9,
         )
 
 

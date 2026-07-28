@@ -122,6 +122,10 @@ See [`SCALING.md`](./SCALING.md): multi-replica API + shared Redis for lockout/r
 
 See [`COMMAND_POLICY.md`](./COMMAND_POLICY.md). Execution guardrails are a structured policy engine (v1), not regex-only: a baseline regex blocklist runs first (unconditional deny), then DB-backed `CommandPolicyRule` rows decide allow / deny / require_approval per role, environment, tool, and tenant. SafeExecutor re-evaluates per step; denies and approval requirements are audited.
 
+## Agents (Phase G2)
+
+See [`AGENTS.md`](./AGENTS.md). Every specialist returns structured `evidence` + `grounding` (`live`/`partial`/`none`/`demo`), never invents connector data, and routes mutating commands through the G1 policy engine + HITL.
+
 ## Run docker-compose locally
 
 ```bash

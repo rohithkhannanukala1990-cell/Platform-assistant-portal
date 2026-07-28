@@ -82,6 +82,13 @@ function StatusBadge({ status }) {
       </span>
     )
   }
+  if (s === 'skipped') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-neutral-700/50 text-neutral-300 border border-neutral-600">
+        skipped
+      </span>
+    )
+  }
   if (s === 'pending_approval') {
     return (
       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-pulse">
@@ -175,6 +182,17 @@ function RunDetailDrawer({ run, onClose, mode }) {
         <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
           <div className="flex flex-wrap gap-2 items-center">
             <StatusBadge status={run.status} />
+            {!isAi && (
+              <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                (run.details?.grounding || 'none') === 'live'
+                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                  : (run.details?.grounding || 'none') === 'partial'
+                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                    : 'bg-neutral-700/40 text-neutral-400 border-neutral-600'
+              }`}>
+                grounding: {run.details?.grounding || 'none'}
+              </span>
+            )}
             <span className="text-[11px] text-neutral-500">
               {isAi
                 ? (run.environment || run.conversation_context?.environment || '—')
@@ -186,6 +204,20 @@ function RunDetailDrawer({ run, onClose, mode }) {
               </span>
             )}
           </div>
+
+          {!isAi && run.details?.grounding === 'none' && (
+            <p className="text-[11px] text-amber-300/90">
+              No live connector data.{' '}
+              <a href="/tools" className="underline hover:text-amber-200">Open Tool Registry</a>
+            </p>
+          )}
+
+          {!isAi && Array.isArray(run.details?.evidence) && run.details.evidence.length > 0 && (
+            <CollapsibleJson label={`evidence (${run.details.evidence.length})`} data={run.details.evidence} />
+          )}
+          {!isAi && run.details?.policy && (
+            <CollapsibleJson label="policy summary" data={run.details.policy} />
+          )}
 
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1">

@@ -1,4 +1,4 @@
-"""Dependency drift agent — package manifest drift detection."""
+"""Dependency drift agent — package manifest drift from GitHub (grounded)."""
 
 from __future__ import annotations
 
@@ -7,11 +7,8 @@ import re
 
 from sqlmodel import Session
 
-from ..connectors.github_connector import GitHubConnector
 from ..context import PlatformContext
-from .base import BaseAgent
-
-_ACCOUNT: dict = {}
+from .base import AgentResult, BaseAgent
 
 
 def _parse_dependencies(content: str | None, filename: str) -> dict[str, str]:
@@ -58,39 +55,98 @@ class DependencyDriftAgent(BaseAgent):
     primary_tools = ["Catalog DB", "GitHub"]
     read_only = True
 
-    async def run(self, params: dict, context: PlatformContext, db: Session):
-        repo = params.get("repo") or context.tool_accounts.get("github") or "org/service"
+    async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        connector = await self._ground_github(context, db)
+        if connector is None:
+            return self._no_data_result(
+                context,
+                "GitHub not connected. Connect a GitHub account to read package manifests.",
+                missing_tools=["GitHub"],
+            )
+
+        repo = params.get("repo")
+        if not repo:
+            gh = context.tool_accounts.get("github")
+            if isinstance(gh, str) and "/" in gh:
+                repo = gh
+            elif isinstance(gh, dict) and gh.get("repo"):
+                repo = gh.get("repo")
+        if not repo:
+            owner = (params.get("owner") or "").strip()
+            name = (params.get("repo_name") or "").strip()
+            if owner and name:
+                repo = f"{owner}/{name}"
+        if not repo:
+            return self._no_data_result(
+                context,
+                "No repository specified. Pass repo=owner/name (no default org/service).",
+                missing_tools=["GitHub"],
+            )
+
+        repo = str(repo).strip()
         manifest = params.get("manifest") or "package.json"
-        gh = GitHubConnector(_ACCOUNT)
         packages: list = []
         total = 0
+        evidence: list[dict] = []
 
         try:
-            content = await gh.get_file_contents(repo, manifest)
+            content = await connector.get_file_contents(repo, manifest)
+            used_manifest = manifest
             if not content and manifest == "package.json":
-                content = await gh.get_file_contents(repo, "requirements.txt")
-                manifest = "requirements.txt"
+                content = await connector.get_file_contents(repo, "requirements.txt")
+                used_manifest = "requirements.txt"
 
-            deps = _parse_dependencies(content, manifest)
+            if not content:
+                return self._no_data_result(
+                    context,
+                    f"No manifest found in {repo} ({manifest} / requirements.txt).",
+                    missing_tools=["GitHub"],
+                    details={"repo": repo, "manifest": manifest},
+                )
+
+            evidence.append(
+                self._evidence(
+                    type="manifest",
+                    title=f"{repo}/{used_manifest}",
+                    source="github",
+                    snippet=content[:1500],
+                )
+            )
+
+            deps = _parse_dependencies(content, used_manifest)
             total = len(deps)
             for name, version in deps.items():
                 drift = _classify_drift(version)
-                if drift:
-                    packages.append(
-                        {
-                            "name": name,
-                            "version": version,
-                            "drift": drift,
-                        }
+                packages.append(
+                    {
+                        "name": name,
+                        "version": version,
+                        "drift": drift,
+                    }
+                )
+                evidence.append(
+                    self._evidence(
+                        type="dependency",
+                        title=f"{name}@{version}",
+                        source="github",
+                        snippet=f"drift={drift}",
                     )
-        except Exception:
-            packages = []
-            total = 0
+                )
+        except Exception as exc:
+            return self._result(
+                context,
+                status="failed",
+                summary=f"Failed to read manifests from {repo}",
+                details={"repo": repo, "manifest": manifest, "error": str(exc)[:300]},
+                grounding="none",
+                confidence=0.0,
+                errors=[str(exc)[:300]],
+            )
 
         critical = [p for p in packages if p["drift"] == "major"]
         outdated = [p for p in packages if p["drift"] in ("major", "minor", "patch")]
 
-        return self._build_result(
+        return self._result(
             context,
             status="success",
             summary=f"{len(outdated)} outdated dependencies in {repo}",
@@ -102,6 +158,9 @@ class DependencyDriftAgent(BaseAgent):
                 "critical_count": len(critical),
                 "packages": packages[:100],
             },
+            evidence=evidence[:80],
+            grounding="live",
+            confidence=0.85,
         )
 
 

@@ -1,4 +1,4 @@
-"""QA / test failure analysis agent."""
+"""QA / test failure analysis agent (grounded on GitHub CI)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from collections import Counter
 
 from sqlmodel import Session, select
 
-from ..connectors.github_connector import GitHubConnector
 from ..context import PlatformContext
 from ..routers.catalog import CatalogEntity
 from .base import AgentResult, BaseAgent
@@ -31,8 +30,6 @@ COVERAGE_PATHS = (
     ".coverage",
     "coverage.xml",
 )
-
-_ACCOUNT: dict = {}
 
 
 def is_tester_source(source: str) -> bool:
@@ -99,9 +96,10 @@ class TesterAgent(BaseAgent):
         params: dict,
         context: PlatformContext,
         db: Session,
-    ) -> str:
+    ) -> str | None:
+        """Resolve repo from params/catalog only — never invent org/service."""
         if params.get("repo"):
-            return str(params["repo"])
+            return str(params["repo"]).strip()
 
         gh = context.tool_accounts.get("github")
         if isinstance(gh, str) and "/" in gh:
@@ -132,9 +130,12 @@ class TesterAgent(BaseAgent):
                             return rm.group(1).replace(".git", "")
             except Exception:
                 pass
-            return f"org/{service}"
 
-        return "org/service"
+        owner = (params.get("owner") or "").strip()
+        name = (params.get("repo_name") or "").strip()
+        if owner and name:
+            return f"{owner}/{name}"
+        return None
 
     def _run_to_suite(self, run: dict) -> dict:
         return {
@@ -148,8 +149,21 @@ class TesterAgent(BaseAgent):
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
         task = params.get("task") or params.get("message") or ""
         intent = _detect_intent(task)
+        connector = await self._ground_github(context, db)
+        if connector is None:
+            return self._no_data_result(
+                context,
+                "GitHub not connected. Connect a GitHub account in Tool Registry.",
+                missing_tools=["GitHub Actions", "GitHub"],
+            )
+
         repo = await self._resolve_repo(task, params, context, db)
-        gh = GitHubConnector(_ACCOUNT)
+        if not repo:
+            return self._no_data_result(
+                context,
+                "No repository specified. Pass repo=owner/name (no default org/service).",
+                missing_tools=["GitHub Actions"],
+            )
 
         details: dict = {
             "repo": repo,
@@ -158,17 +172,34 @@ class TesterAgent(BaseAgent):
             "coverage_pct": None,
             "action": intent,
         }
+        evidence: list[dict] = [
+            self._evidence(
+                type="repo",
+                title=repo,
+                source="github",
+                snippet=f"intent={intent}",
+            )
+        ]
 
         if intent == "list_failures":
             runs: list[dict] = []
             try:
-                runs = await gh.list_workflow_runs(
+                runs = await connector.list_workflow_runs(
                     repo=repo,
                     status="failure",
                     per_page=20,
                 )
-            except Exception:
-                runs = []
+            except Exception as exc:
+                return self._result(
+                    context,
+                    status="failed",
+                    summary=f"Failed to list workflow runs for {repo}",
+                    details={**details, "error": str(exc)[:200]},
+                    grounding="none",
+                    confidence=0.0,
+                    errors=[str(exc)[:200]],
+                    evidence=evidence,
+                )
 
             test_runs = [r for r in runs if _is_test_run(r.get("name") or "")]
             details["total_failures"] = len(test_runs)
@@ -182,7 +213,17 @@ class TesterAgent(BaseAgent):
 
             suites = []
             for name, _count in counts.most_common():
-                suites.append(self._run_to_suite(latest_by_name[name]))
+                suite = self._run_to_suite(latest_by_name[name])
+                suites.append(suite)
+                evidence.append(
+                    self._evidence(
+                        type="workflow_run",
+                        title=suite["name"],
+                        source="github_actions",
+                        url=suite.get("run_url"),
+                        snippet=json.dumps(suite, default=str)[:800],
+                    )
+                )
             details["test_suites"] = suites
 
             summary = (
@@ -190,88 +231,119 @@ class TesterAgent(BaseAgent):
                 if test_runs
                 else f"No failing test workflows found in {repo}"
             )
-            return self._build_result(
+            return self._result(
                 context,
                 status="success",
                 summary=summary,
                 details=details,
+                evidence=evidence,
+                grounding="live",
+                confidence=0.85,
             )
 
         if intent == "coverage":
             coverage_pct: float | None = None
+            found_path = None
             for path in COVERAGE_PATHS:
                 content = None
                 try:
-                    content = await gh.get_file_contents(repo, path)
+                    content = await connector.get_file_contents(repo, path)
                 except Exception:
                     content = None
                 if content:
                     coverage_pct = _parse_coverage_pct(content, path)
                     if coverage_pct is not None:
+                        found_path = path
                         break
 
             details["coverage_pct"] = coverage_pct
             if coverage_pct is not None:
-                summary = f"Test coverage for {repo}: {coverage_pct:.1f}%"
-                status = "success"
-            else:
-                summary = f"Could not parse coverage data for {repo}"
-                status = "failed"
-
-            return self._build_result(
+                evidence.append(
+                    self._evidence(
+                        type="coverage",
+                        title=f"Coverage {coverage_pct:.1f}%",
+                        source="github",
+                        snippet=f"path={found_path}",
+                    )
+                )
+                return self._result(
+                    context,
+                    status="success",
+                    summary=f"Test coverage for {repo}: {coverage_pct:.1f}%",
+                    details=details,
+                    evidence=evidence,
+                    grounding="live",
+                    confidence=0.8,
+                )
+            return self._no_data_result(
                 context,
-                status=status,
-                summary=summary,
+                f"Could not find/parse coverage artifacts for {repo}",
+                missing_tools=["GitHub"],
                 details=details,
             )
 
         # retry
         target_run: dict | None = None
         try:
-            runs = await gh.list_workflow_runs(
+            runs = await connector.list_workflow_runs(
                 repo=repo,
                 status="failure",
                 per_page=20,
             )
             test_runs = [r for r in runs if _is_test_run(r.get("name") or "")]
             target_run = test_runs[0] if test_runs else (runs[0] if runs else None)
-        except Exception:
-            target_run = None
-
-        if not target_run:
-            return self._build_result(
+        except Exception as exc:
+            return self._result(
                 context,
                 status="failed",
-                summary=f"No failed workflow run found to retry in {repo}",
+                summary=f"Failed to load failed runs for retry in {repo}",
+                details={**details, "error": str(exc)[:200]},
+                grounding="none",
+                confidence=0.0,
+                errors=[str(exc)[:200]],
+                evidence=evidence,
+            )
+
+        if not target_run:
+            return self._no_data_result(
+                context,
+                f"No failed workflow run found to retry in {repo}",
+                missing_tools=["GitHub Actions"],
                 details=details,
             )
 
         workflow_id = target_run.get("id")
         details["test_suites"] = [self._run_to_suite(target_run)]
         details["total_failures"] = 1
-
-        approval_payload = {
-            "repo": repo,
-            "workflow_id": workflow_id,
-            "action": "rerun",
-        }
-
-        needs_approval = self._should_require_approval(context)
-        if needs_approval:
-            return self._build_result(
-                context,
-                status="pending_approval",
-                summary=f"Retry approval required for {target_run.get('name')} in {repo}",
-                details=details,
-                requires_approval=True,
-                approval_payload=approval_payload,
+        evidence.append(
+            self._evidence(
+                type="workflow_run",
+                title=str(target_run.get("name") or workflow_id),
+                source="github_actions",
+                url=target_run.get("html_url"),
+                snippet=json.dumps(self._run_to_suite(target_run), default=str),
             )
+        )
 
-        return self._build_result(
+        commands = [
+            f"gh run rerun {workflow_id} --repo {repo}",
+        ]
+        return self._finalize_with_policy(
             context,
-            status="success",
-            summary=f"Retry queued for {target_run.get('name')} in {repo} (non-production)",
-            details={**details, "approval_payload": approval_payload},
+            summary=f"Retry plan for {target_run.get('name')} in {repo}",
+            details=details,
+            commands=commands,
+            evidence=evidence,
+            grounding="live",
+            confidence=0.8,
+            task=f"retry {repo}",
+            recommended_actions=[
+                {
+                    "title": f"Rerun workflow {workflow_id}",
+                    "risk": "medium",
+                    "requires_approval": self._should_require_approval(context),
+                }
+            ],
         )
 
 
