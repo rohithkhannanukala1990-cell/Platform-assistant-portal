@@ -666,6 +666,24 @@ export default function ScorecardsPage() {
                             {check.rationale && (
                               <p className="text-xs text-slate-500 mt-2 pl-4">{check.rationale}</p>
                             )}
+                            {check.evidence &&
+                              typeof check.evidence === 'object' &&
+                              Object.keys(check.evidence).length > 0 && (
+                                <p
+                                  className="text-[10px] text-slate-600 mt-1 pl-4 font-mono truncate"
+                                  title={JSON.stringify(check.evidence)}
+                                >
+                                  evidence:{' '}
+                                  {Object.entries(check.evidence)
+                                    .filter(([, v]) => v != null && v !== '')
+                                    .slice(0, 4)
+                                    .map(
+                                      ([k, v]) =>
+                                        `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`
+                                    )
+                                    .join(' · ')}
+                                </p>
+                              )}
                           </div>
                         ))}
                       </div>

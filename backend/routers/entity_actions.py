@@ -127,26 +127,11 @@ async def _run_internal_action(
     slug = action.slug
 
     if slug == "re-eval-scorecard":
-        from ..ai.ai_utils import ask_ai
-        from .scorecards import (
-            _build_payload,
-            _evaluation_prompt,
-            _parse_scorecard_json,
-            _persist_checks,
-            _rule_based_checks,
-        )
+        from .scorecards import evaluate_scorecard_evidence
 
-        _log_line(logs, "Invoking scorecard evaluation")
-        prompt = _evaluation_prompt(entity)
-        try:
-            raw = await ask_ai(prompt)
-            checks = _parse_scorecard_json(raw)
-        except Exception as exc:
-            _log_line(logs, f"AI evaluation failed, using rules: {exc}")
-            checks = _rule_based_checks(entity)
-        rows = _persist_checks(session, entity.id, checks)
-        payload = _build_payload(rows)
-        _log_line(logs, f"Scorecard updated with {len(checks)} checks")
+        _log_line(logs, "Invoking evidence-based scorecard evaluation")
+        payload = await evaluate_scorecard_evidence(entity.id)
+        _log_line(logs, f"Scorecard updated with {len(payload.get('checks') or [])} checks")
         return {"message": "Scorecard re-evaluated", "overall_score": payload.get("overall_score")}
 
     if slug == "flag-prod-readiness":

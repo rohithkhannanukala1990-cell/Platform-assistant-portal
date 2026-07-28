@@ -102,6 +102,7 @@ export default function CatalogPage() {
   const [scorecardEvaluating, setScorecardEvaluating] = useState(false)
   const [drawerTab, setDrawerTab] = useState('overview')
   const [entityActions, setEntityActions] = useState([])
+  const [selfServiceActions, setSelfServiceActions] = useState([])
   const [copilotActions, setCopilotActions] = useState([])
   const [goldenPaths, setGoldenPaths] = useState([])
   // TODO(S1-P1.2): Link catalog entities to golden paths
@@ -203,12 +204,18 @@ export default function CatalogPage() {
       if (!entityId) return
       setActionsLoading(true)
       try {
-        const res = await authFetch(`/api/catalog/${encodeURIComponent(entityId)}/actions`)
-        if (!res.ok) throw new Error(await res.text())
-        setEntityActions(await res.json())
+        const [legacyRes, selfRes] = await Promise.all([
+          authFetch(`/api/catalog/${encodeURIComponent(entityId)}/actions`),
+          authFetch(`/api/catalog/${encodeURIComponent(entityId)}/catalog-actions`),
+        ])
+        if (legacyRes.ok) setEntityActions(await legacyRes.json())
+        else setEntityActions([])
+        if (selfRes.ok) setSelfServiceActions(await selfRes.json())
+        else setSelfServiceActions([])
       } catch (e) {
         setError(e.message || 'Failed to load actions')
         setEntityActions([])
+        setSelfServiceActions([])
       } finally {
         setActionsLoading(false)
       }
@@ -706,9 +713,16 @@ export default function CatalogPage() {
               {drawerTab === 'actions' && (
                 <ActionsTab
                   actions={entityActions}
+                  selfServiceActions={selfServiceActions}
+                  entityId={selectedEntity.id}
+                  authFetch={authFetch}
                   loading={actionsLoading}
                   runMessage={runMessage}
                   onRun={(action) => setRunningAction(action)}
+                  onSelfServiceDone={(msg) => {
+                    setRunMessage(msg)
+                    void loadScorecard(selectedEntity.id)
+                  }}
                 />
               )}
 
@@ -948,14 +962,33 @@ function scoreBarColor(score) {
 }
 
 function CheckRow({ check }) {
+  const evidence = check.evidence && typeof check.evidence === 'object' ? check.evidence : null
+  const evidenceBits = evidence
+    ? Object.entries(evidence)
+        .filter(([, v]) => v != null && v !== '')
+        .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`)
+        .slice(0, 4)
+        .join(' · ')
+    : ''
   return (
-    <div className="flex items-center gap-2 text-sm py-1">
-      <CheckStatusIcon status={check.status} />
-      <span className="flex-1 min-w-0 text-slate-300 truncate">{check.check_name}</span>
-      <span className="text-slate-400 tabular-nums w-8 text-right">{check.score}</span>
-      <div className="w-20 h-1.5 rounded-full bg-gray-700 overflow-hidden flex-shrink-0">
-        <div className={`h-full rounded-full ${scoreBarColor(check.score)}`} style={{ width: `${check.score}%` }} />
+    <div className="flex flex-col gap-0.5 py-1.5 border-b border-border/30 last:border-0">
+      <div className="flex items-center gap-2 text-sm">
+        <CheckStatusIcon status={check.status} />
+        <span className="flex-1 min-w-0 text-slate-300 truncate font-mono text-xs">{check.check_name}</span>
+        <span className="text-[10px] uppercase font-semibold text-slate-500">{check.status}</span>
+        <span className="text-slate-400 tabular-nums w-8 text-right">{check.score}</span>
+        <div className="w-20 h-1.5 rounded-full bg-gray-700 overflow-hidden flex-shrink-0">
+          <div className={`h-full rounded-full ${scoreBarColor(check.score)}`} style={{ width: `${check.score}%` }} />
+        </div>
       </div>
+      {check.rationale && (
+        <p className="text-[11px] text-slate-500 pl-6">{check.rationale}</p>
+      )}
+      {evidenceBits && (
+        <p className="text-[10px] text-slate-600 pl-6 font-mono truncate" title={evidenceBits}>
+          evidence: {evidenceBits}
+        </p>
+      )}
     </div>
   )
 }
@@ -1001,7 +1034,42 @@ function runStatusPill(status) {
   )
 }
 
-function ActionsTab({ actions, loading, runMessage, onRun }) {
+function ActionsTab({
+  actions,
+  selfServiceActions = [],
+  entityId,
+  authFetch,
+  loading,
+  runMessage,
+  onRun,
+  onSelfServiceDone,
+}) {
+  const [busyId, setBusyId] = useState(null)
+
+  async function runSelfService(action) {
+    if (!entityId || !authFetch) return
+    setBusyId(action.id)
+    try {
+      const res = await authFetch(`/api/catalog-actions/${encodeURIComponent(action.id)}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entity_id: entityId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || `Execute failed (${res.status})`)
+      const result = data.result || {}
+      const msg =
+        result.status === 'pending_approval'
+          ? `${action.name}: pending HITL approval (${result.agent_run_id || 'queued'})`
+          : result.message || `${action.name}: ${result.status}`
+      onSelfServiceDone?.(msg)
+    } catch (e) {
+      onSelfServiceDone?.(e.message || 'Self-service action failed')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center py-12 text-slate-400 gap-2">
@@ -1009,44 +1077,91 @@ function ActionsTab({ actions, loading, runMessage, onRun }) {
       </div>
     )
   }
-  if (!actions.length) {
+
+  const hasSelf = Array.isArray(selfServiceActions) && selfServiceActions.length > 0
+  const hasLegacy = Array.isArray(actions) && actions.length > 0
+  if (!hasSelf && !hasLegacy) {
     return <p className="text-center text-slate-500 py-8">No actions available for this entity.</p>
   }
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {runMessage && (
         <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-200">
           {runMessage}
         </div>
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {actions.map((action) => (
-          <div
-            key={action.id}
-            className="rounded-xl border border-border bg-slate-900/50 p-3 flex flex-col gap-2"
-          >
-            <div className="flex items-start gap-2">
-              <ActionIcon name={action.icon} className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="font-semibold text-white text-sm">{action.name}</p>
-                <p className="text-xs text-slate-500 line-clamp-2">{action.description || '—'}</p>
+
+      {hasSelf && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Self-service</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {selfServiceActions.map((action) => (
+              <div
+                key={action.id}
+                className="rounded-xl border border-border bg-slate-900/50 p-3 flex flex-col gap-2"
+              >
+                <div className="min-w-0">
+                  <p className="font-semibold text-white text-sm">{action.name}</p>
+                  <p className="text-xs text-slate-500 line-clamp-2">{action.description || action.action_type}</p>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <span className="text-[10px] font-semibold uppercase text-slate-400 bg-slate-800 border border-border px-1.5 py-0.5 rounded">
+                    {action.risk}
+                  </span>
+                  {action.require_hitl && (
+                    <span className="text-[10px] font-semibold uppercase text-amber-400 bg-amber-500/10 border border-amber-500/25 px-1.5 py-0.5 rounded">
+                      HITL
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={!!busyId}
+                  onClick={() => void runSelfService(action)}
+                  className="mt-auto w-full py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold disabled:opacity-50"
+                >
+                  {busyId === action.id ? 'Running…' : 'Execute'}
+                </button>
               </div>
-            </div>
-            {action.requires_approval && (
-              <span className="text-[10px] font-semibold uppercase text-amber-400 bg-amber-500/10 border border-amber-500/25 px-1.5 py-0.5 rounded w-fit">
-                Requires approval
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => onRun(action)}
-              className="mt-auto w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
-            >
-              Run
-            </button>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+
+      {hasLegacy && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Entity actions</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {actions.map((action) => (
+              <div
+                key={action.id}
+                className="rounded-xl border border-border bg-slate-900/50 p-3 flex flex-col gap-2"
+              >
+                <div className="flex items-start gap-2">
+                  <ActionIcon name={action.icon} className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-white text-sm">{action.name}</p>
+                    <p className="text-xs text-slate-500 line-clamp-2">{action.description || '—'}</p>
+                  </div>
+                </div>
+                {action.requires_approval && (
+                  <span className="text-[10px] font-semibold uppercase text-amber-400 bg-amber-500/10 border border-amber-500/25 px-1.5 py-0.5 rounded w-fit">
+                    Requires approval
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onRun(action)}
+                  className="mt-auto w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+                >
+                  Run
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -38,6 +38,7 @@ from .ai_models import (
     UserAgentPermission,
 )
 from .alerts import AlertGroupBucket, AlertRule
+from .catalog_actions import CatalogAction
 
 __all__ = [
     "Incident",
@@ -75,6 +76,7 @@ __all__ = [
     "AgentRun",
     "AlertRule",
     "AlertGroupBucket",
+    "CatalogAction",
     "MCPServer",
     "MCPToolCall",
     "CommandPolicyRule",

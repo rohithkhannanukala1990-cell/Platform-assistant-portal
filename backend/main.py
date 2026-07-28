@@ -41,6 +41,7 @@ from .routers.dashboard import router as dashboard_router
 from .routers.github_ops import router as github_ops_router
 from .routers.k8s_ops import router as k8s_ops_router
 from .routers.pagerduty_ops import router as pagerduty_ops_router
+from .routers.catalog_actions import router as catalog_actions_router
 from .routers.slack_ops import router as slack_ops_router
 from .routers.prometheus_ops import router as prometheus_ops_router
 from .routers.outbound_webhook_ops import router as outbound_webhook_ops_router
@@ -177,6 +178,7 @@ app.include_router(catalog_copilot_router)
 app.include_router(standards_module.catalog_router)
 app.include_router(standards_module.router)
 app.include_router(catalog_router)
+app.include_router(catalog_actions_router)
 app.include_router(scorecards_router)
 app.include_router(dashboard_router)
 app.include_router(incidents_router)

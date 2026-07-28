@@ -1,0 +1,190 @@
+# Production HA baseline (Phase G7) — Postgres + Redis only (never file DB).
+#
+# From repo root:
+#   docker compose -f deploy/docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# Scale (documented alternative to the two named API/worker replicas below):
+#   docker compose -f deploy/docker-compose.prod.yml up -d --scale api=2 --scale celery_worker=2
+#   (use a single `api` / `celery_worker` service name if you switch to scaled mode)
+#
+# Requires strong secrets in `.env.production` (see `.env.production.example`).
+# Do NOT use compose default passwords in a real pilot.
+
+version: "3.9"
+
+x-api-env: &api-env
+  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/aiops
+  CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  ENV: production
+  ENABLE_DEMO_DATA: "false"
+  ENFORCE_WORKSPACE_ISOLATION: "true"
+  LLM_MOCK: "0"
+  SECRET_KEY: ${SECRET_KEY}
+  SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY}
+  JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-480}
+  DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
+  DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1}
+  SKIP_BACKGROUND_SCHEDULER: ${SKIP_BACKGROUND_SCHEDULER:-0}
+
+x-api-build: &api-build
+  context: ../backend
+  dockerfile: Dockerfile
+
+x-api-common: &api-common
+  build: *api-build
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  read_only: true
+  tmpfs:
+    - /tmp
+  environment:
+    <<: *api-env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+    interval: 15s
+    timeout: 10s
+    retries: 8
+    start_period: 90s
+  networks: [prod-network]
+
+x-celery-common: &celery-common
+  build: *api-build
+  command: >
+    celery -A backend.worker.celery_app worker
+      --loglevel=info
+      --concurrency=2
+      --queues=celery,triage,notify
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  read_only: true
+  tmpfs:
+    - /tmp
+  environment:
+    <<: *api-env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD-SHELL", "celery -A backend.worker.celery_app inspect ping -t 5 | grep -q pong || exit 1"]
+    interval: 30s
+    timeout: 15s
+    retries: 3
+    start_period: 90s
+  networks: [prod-network]
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: aiops
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [prod-network]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - redis_prod_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [prod-network]
+
+  # API replica 1 of 2 (nginx upstream)
+  api_1:
+    <<: *api-common
+    container_name: portal-api-1
+
+  # API replica 2 of 2
+  api_2:
+    <<: *api-common
+    container_name: portal-api-2
+
+  # Celery worker replica 1 of 2
+  celery_worker_1:
+    <<: *celery-common
+    container_name: portal-celery-1
+
+  # Celery worker replica 2 of 2
+  celery_worker_2:
+    <<: *celery-common
+    container_name: portal-celery-2
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+      args:
+        VITE_API_BASE_URL: ""
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    networks: [prod-network]
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api_1:
+        condition: service_healthy
+      api_2:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health/ready >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks: [prod-network]
+
+volumes:
+  postgres_prod_data:
+  redis_prod_data:
+
+networks:
+  prod-network:
+    driver: bridge

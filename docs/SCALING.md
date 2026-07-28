@@ -1,6 +1,10 @@
-# Scaling & HA notes (Phase 17)
+# Scaling & HA notes (Phase 17 + G7)
 
 How to run Platform-assistant-portal with multiple API replicas and shared state.
+
+**Production HA compose (Phase G7):** use [`deploy/docker-compose.prod.yml`](../deploy/docker-compose.prod.yml)
+(api×2, celery×2, Postgres, Redis, nginx). Point LB/probes at `/health/live` (liveness) and
+`/health/ready` (DB + Redis). Pilot path: [`PILOT_PLAYBOOK.md`](./PILOT_PLAYBOOK.md).
 
 ## Multiple API replicas
 
@@ -58,8 +62,9 @@ List endpoints default to **page=1, page_size=50** (max 200) so replicas do not 
 Before a capacity change, run a light smoke — enough to catch connection pool / Redis / 5xx issues:
 
 ```bash
-# Health
-curl -sf "$PORTAL_URL/api/health"
+# Health / readiness (Phase G7)
+curl -sf "$PORTAL_URL/health/live"
+curl -sf "$PORTAL_URL/health/ready"
 
 # Authenticated list (replace TOKEN)
 for i in $(seq 1 50); do

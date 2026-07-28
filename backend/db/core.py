@@ -52,6 +52,7 @@ def _import_models():
     from backend.db.models import (  # noqa: F401
         ai_models,
         alerts,
+        catalog_actions,
         context_models,
         mcp_models,
         ops,
@@ -102,6 +103,9 @@ def create_db_and_tables():
         from backend.routers.golden_paths import seed_golden_path_templates
 
         seed_golden_path_templates(session)
+        from backend.services.catalog_actions import seed_catalog_actions
+
+        seed_catalog_actions(session, tenant_id="default")
 
 
 def _seed_command_policies() -> None:
@@ -628,6 +632,8 @@ def _migrate():
         ("llmproviderconfig", "api_key_vault_ref", "TEXT", "NULL"),
         ("llmproviderconfig", "priority", "INTEGER", "100"),
         ("llmproviderconfig", "metadata_json", "TEXT", "'{}'"),
+        ("scorecard_checks", "last_evidence_json", "TEXT", "'{}'"),
+        ("scorecard_checks", "weight", "REAL", "0"),
     ]
     with Session(engine) as session:
         for table, col, col_type, default in migrations:

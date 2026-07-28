@@ -136,7 +136,9 @@ def api_health_alert_ignore(
 
 
 @router.get("/health")
+@router.get("/health/live")
 async def health_check():
+    """Liveness — process is up (no dependency checks)."""
     return {
         "status": "ok",
         "timestamp": datetime.utcnow().isoformat(),
@@ -146,23 +148,12 @@ async def health_check():
 
 
 @router.get("/ready")
+@router.get("/health/ready")
 async def readiness_check():
-    """Liveness-adjacent readiness: process up + database reachable."""
-    from sqlalchemy import text as sa_text
-    from sqlmodel import Session
+    """Readiness — database + Redis (when configured / production)."""
+    from ..services.readiness import evaluate_readiness
 
-    from ..database import engine
-
-    try:
-        with Session(engine) as session:
-            session.exec(sa_text("SELECT 1"))
-    except Exception as exc:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "not_ready",
-                "detail": "database_unavailable",
-                "error": str(exc)[:200],
-            },
-        )
-    return {"status": "ready", "service": "platform-assistant-portal"}
+    payload = evaluate_readiness()
+    if payload.get("status") != "ready":
+        return JSONResponse(status_code=503, content=payload)
+    return payload

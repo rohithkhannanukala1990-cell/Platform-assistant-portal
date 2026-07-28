@@ -99,7 +99,8 @@ Backup steps: see [`RUNBOOK_BACKUP.md`](./RUNBOOK_BACKUP.md).
 - Prometheus scrapes backend `/metrics` (`prometheus/prometheus.yml`).
 - Grafana provisions datasources from `grafana/provisioning/` and dashboards from `deploy/grafana/dashboards/`.
 - Alert recipes: [`deploy/grafana/ALERT_RULES.md`](../deploy/grafana/ALERT_RULES.md).
-- Beta go/no-go: [`BETA_GONOGO.md`](./BETA_GONOGO.md); smoke via `scripts/beta_smoke.sh` or `pytest -m smoke`.
+- Beta go/no-go: [`BETA_GONOGO.md`](./BETA_GONOGO.md); pilot: [`PILOT_PLAYBOOK.md`](./PILOT_PLAYBOOK.md); smoke via `scripts/pilot_smoke.sh` / `beta_smoke.sh` or `pytest -m smoke`.
+- Honest capability ~ vs ✓: [`product_comparison.md`](./product_comparison.md). HA compose: `deploy/docker-compose.prod.yml`.
 
 ## First-class connectors vs MCP (Phase G5)
 

@@ -1,4 +1,4 @@
-# Platform phases (0–17 + L1–L2 + M1–M2 + G1–G5)
+# Platform phases (0–17 + L1–L2 + M1–M2 + G1–G7)
 
 Short checklist of what each hardening/refactor phase changed.
 
@@ -182,4 +182,23 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Optional ServiceNow — incident create via webhook HITL
 - [x] Registry `get_connector` + health probes; UI empty states + Integrations banner
 - [x] `docs/ARCHITECTURE.md` first-class vs MCP; `backend/tests/test_phase_g5_connectors.py`
+
+## Phase G6 — Catalog self-service actions + evidence-based scorecards
+- [x] `CatalogAction` model — name, entity_kind, action_type, payload_template, risk, require_hitl, tenant_id
+- [x] API list/execute (`/api/catalog-actions`, `/api/catalog/{id}/catalog-actions`, execute); HITL → AgentRun `pending_approval`
+- [x] Built-ins: `run_golden_path`, `request_scorecard_refresh`, `open_incident`, `propose_deploy` (HITL)
+- [x] Catalog entity Actions panel — Self-service execute + legacy entity actions
+- [x] Scorecards v2 checks: has_owner, has_repo, has_runbook_url, ci_green, oncall_link, tier_set (weights + `last_evidence_json`)
+- [x] Optional AI narrative via `scorecard_agent` from checks only; UI pass/fail evidence breakdown
+- [x] `backend/tests/test_phase_g6_catalog_scorecards.py` — no network; HITL on propose_deploy
+- [x] Honest ~ vs ✓ for Port/Backstage-style scorecards/actions — see `docs/product_comparison.md`
+
+## Phase G7 — Production HA compose baseline + pilot readiness
+- [x] `deploy/docker-compose.prod.yml` — api×2, celery×2, postgres, redis, nginx upstream (no SQLite)
+- [x] Prod defaults: `ENABLE_DEMO_DATA=false`, `ENFORCE_WORKSPACE_ISOLATION=true`, `ENV=production`
+- [x] `/health/live` + `/health/ready` (db + redis); `/ready` alias
+- [x] `docs/PILOT_PLAYBOOK.md` — 2-week design partner, metrics, feedback
+- [x] `scripts/pilot_smoke.sh` extends `beta_smoke.sh`
+- [x] `docs/BETA_GONOGO.md` G1–G6 + G7 checkboxes; `docs/product_comparison.md`
+- [x] `backend/tests/test_phase_g7_ha_pilot.py` — ready logic + compose/config defaults
 

@@ -6,15 +6,18 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Field, Session, SQLModel, select
 
-from ..ai.ai_utils import ask_ai
 from ..auth import User, get_current_user
 from ..database import engine
 from .catalog import CatalogEntity
+from ..services.scorecard_evidence import (
+    build_evidence_checks,
+    weighted_overall_score,
+)
 
 router = APIRouter(prefix="/api/catalog", tags=["scorecards"])
 
@@ -31,6 +34,8 @@ class ScorecardCheck(SQLModel, table=True):
     status: str
     score: int
     rationale: str = ""
+    last_evidence_json: Optional[str] = Field(default="{}")
+    weight: float = Field(default=0.0)
     evaluated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -73,9 +78,13 @@ def _clamp_score(val: Any) -> int:
     return max(0, min(100, n))
 
 
-def _build_payload(rows: list[ScorecardCheck]) -> dict[str, Any]:
+def _build_payload(rows: list[ScorecardCheck], *, narrative: str | None = None) -> dict[str, Any]:
     flat: list[dict[str, Any]] = []
     for r in rows:
+        try:
+            evidence = json.loads(getattr(r, "last_evidence_json", None) or "{}")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            evidence = {}
         flat.append(
             {
                 "category": r.category,
@@ -83,9 +92,15 @@ def _build_payload(rows: list[ScorecardCheck]) -> dict[str, Any]:
                 "status": r.status,
                 "score": r.score,
                 "rationale": r.rationale or "",
+                "evidence": evidence if isinstance(evidence, dict) else {},
+                "weight": float(getattr(r, "weight", 0) or 0),
             }
         )
-    overall = round(sum(c["score"] for c in flat) / len(flat)) if flat else 0
+    # Prefer weighted score when weights present; else simple average.
+    if any(c.get("weight") for c in flat):
+        overall = weighted_overall_score(flat)
+    else:
+        overall = round(sum(c["score"] for c in flat) / len(flat)) if flat else 0
 
     by_cat: dict[str, list[dict[str, Any]]] = {}
     for c in flat:
@@ -101,41 +116,20 @@ def _build_payload(rows: list[ScorecardCheck]) -> dict[str, Any]:
         if cat not in seen:
             grouped.append({"category": cat, "checks": items})
 
-    return {
+    payload = {
         "overall_score": overall,
         "checks": flat,
         "by_category": grouped,
+        "version": "v2",
     }
+    if narrative:
+        payload["narrative"] = narrative
+    return payload
 
 
 def _rule_based_checks(entity: CatalogEntity) -> list[dict[str, Any]]:
-    """Deterministic fallback when AI is unavailable or returns invalid JSON."""
-
-    def chk(category: str, name: str, ok: bool, partial: bool, pass_r: str, warn_r: str, fail_r: str) -> dict:
-        if ok:
-            return {"category": category, "check_name": name, "status": "pass", "score": 95, "rationale": pass_r}
-        if partial:
-            return {"category": category, "check_name": name, "status": "warn", "score": 55, "rationale": warn_r}
-        return {"category": category, "check_name": name, "status": "fail", "score": 25, "rationale": fail_r}
-
-    desc = (entity.description or "").strip()
-    repo = (entity.repo_url or "").strip()
-    tags = (entity.tags or "").strip()
-    lifecycle = (entity.lifecycle or "").lower()
-    lang = (entity.language or "").strip()
-    health = (entity.health_status or "unknown").lower()
-    owner = (entity.owner_team or "").strip()
-
-    return [
-        chk("Documentation", "Has description", bool(desc), False, "Description is present.", "Description is missing.", "Description is missing."),
-        chk("Documentation", "Has repo URL", bool(repo), False, "Repository URL is set.", "Repository URL is missing.", "Repository URL is missing."),
-        chk("Reliability", "Lifecycle declared", lifecycle in ("experimental", "production", "deprecated"), False, "Lifecycle is declared.", "Lifecycle value is unusual.", "Lifecycle is not set."),
-        chk("Reliability", "Health status set", health != "unknown", health == "degraded", "Health status is known.", "Health is degraded.", "Health status is unknown."),
-        chk("Security", "Language declared", bool(lang), False, "Language is declared.", "Language is not declared.", "Language is not declared."),
-        chk("Security", "Not in experimental", lifecycle != "experimental", False, "Not in experimental lifecycle.", "Entity is in experimental lifecycle.", "Entity is in experimental lifecycle."),
-        chk("Ownership", "Owner team assigned", bool(owner), False, "Owner team is assigned.", "Owner team is missing.", "Owner team is missing."),
-        chk("Ownership", "Has tags", bool(tags and tags not in ("[]", "null")), False, "Tags are present.", "Tags are missing.", "Tags are missing."),
-    ]
+    """Legacy deterministic checks — prefer evidence v2 via build_evidence_checks."""
+    return build_evidence_checks(entity)
 
 
 def _persist_checks(session: Session, entity_id: str, checks: list[dict[str, Any]]) -> list[ScorecardCheck]:
@@ -144,6 +138,7 @@ def _persist_checks(session: Session, entity_id: str, checks: list[dict[str, Any
     now = datetime.now(timezone.utc)
     rows: list[ScorecardCheck] = []
     for c in checks:
+        evidence = c.get("evidence") if isinstance(c.get("evidence"), dict) else {}
         row = ScorecardCheck(
             id=str(uuid.uuid4()),
             entity_id=entity_id,
@@ -152,6 +147,8 @@ def _persist_checks(session: Session, entity_id: str, checks: list[dict[str, Any
             status=_normalize_status(str(c.get("status", "warn"))),
             score=_clamp_score(c.get("score", 0)),
             rationale=str(c.get("rationale", ""))[:500],
+            last_evidence_json=json.dumps(evidence, default=str),
+            weight=float(c.get("weight") or 0),
             evaluated_at=now,
         )
         session.add(row)
@@ -160,32 +157,37 @@ def _persist_checks(session: Session, entity_id: str, checks: list[dict[str, Any
     return rows
 
 
-def _evaluation_prompt(entity: CatalogEntity) -> str:
-    return f"""You are a platform engineering scorecard engine.
-Evaluate this software entity and return ONLY valid JSON, no markdown:
+async def evaluate_scorecard_evidence(entity_id: str, *, narrative: bool = False) -> dict[str, Any]:
+    """Evidence-based evaluate (no network). Optional AI narrative from checks only."""
+    with Session(engine) as session:
+        entity = _get_active_entity(session, entity_id)
+        checks_data = build_evidence_checks(entity)
+        rows = _persist_checks(session, entity_id, checks_data)
+        narrative_text = None
+        if narrative:
+            try:
+                from ..agents.scorecard_agent import scorecard_agent
+                from ..context import PlatformContext
 
-Entity: {entity.name}
-Kind: {entity.kind}
-Lifecycle: {entity.lifecycle}
-Owner Team: {entity.owner_team}
-Language: {entity.language or 'unknown'}
-Repo URL: {entity.repo_url or 'none'}
-Description: {entity.description or 'none'}
-Tags: {entity.tags or 'none'}
-
-Return exactly this JSON shape:
-{{
-  "checks": [
-    {{"category": "Documentation", "check_name": "Has description", "status": "pass|warn|fail", "score": 0-100, "rationale": "one sentence"}},
-    {{"category": "Documentation", "check_name": "Has repo URL", "status": "pass|warn|fail", "score": 0-100, "rationale": "one sentence"}},
-    {{"category": "Reliability",   "check_name": "Lifecycle declared", "status": "pass|warn|fail", "score": 0-100, "rationale": "one sentence"}},
-    {{"category": "Reliability",   "check_name": "Health status set", "status": "pass|warn|fail", "score": 0-100, "rationale": "one sentence"}},
-    {{"category": "Security",      "check_name": "Language declared", "status": "pass|warn|fail", "score": 0-100, "rationale": "one sentence"}},
-    {{"category": "Security",      "check_name": "Not in experimental", "status": "pass|warn|fail", "score": 0-100, "rationale": "one sentence"}},
-    {{"category": "Ownership",     "check_name": "Owner team assigned", "status": "pass|warn|fail", "score": 0-100, "rationale": "one sentence"}},
-    {{"category": "Ownership",     "check_name": "Has tags", "status": "pass|warn|fail", "score": 0-100, "rationale": "one sentence"}}
-  ]
-}}"""
+                ctx = PlatformContext.from_dict(
+                    {
+                        "user_id": "scorecard",
+                        "user_role": "Admin",
+                        "tenant_id": getattr(entity, "tenant_id", None) or "default",
+                        "environment": "development",
+                    },
+                    user_id="scorecard",
+                    user_role="Admin",
+                )
+                result = await scorecard_agent.run(
+                    {"entity_id": entity_id, "narrative": True},
+                    ctx,
+                    session,
+                )
+                narrative_text = (result.details or {}).get("narrative")
+            except Exception:
+                narrative_text = None
+        return _build_payload(rows, narrative=narrative_text)
 
 
 @router.get("/{entity_id}/scorecard")
@@ -202,15 +204,5 @@ def get_scorecard(entity_id: str, current_user: User = Depends(get_current_user)
 
 @router.post("/{entity_id}/scorecard/evaluate")
 async def evaluate_scorecard(entity_id: str, current_user: User = Depends(get_current_user)):
-    with Session(engine) as session:
-        entity = _get_active_entity(session, entity_id)
-        prompt = _evaluation_prompt(entity)
-        checks_data: list[dict[str, Any]]
-        try:
-            raw = await ask_ai(prompt)
-            checks_data = _parse_scorecard_json(raw)
-        except Exception:
-            checks_data = _rule_based_checks(entity)
-
-        rows = _persist_checks(session, entity_id, checks_data)
-        return _build_payload(rows)
+    """Phase G6: evidence-based checks with weights + last_evidence_json (no network)."""
+    return await evaluate_scorecard_evidence(entity_id, narrative=False)
