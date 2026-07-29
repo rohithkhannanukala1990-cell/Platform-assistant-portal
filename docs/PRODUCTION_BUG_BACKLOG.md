@@ -102,6 +102,23 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 
 ---
 
+## Prod/CI audit follow-up (Phase P1 addendum)
+
+Source: [Prod/CI audit (E)](0f14541c-161e-4180-b0ba-e85ee1741f3a) after commit `80f63a8`.
+
+- [x] **ID-070** Prod `frontend` nginx crash-loops on `read_only` rootfs — `deploy/docker-compose.prod.yml` frontend service — Fixed P1: added `tmpfs: [/var/cache/nginx, /var/run, /tmp]` + healthcheck.
+- [x] **ID-071** Required secrets silently interpolate to empty string — `deploy/docker-compose.prod.yml` (`POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `SECRET_KEY`, `SECRETS_ENCRYPTION_KEY`, `DEFAULT_ADMIN_PASSWORD`) — Fixed P0: `${VAR:?err}` fail-fast + `backend/auth.py` rejects empty `SECRET_KEY`.
+- [x] **ID-072** Prod compose omits SAML/Google SSO env passthrough — Fixed P1: SAML_*, GOOGLE_* forwarded in `x-api-env`.
+- [x] **ID-073** Prod compose omits LLM + `GITHUB_WEBHOOK_SECRET` (silent webhook HMAC break) — Fixed P1: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LLM_DEFAULT_*`, `GITHUB_WEBHOOK_SECRET` forwarded.
+- [x] **ID-074** Daily health workflow can’t alert on total outage — `.github/workflows/health.yml` — Fixed P1: `set -eo pipefail`; curl failure → `STATUS=critical`; `unknown` also triggers alert.
+- [x] **ID-013** Non-root USER in `backend/Dockerfile` — Audit E flagged as regression; verified present at commit `80f63a8` (`USER appuser`, uid 10001). No action.
+- [ ] **ID-075** `/metrics` exposed unauthenticated through prod edge — `deploy/nginx.prod.conf:84-88` — Add `allow`/`deny` block or move scrape to internal network only. *(deferred P5)*
+- [ ] **ID-076** `npm ci || npm install` fallback in prod image — `deploy/Dockerfile.frontend:5` — Drop the fallback. *(deferred P3)*
+- [ ] **ID-077** LB health check docs point to non-existent `/api/health` — `docs/SCALING.md:96`, `docs/RUNBOOK_BACKUP.md:68` — Change to `/health/ready`. *(deferred P3 docs)*
+- [ ] **ID-078** Duplicated grafana provisioning file — `deploy/grafana/provisioning/dashboards.yml` vs `grafana/provisioning/dashboards/dashboards.yml` — Delete the unmounted copy. *(deferred P3)*
+
+---
+
 ## wontfix
 
 - [ ] **WF-001** Local compose weak defaults — `docker-compose.yml` — Intentional DX; blocked by go/no-go.

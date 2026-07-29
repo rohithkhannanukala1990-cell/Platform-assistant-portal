@@ -252,10 +252,15 @@ def role_requires_mfa(role: str | None) -> bool:
 
 # ── JWT CONFIG ────────────────────────────────────────────────────────────────
 
-# TODO: Read SECRET_KEY from environment and refuse insecure defaults in non-test environments
+# Read SECRET_KEY from environment; refuse insecure defaults + empty strings in non-test envs.
 SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_ME_IN_PRODUCTION")
-if SECRET_KEY == "CHANGE_ME_IN_PRODUCTION" and os.getenv("ENV", "dev") != "test":
-    raise RuntimeError("SECRET_KEY must be set for non-test environments")
+_env_name = (os.getenv("ENV") or "dev").strip().lower()
+if _env_name != "test" and (
+    not SECRET_KEY.strip() or SECRET_KEY == "CHANGE_ME_IN_PRODUCTION"
+):
+    raise RuntimeError(
+        "SECRET_KEY must be set to a non-empty non-default value for non-test environments"
+    )
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
 JWT_PRIVATE_KEY_PEM = os.getenv("JWT_PRIVATE_KEY", "")

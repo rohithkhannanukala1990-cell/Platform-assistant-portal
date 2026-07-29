@@ -18,16 +18,23 @@ jobs:
       - name: Check portal health
         id: health
         run: |
-          set -e
+          set -eo pipefail
           if [ -z "$PORTAL_URL" ]; then
             echo "status=skipped" >> "$GITHUB_OUTPUT"
             echo "HEALTH_FAILED=false" >> "$GITHUB_ENV"
             echo "PORTAL_URL secret not set — skipping remote probe"
             exit 0
           fi
-          STATUS=$(curl -sf "$PORTAL_URL/api/health/summary" | jq -r '.status')
+          # Treat curl failure (portal fully down) as critical — otherwise the
+          # pipe-swallowed error hides total outages behind a green run.
+          BODY=$(curl -sfS --max-time 20 "$PORTAL_URL/api/health/summary") || BODY=""
+          if [ -z "$BODY" ]; then
+            STATUS="critical"
+          else
+            STATUS=$(echo "$BODY" | jq -r '.status // "unknown"')
+          fi
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          if [ "$STATUS" = "critical" ]; then
+          if [ "$STATUS" = "critical" ] || [ "$STATUS" = "unknown" ]; then
             echo "HEALTH_FAILED=true" >> "$GITHUB_ENV"
           else
             echo "HEALTH_FAILED=false" >> "$GITHUB_ENV"

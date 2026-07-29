@@ -123,3 +123,71 @@ def test_cors_strips_wildcard_and_fail_closed_production(monkeypatch):
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
     monkeypatch.delenv("FRONTEND_URL", raising=False)
     assert main_mod._cors_allow_origins() == []
+
+
+def test_prod_compose_requires_secrets_fail_fast():
+    """Empty SECRET_KEY / POSTGRES_PASSWORD must not silently interpolate."""
+    from pathlib import Path
+
+    prod = (
+        Path(__file__).resolve().parents[2]
+        / "deploy"
+        / "docker-compose.prod.yml"
+    )
+    raw = prod.read_text(encoding="utf-8")
+    for var in (
+        "POSTGRES_PASSWORD",
+        "REDIS_PASSWORD",
+        "SECRET_KEY",
+        "SECRETS_ENCRYPTION_KEY",
+        "DEFAULT_ADMIN_PASSWORD",
+    ):
+        assert f"${{{var}:?" in raw, f"{var} must use ${{VAR:?err}} fail-fast syntax"
+
+
+def test_prod_compose_frontend_has_writable_tmpfs():
+    """nginx:alpine on read_only rootfs needs tmpfs for /var/cache/nginx + /var/run."""
+    from pathlib import Path
+
+    raw = (
+        Path(__file__).resolve().parents[2]
+        / "deploy"
+        / "docker-compose.prod.yml"
+    ).read_text(encoding="utf-8")
+    assert "/var/cache/nginx" in raw, "frontend must mount /var/cache/nginx as tmpfs"
+    assert "/var/run" in raw, "frontend must mount /var/run as tmpfs"
+
+
+def test_prod_compose_forwards_sso_and_webhook_env():
+    """SAML / Google / webhook HMAC secrets must reach api containers."""
+    from pathlib import Path
+
+    raw = (
+        Path(__file__).resolve().parents[2]
+        / "deploy"
+        / "docker-compose.prod.yml"
+    ).read_text(encoding="utf-8")
+    for key in (
+        "SAML_IDP_METADATA_URL",
+        "SAML_SP_ACS_URL",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_REDIRECT_URI",
+        "GITHUB_WEBHOOK_SECRET",
+        "OPENAI_API_KEY",
+    ):
+        assert key in raw, f"prod compose must forward {key} to api containers"
+
+
+def test_health_workflow_uses_pipefail():
+    """Daily health check must alert on total outage (curl failure)."""
+    from pathlib import Path
+
+    raw = (
+        Path(__file__).resolve().parents[2]
+        / ".github"
+        / "workflows"
+        / "health.yml"
+    ).read_text(encoding="utf-8")
+    assert "pipefail" in raw
+    # curl failure must fall through to critical
+    assert 'STATUS="critical"' in raw or "STATUS=critical" in raw

@@ -220,4 +220,5 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Latent policy holes — golden-path `tenant_id`; clear read_only `commands`
 - [x] `backend/tests/test_phase_p1_production_blockers.py` — SSL, SSRF, demo, executor, weak admin, CORS
 - [x] Pytest green (268); backlog P0 + critical P1 marked `[x]`; no git push; no P2 feature work
+- [x] Prod/CI audit follow-up (ID-070–074): frontend tmpfs; secrets fail-fast (`${VAR:?err}` + reject empty `SECRET_KEY`); SAML/Google/LLM/webhook env passthrough; daily health workflow `pipefail` + treat curl failure as critical
 
