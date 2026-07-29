@@ -148,7 +148,11 @@ class ToolAccountUpdateBody(BaseModel):
 
 
 @router.get("/api/tools/categories")
-def api_tools_categories(current_user: User = Depends(get_current_user)):
+def api_tools_categories(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
     with Session(db_engine) as session:
         out: list[dict] = []
         for cat_id in _REGISTRY_CATEGORY_ORDER:
@@ -159,12 +163,20 @@ def api_tools_categories(current_user: User = Depends(get_current_user)):
             if not tids:
                 account_count = 0
             else:
-                accounts = session.exec(
-                    select(ToolAccount).where(
-                        ToolAccount.tool_id.in_(tids),
-                        ToolAccount.is_active == 1,
-                    )
-                ).all()
+                aq = select(ToolAccount).where(
+                    ToolAccount.tool_id.in_(tids),
+                    ToolAccount.is_active == 1,
+                )
+                aq = apply_tenant_filter(aq, ToolAccount, tenant_id)
+                role = (current_user.role or "").strip().lower()
+                if role not in {"admin", "superadmin", "platformadmin"}:
+                    uid = str(current_user.id) if current_user.id is not None else None
+                    ownership = []
+                    if uid:
+                        ownership.append(ToolAccount.owner_user_id == uid)
+                    ownership.append(ToolAccount.created_by == current_user.username)
+                    aq = aq.where(or_(*ownership))
+                accounts = session.exec(aq).all()
                 account_count = len(accounts)
             out.append(
                 {
@@ -278,16 +290,29 @@ def api_tool_required_fields(tool_id: str, current_user: User = Depends(get_curr
 
 
 @router.get("/api/tools/{tool_id}/accounts/matrix")
-def api_tool_accounts_matrix(tool_id: str, current_user: User = Depends(get_current_user)):
+def api_tool_accounts_matrix(
+    tool_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
     """Per-account × environment matrix (connection status for the account's environment)."""
+    tenant_id = require_tenant(request)
     with Session(db_engine) as session:
         if not session.get(Tool, tool_id):
             raise HTTPException(status_code=404, detail="Tool not found")
-        rows = session.exec(
-            select(ToolAccount)
-            .where(ToolAccount.tool_id == tool_id, ToolAccount.is_active == 1)
-            .order_by(ToolAccount.created_at.desc())
-        ).all()
+        q = select(ToolAccount).where(
+            ToolAccount.tool_id == tool_id, ToolAccount.is_active == 1
+        )
+        q = apply_tenant_filter(q, ToolAccount, tenant_id)
+        role = (current_user.role or "").strip().lower()
+        if role not in {"admin", "superadmin", "platformadmin"}:
+            uid = str(current_user.id) if current_user.id is not None else None
+            ownership = []
+            if uid:
+                ownership.append(ToolAccount.owner_user_id == uid)
+            ownership.append(ToolAccount.created_by == current_user.username)
+            q = q.where(or_(*ownership))
+        rows = session.exec(q.order_by(ToolAccount.created_at.desc())).all()
         accounts_out: list[dict] = []
         for acc in rows:
             matrix: dict[str, dict | None] = {}

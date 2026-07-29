@@ -211,23 +211,42 @@ def list_catalog(
 
 
 @router.get("/dependencies")
-def list_dependencies(current_user: User = Depends(get_current_user)):
+def list_dependencies(request: Request, current_user: User = Depends(get_current_user)):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
         names = _entity_name_map(session)
+        entity_ids = {
+            e.id
+            for e in session.exec(
+                select(CatalogEntity).where(
+                    CatalogEntity.is_active == 1,
+                    CatalogEntity.tenant_id == tenant_id,
+                )
+            ).all()
+        }
         rows = session.exec(select(ServiceDependency).order_by(ServiceDependency.created_at.desc())).all()
-        return [_serialize_dependency(r, names) for r in rows]
+        return [
+            _serialize_dependency(r, names)
+            for r in rows
+            if r.from_entity_id in entity_ids and r.to_entity_id in entity_ids
+        ]
 
 
 @router.post("/dependencies")
-def create_dependency(body: DependencyCreate, current_user: User = Depends(get_current_user)):
+def create_dependency(
+    request: Request,
+    body: DependencyCreate,
+    current_user: User = Depends(get_current_user),
+):
     dep_type = (body.dep_type or "calls").strip()
     if dep_type not in _VALID_DEP_TYPES:
         raise HTTPException(status_code=400, detail="dep_type must be calls, uses, or depends_on")
     if body.from_entity_id == body.to_entity_id:
         raise HTTPException(status_code=400, detail="from and to must differ")
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
-        _get_active(session, body.from_entity_id)
-        _get_active(session, body.to_entity_id)
+        _get_active(session, body.from_entity_id, tenant_id=tenant_id)
+        _get_active(session, body.to_entity_id, tenant_id=tenant_id)
         names = _entity_name_map(session)
         row = ServiceDependency(
             id=str(uuid.uuid4()),
@@ -243,11 +262,18 @@ def create_dependency(body: DependencyCreate, current_user: User = Depends(get_c
 
 
 @router.delete("/dependencies/{dep_id}")
-def delete_dependency(dep_id: str, current_user: User = Depends(get_current_user)):
+def delete_dependency(
+    request: Request,
+    dep_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
         row = session.get(ServiceDependency, dep_id)
         if not row:
             raise HTTPException(status_code=404, detail="Dependency not found")
+        _get_active(session, row.from_entity_id, tenant_id=tenant_id)
+        _get_active(session, row.to_entity_id, tenant_id=tenant_id)
         session.delete(row)
         session.commit()
     return {"ok": True}
@@ -255,6 +281,7 @@ def delete_dependency(dep_id: str, current_user: User = Depends(get_current_user
 
 @router.get("/search", response_model=PaginatedCatalogResults)
 def search_catalog(
+    request: Request,
     q: str = Query(default="", description="Search term"),
     type: str = Query(default="", description="Entity type filter"),
     page: int = Query(default=1, ge=1),
@@ -263,7 +290,11 @@ def search_catalog(
     db: Session = Depends(get_db),
 ):
     """Paginated catalog search. Declared before /{entity_id} so 'search' is not captured as an id."""
-    q_obj = db.query(CatalogEntity).filter(CatalogEntity.is_active == 1)
+    tenant_id = require_tenant(request)
+    q_obj = db.query(CatalogEntity).filter(
+        CatalogEntity.is_active == 1,
+        CatalogEntity.tenant_id == tenant_id,
+    )
     if q:
         q_obj = q_obj.filter(CatalogEntity.name.ilike(f"%{q}%"))
     if type:

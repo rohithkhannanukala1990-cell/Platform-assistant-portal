@@ -993,6 +993,8 @@ async def approve_execution(
     _admin: User = Depends(require_admin),
     _perm: None = Depends(require_permission("ai_tools", "approve")),
 ):
+    from ..services.approval_claim import claim_ai_execution
+
     approver = (body.approved_by or "admin").strip()
     with Session(engine) as session:
         row = session.get(AIToolExecution, execution_id)
@@ -1000,17 +1002,33 @@ async def approve_execution(
             raise HTTPException(status_code=404, detail="Execution not found")
         if row.status != "pending_approval":
             raise HTTPException(status_code=400, detail="Execution is not pending approval")
-
-        try:
-            result = await tool_executor.approve_execution(execution_id, approver)
-        except Exception as exc:
-            # TODO: Increment ai_actions_error_total and log the failure for observability
-            AI_ACTIONS_ERROR_TOTAL.inc()
-            logger.error(
-                "AI execution approval failed",
-                extra={"source": "ai_assistant", "provider": str(exc)},
+        if not claim_ai_execution(session, execution_id, approved_by=approver):
+            raise HTTPException(
+                status_code=409, detail="Execution already claimed or not pending approval"
             )
-            raise HTTPException(status_code=502, detail="Execution failed") from exc
+
+    try:
+        result = await tool_executor.approve_execution(execution_id, approver)
+    except Exception as exc:
+        # TODO: Increment ai_actions_error_total and log the failure for observability
+        AI_ACTIONS_ERROR_TOTAL.inc()
+        logger.error(
+            "AI execution approval failed",
+            extra={"source": "ai_assistant", "provider": str(exc)},
+        )
+        with Session(engine) as session:
+            row = session.get(AIToolExecution, execution_id)
+            if row:
+                row.status = "failed"
+                row.result = json.dumps({"error": "execution_failed"})
+                session.add(row)
+                session.commit()
+        raise HTTPException(status_code=502, detail="Execution failed") from exc
+
+    with Session(engine) as session:
+        row = session.get(AIToolExecution, execution_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Execution not found")
         row.status = "completed"
         row.approved_by = result.get("approved_by") or approver
         row.approved_at = _now()

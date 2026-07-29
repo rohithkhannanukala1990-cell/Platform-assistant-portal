@@ -8,15 +8,16 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlmodel import Field, Session, SQLModel, select
 
-from ..auth import User, get_current_user
+from ..auth import User, get_current_user, require_admin
 from ..database import engine
 from .audit_log import log_audit_event
 from .catalog import CatalogEntity
 from .rbac import TRIGGER_ENTITY_ACTION, require_capability
+from ..services.isolation import assert_same_tenant, require_tenant
 
 router = APIRouter(prefix="/api/entity-actions", tags=["entity-actions"])
 catalog_router = APIRouter(prefix="/api/catalog", tags=["entity-actions"])
@@ -69,10 +70,14 @@ class ActionRunRequest(BaseModel):
     inputs_json: Optional[dict[str, Any]] = None
 
 
-def _get_active_entity(session: Session, entity_id: str) -> CatalogEntity:
+def _get_active_entity(
+    session: Session, entity_id: str, *, tenant_id: str | None = None
+) -> CatalogEntity:
     row = session.get(CatalogEntity, entity_id)
     if not row or not row.is_active:
         raise HTTPException(status_code=404, detail="Catalog entity not found")
+    if tenant_id is not None:
+        assert_same_tenant(getattr(row, "tenant_id", None), tenant_id)
     return row
 
 
@@ -246,7 +251,7 @@ def list_entity_actions(current_user: User = Depends(get_current_user)):
 
 
 @router.post("")
-def create_entity_action(body: EntityActionCreate, current_user: User = Depends(get_current_user)):
+def create_entity_action(body: EntityActionCreate, current_user: User = Depends(require_admin)):
     with Session(engine) as session:
         dup = session.exec(select(EntityAction).where(EntityAction.slug == body.slug.strip())).first()
         if dup:
@@ -284,9 +289,14 @@ def create_entity_action(body: EntityActionCreate, current_user: User = Depends(
 
 
 @catalog_router.get("/{entity_id}/actions")
-def list_applicable_actions(entity_id: str, current_user: User = Depends(get_current_user)):
+def list_applicable_actions(
+    request: Request,
+    entity_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
-        entity = _get_active_entity(session, entity_id)
+        entity = _get_active_entity(session, entity_id, tenant_id=tenant_id)
         rows = session.exec(select(EntityAction).where(EntityAction.is_active == 1)).all()
         applicable = [
             _serialize_action(a)
@@ -298,15 +308,15 @@ def list_applicable_actions(entity_id: str, current_user: User = Depends(get_cur
 
 @catalog_router.post("/{entity_id}/actions/{action_id}/run")
 async def run_entity_action(
+    request: Request,
     entity_id: str,
     action_id: str,
     body: ActionRunRequest | None = None,
     current_user: User = Depends(require_capability(TRIGGER_ENTITY_ACTION)),
 ):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
-        # TODO: Enforce workspace membership when CatalogEntity gains a
-        # workspace relationship; entities are currently global.
-        entity = _get_active_entity(session, entity_id)
+        entity = _get_active_entity(session, entity_id, tenant_id=tenant_id)
         action = session.get(EntityAction, action_id)
         if not action or not action.is_active:
             raise HTTPException(status_code=404, detail="Action not found")
@@ -371,12 +381,20 @@ async def run_entity_action(
 
 @runs_router.get("")
 def list_action_runs(
+    request: Request,
     entity_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
 ):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
-        q = select(EntityActionRun).order_by(EntityActionRun.created_at.desc())
+        q = (
+            select(EntityActionRun)
+            .join(CatalogEntity, CatalogEntity.id == EntityActionRun.entity_id)
+            .where(CatalogEntity.tenant_id == tenant_id)
+            .order_by(EntityActionRun.created_at.desc())
+        )
         if entity_id:
+            _get_active_entity(session, entity_id, tenant_id=tenant_id)
             q = q.where(EntityActionRun.entity_id == entity_id)
         rows = session.exec(q).all()
         out = []
@@ -387,10 +405,16 @@ def list_action_runs(
 
 
 @runs_router.get("/{run_id}")
-def get_action_run(run_id: str, current_user: User = Depends(get_current_user)):
+def get_action_run(
+    request: Request,
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
         row = session.get(EntityActionRun, run_id)
         if not row:
             raise HTTPException(status_code=404, detail="Run not found")
+        _get_active_entity(session, row.entity_id, tenant_id=tenant_id)
         action = session.get(EntityAction, row.action_id)
         return _serialize_run(row, action_name=action.name if action else None)

@@ -190,7 +190,21 @@ def evaluate_command(
             matched_rule_ids=[rule.id],
         )
 
-    return PolicyDecision(effect=EFFECT_ALLOW, reasons=["no matching rule (default allow)"])
+    import os
+
+    process_env = (os.getenv("ENV") or "dev").strip().lower()
+    fail_closed = env_n == "production" or process_env in {"production", "prod", "dr"}
+    return PolicyDecision(
+        effect=EFFECT_REQUIRE_APPROVAL if fail_closed else EFFECT_ALLOW,
+        reasons=[
+            "no matching rule (default require_approval in production)"
+            if fail_closed
+            else "no matching rule (default allow)"
+        ],
+        matched_rule_ids=["default_production_require_approval"]
+        if fail_closed
+        else ["default_allow"],
+    )
 
 
 def evaluate_commands(

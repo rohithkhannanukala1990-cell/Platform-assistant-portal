@@ -226,8 +226,14 @@ def monitor_cicd_pipelines(self):
     """
     import random as _rand
     from .database import save_incident, create_notification
-    from .services.demo_fixtures import CICD_MONITOR_SCENARIOS
+    from .services.demo_fixtures import CICD_MONITOR_SCENARIOS, demo_data_enabled
     from .services.incidents_service import hitl_evaluate as _hitl_evaluate
+
+    if not demo_data_enabled():
+        logger.info(
+            "[celery] monitor_cicd_pipelines: skipped (ENABLE_DEMO_DATA=false; no fake incidents)"
+        )
+        return {"skipped": True, "reason": "demo_data_disabled"}
 
     logger.info("[celery] monitor_cicd_pipelines: starting scan")
 

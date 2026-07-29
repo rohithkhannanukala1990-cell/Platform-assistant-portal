@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from .registry import BaseConnector
+from ..services.ssrf import assert_safe_outbound_url
 
 
 class OutboundWebhookConnector(BaseConnector):
@@ -41,13 +42,20 @@ class OutboundWebhookConnector(BaseConnector):
                 "ok": False,
                 "error": {"type": "not_configured", "message": "Outbound webhook URL missing"},
             }
-        # Soft ping — do not POST on ping; just validate URL shape.
+        try:
+            assert_safe_outbound_url(url)
+        except ValueError as exc:
+            return {"ok": False, "error": {"type": "ssrf_blocked", "message": str(exc)}}
         return {"ok": True, "url_host": url.split("/")[2] if "://" in url else url[:40]}
 
     async def deliver(self, event: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         url = self._url()
         if not self.configured:
             return {"ok": False, "error": "not_configured"}
+        try:
+            assert_safe_outbound_url(url)
+        except ValueError as exc:
+            return {"ok": False, "error": f"ssrf_blocked: {exc}"}
         body = {
             "event": event or "custom",
             "timestamp": datetime.now(timezone.utc).isoformat(),

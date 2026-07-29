@@ -26,6 +26,18 @@ class ArgoCDConnector(BaseConnector):
             or ""
         ).strip()
 
+    def _verify_tls(self) -> bool:
+        """TLS verify on by default. Opt-in insecure only via account flag; never in production ENV."""
+        import os
+
+        env = (os.getenv("ENV") or "dev").strip().lower()
+        if env in {"production", "prod", "dr"}:
+            return True
+        raw = str(self.account.get("insecure_skip_tls_verify") or "").strip().lower()
+        if raw in {"1", "true", "yes", "on"}:
+            return False
+        return True
+
     def _headers(self) -> dict[str, str]:
         headers = {"Accept": "application/json"}
         token = self._token()
@@ -45,7 +57,7 @@ class ArgoCDConnector(BaseConnector):
                 "error": {"type": "not_configured", "message": "ArgoCD instance_url or token missing"},
             }
         try:
-            async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            async with httpx.AsyncClient(timeout=15.0, verify=self._verify_tls()) as client:
                 resp = await client.get(
                     urljoin(base + "/", "api/v1/session/userinfo"),
                     headers=self._headers(),
@@ -75,7 +87,7 @@ class ArgoCDConnector(BaseConnector):
         if not self.configured:
             return []
         try:
-            async with httpx.AsyncClient(timeout=25.0, verify=False) as client:
+            async with httpx.AsyncClient(timeout=25.0, verify=self._verify_tls()) as client:
                 resp = await client.get(
                     urljoin(base + "/", "api/v1/applications"),
                     headers=self._headers(),

@@ -206,3 +206,18 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] `docs/PRODUCTION_BUG_BACKLOG.md` — P0–P3 + wontfix issues with file:line, invariants, P1–P8 mapping
 - [x] Pytest collect-only green (258); no code behavior changes in P0
 
+## Phase P1 — P0 blockers + critical P1 security/data-plane
+- [x] Approval races — CAS claim for agents, incidents, MCP HITL, AI executions (`services/approval_claim.py`)
+- [x] Tenant isolation — scorecards, entity actions, catalog search/deps, incident approvals, tools matrix/categories
+- [x] AuthZ — admin-only agent/incident approve+reject; entity action create admin-only
+- [x] SSL — Argo CD `verify=True` by default; never insecure in production ENV
+- [x] SSRF — outbound webhook URL allowlist (http/https) + block private/link-local/metadata/`file://`
+- [x] SafeExecutor / policy — production unmatched → `require_approval`; refuse execute without `approved=True`
+- [x] Demo gate — `monitor_cicd_pipelines` no-op when `ENABLE_DEMO_DATA=false`
+- [x] Weak admin — refuse `seed_default_admin` in production for weak `DEFAULT_ADMIN_PASSWORD`
+- [x] CORS — no `*` in production; deny-all if origins unset
+- [x] Container hygiene — `.dockerignore`, non-root `USER`, `public/.gitkeep`
+- [x] Latent policy holes — golden-path `tenant_id`; clear read_only `commands`
+- [x] `backend/tests/test_phase_p1_production_blockers.py` — SSL, SSRF, demo, executor, weak admin, CORS
+- [x] Pytest green (268); backlog P0 + critical P1 marked `[x]`; no git push; no P2 feature work
+

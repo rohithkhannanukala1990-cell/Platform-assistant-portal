@@ -212,6 +212,16 @@ app.add_middleware(WorkspaceIsolationMiddleware)
 def _cors_allow_origins() -> list[str]:
     raw = (os.getenv("ALLOWED_ORIGINS") or os.getenv("FRONTEND_URL") or "").strip()
     origins = [o.strip() for o in raw.split(",") if o.strip()]
+    # Never allow wildcard with credentials
+    origins = [o for o in origins if o != "*"]
+    env = (os.getenv("ENV") or "dev").strip().lower()
+    if env in {"production", "prod", "dr"}:
+        if not origins:
+            logger.error(
+                "ALLOWED_ORIGINS/FRONTEND_URL unset in production — CORS deny-all (no * fallback)"
+            )
+            return []
+        return origins
     if origins:
         return origins
     return [

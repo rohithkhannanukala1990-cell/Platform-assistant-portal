@@ -178,19 +178,18 @@ def update_incident_status(
 _APPROVAL_STATUSES = ("AWAITING_APPROVAL", "ESCALATED_SECURITY_RISK")
 
 
-def get_pending_approvals(role: str | None = None) -> list[dict]:
+def get_pending_approvals(role: str | None = None, tenant_id: str | None = None) -> list[dict]:
     """
     Return incidents that require human attention:
       - AWAITING_APPROVAL       → needs approve/reject
       - ESCALATED_SECURITY_RISK → needs manual intervention (guardrail fired)
-    Optionally filtered by owner_role.
+    Optionally filtered by owner_role and tenant.
     """
     with Session(engine) as session:
-        rows = session.exec(
-            select(Incident)
-            .where(Incident.status.in_(_APPROVAL_STATUSES))
-            .order_by(Incident.timestamp.desc())
-        ).all()
+        q = select(Incident).where(Incident.status.in_(_APPROVAL_STATUSES))
+        if tenant_id is not None:
+            q = q.where(Incident.tenant_id == tenant_id)
+        rows = session.exec(q.order_by(Incident.timestamp.desc())).all()
     results = [_serialize_incident(r) for r in rows]
     if role and role != "Admin":
         results = [r for r in results if r["owner_role"] == role]

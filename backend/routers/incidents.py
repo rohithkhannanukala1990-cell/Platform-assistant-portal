@@ -11,7 +11,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ..ai.ai_utils import call_llm
-from ..auth import User, get_current_user, write_audit
+from ..auth import User, get_current_user, require_admin, write_audit
 from ..database import (
     create_notification,
     get_incident,
@@ -24,12 +24,15 @@ from ..executor.safe_executor import safe_executor
 from ..observability.metrics import ACTIVE_APPROVALS, HITL_APPROVAL_SECONDS
 from ..rate_limit import limiter
 from ..services import incidents_service
+from ..services.approval_claim import claim_incident_approval
 from ..services.incident_timeline import (
     append_timeline_event,
     enrich_incident_detail,
     extract_executable_commands,
 )
 from ..services.isolation import require_tenant
+from sqlmodel import Session
+from ..database import engine
 from ..services.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, clamp_page
 from ..services.postmortem_service import (
     generate_postmortem_for_incident,
@@ -134,7 +137,8 @@ def list_pending_approvals(
     current_user: User = Depends(get_current_user),
 ):
     # Must be declared before /{incident_id} so "approvals" is not parsed as an int id.
-    return get_pending_approvals(role=role)
+    tenant_id = require_tenant(request)
+    return get_pending_approvals(role=role, tenant_id=tenant_id)
 
 
 @router.get("/api/incidents/{incident_id}")
@@ -238,7 +242,7 @@ async def approve_incident(
     request: Request,
     incident_id: int,
     body: ApprovalRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     from datetime import datetime, timezone
     import os
@@ -263,6 +267,7 @@ async def approve_incident(
         "role": current_user.role,
         "tenant_id": tenant_id,
         "tool": "shell",
+        "environment": (os.getenv("ENV") or "development").strip().lower(),
         "incident_id": incident_id,
         "approved_by": current_user.username,
     }
@@ -283,13 +288,19 @@ async def approve_incident(
             detail={"message": "Dry-run failed safety checks", "dry_run": dry},
         )
 
+    with Session(engine) as session:
+        if not claim_incident_approval(session, incident_id):
+            raise HTTPException(
+                status_code=409,
+                detail="Incident already claimed or not awaiting approval",
+            )
+
     live = (os.getenv("ENABLE_LIVE_EXECUTION") or "").strip().lower() in ("1", "true", "yes", "on")
     if commands and live:
         exec_result = await safe_executor.execute(
             commands,
             incident_id=incident_id,
             approved_by=current_user.username,
-            # This endpoint IS the HITL approval, so approval-gated commands may run.
             context={**policy_context, "approved": True},
         )
         logs = exec_result.get("logs") or ""
@@ -384,7 +395,7 @@ async def reject_incident(
     request: Request,
     incident_id: int,
     body: ApprovalRequest | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     from datetime import datetime, timezone
 
@@ -394,8 +405,17 @@ async def reject_incident(
     if incident.get("status") != "AWAITING_APPROVAL":
         raise HTTPException(status_code=400, detail="Incident is not awaiting approval")
 
+    with Session(engine) as session:
+        if not claim_incident_approval(session, incident_id, to_status="REJECTED"):
+            raise HTTPException(
+                status_code=409,
+                detail="Incident already claimed or not awaiting approval",
+            )
+
     try:
-        updated = update_incident_status(incident_id, status="REJECTED")
+        updated = get_incident(incident_id, tenant_id=require_tenant(request))
+        if not updated:
+            raise ValueError("missing")
     except ValueError:
         raise HTTPException(status_code=404, detail="Incident not found during update")
     ACTIVE_APPROVALS.dec()

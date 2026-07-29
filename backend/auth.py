@@ -520,9 +520,34 @@ def sync_user_rbac_role(
 
 # ── SEED FUNCTIONS ────────────────────────────────────────────────────────────
 
+_WEAK_ADMIN_PASSWORDS = frozenset(
+    {
+        "change_me",
+        "changeme",
+        "changeme123",
+        "admin",
+        "password",
+        "password123",
+        "admin123",
+        "secret",
+        "123456",
+        "default",
+    }
+)
+
+
+class WeakAdminPasswordError(RuntimeError):
+    """Raised when production bootstrap would use a weak DEFAULT_ADMIN_PASSWORD."""
+
+
 def seed_default_admin() -> None:
     username = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
     password = os.getenv("DEFAULT_ADMIN_PASSWORD", "changeme123")
+    env = (os.getenv("ENV") or "dev").strip().lower()
+    if env in {"production", "prod", "dr"} and password.strip().lower() in _WEAK_ADMIN_PASSWORDS:
+        raise WeakAdminPasswordError(
+            "DEFAULT_ADMIN_PASSWORD is weak; set a strong password before production startup"
+        )
     with Session(engine) as session:
         existing_admin = session.exec(
             select(User).where(User.username == username)

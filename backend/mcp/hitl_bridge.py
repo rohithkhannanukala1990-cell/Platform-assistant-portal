@@ -18,6 +18,7 @@ from ..auth import User, normalize_role, write_audit
 from ..database import engine
 from ..db.models.mcp_models import MCPServer, MCPToolCall
 from ..observability.logger import logger
+from ..services.approval_claim import claim_mcp_call
 from . import registry
 from .types import MCPTool, is_dangerous
 
@@ -25,6 +26,7 @@ STATUS_PENDING = "pending_approval"
 STATUS_COMPLETED = "completed"
 STATUS_REJECTED = "rejected"
 STATUS_ERROR = "error"
+STATUS_EXECUTING = "executing"
 
 
 def _now() -> datetime:
@@ -207,6 +209,14 @@ async def approve_call(
     except json.JSONDecodeError:
         arguments = {}
 
+    with Session(engine) as session:
+        if not claim_mcp_call(
+            session, row.id, to_status=STATUS_EXECUTING, approved_by=approver
+        ):
+            raise HTTPException(
+                status_code=409, detail="MCP call already claimed or not pending approval"
+            )
+
     try:
         result = await _execute(server, row.tool_name, arguments)
         status = STATUS_COMPLETED if result.get("ok") else STATUS_ERROR
@@ -216,6 +226,8 @@ async def approve_call(
 
     with Session(engine) as session:
         current = session.get(MCPToolCall, row.id)
+        if current is None:
+            raise HTTPException(status_code=404, detail="MCP call not found")
         current.status = status
         current.result_json = json.dumps(result, default=str)
         current.approved_by = approver
@@ -246,11 +258,16 @@ def reject_call(
 
     rejector = getattr(user, "username", "") or "admin"
     with Session(engine) as session:
+        if not claim_mcp_call(
+            session, row.id, to_status=STATUS_REJECTED, approved_by=rejector
+        ):
+            raise HTTPException(
+                status_code=409, detail="MCP call already claimed or not pending approval"
+            )
         current = session.get(MCPToolCall, row.id)
-        current.status = STATUS_REJECTED
-        current.result_json = json.dumps({"ok": False, "rejected_by": rejector, "reason": reason or ""})
-        current.approved_by = rejector
-        current.approved_at = _now()
+        current.result_json = json.dumps(
+            {"ok": False, "rejected_by": rejector, "reason": reason or ""}
+        )
         session.add(current)
         session.commit()
         session.refresh(current)

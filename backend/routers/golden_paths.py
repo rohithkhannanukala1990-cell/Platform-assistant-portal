@@ -353,6 +353,11 @@ async def _execute_golden_path_step(
             environment=str(inputs.get("environment") or "development"),
             user_id=run.requested_by,
             user_role=str(inputs.get("user_role") or "User"),
+            tenant_id=str(
+                inputs.get("tenant_id")
+                or getattr(run, "tenant_id", None)
+                or "default"
+            ),
         )
         result = await get_agent(agent_name).run(params, context, session)
         return result.to_dict()

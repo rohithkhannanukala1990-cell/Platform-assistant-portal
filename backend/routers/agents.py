@@ -12,12 +12,13 @@ from sqlmodel import Session, select, func
 
 from ..agents import get_agent, list_agents, AgentNotFound
 from ..agents.base import AgentResult
-from ..auth import AuditLog, User, get_current_user, write_audit
+from ..auth import AuditLog, User, get_current_user, require_admin, write_audit
 from ..context import PlatformContext
 from ..database import AgentRun, UserContext, engine
 from ..executor.safe_executor import safe_executor
 from ..pipeline.orchestrator import orchestrator_agent
 from ..rate_limit import limiter
+from ..services.approval_claim import claim_agent_run
 from ..services.isolation import assert_same_tenant, require_tenant
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -239,13 +240,14 @@ def get_agent_meta(
 async def approve_run(
     request: Request,
     run_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
         row = session.get(AgentRun, run_id)
         if not row:
             raise HTTPException(status_code=404, detail="Run not found")
-        assert_same_tenant(getattr(row, "tenant_id", None), require_tenant(request))
+        assert_same_tenant(getattr(row, "tenant_id", None), tenant_id)
         if row.status != "pending_approval":
             raise HTTPException(status_code=400, detail="Run is not pending approval")
 
@@ -254,41 +256,52 @@ async def approve_run(
         if not commands and isinstance(payload.get("agents"), list):
             for sub in payload["agents"]:
                 commands.extend(sub.get("details", {}).get("commands") or [])
+        env = row.environment or "development"
+        run_tenant = getattr(row, "tenant_id", None)
+        agent_name = row.agent
 
-        exec_log = None
-        if commands:
-            out = await safe_executor.execute(
-                commands,
-                incident_id=0,
-                approved_by=current_user.username,
-                # This endpoint IS the HITL approval for the run.
-                context={
-                    "role": current_user.role,
-                    "environment": row.environment or "development",
-                    "tool": "shell",
-                    "tenant_id": getattr(row, "tenant_id", None),
-                    "approved": True,
-                },
-            )
-            exec_log = out.get("logs")
-            row.status = "success" if out.get("success") else "failed"
-        else:
-            row.status = "success"
+        if not claim_agent_run(session, run_id):
+            raise HTTPException(status_code=409, detail="Run already claimed or not pending approval")
 
+    exec_log = None
+    final_status = "success"
+    if commands:
+        out = await safe_executor.execute(
+            commands,
+            incident_id=0,
+            approved_by=current_user.username,
+            context={
+                "role": current_user.role,
+                "environment": env,
+                "tool": "shell",
+                "tenant_id": run_tenant,
+                "approved": True,
+            },
+        )
+        exec_log = out.get("logs")
+        final_status = "success" if out.get("success") else "failed"
+
+    with Session(engine) as session:
+        row = session.get(AgentRun, run_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Run not found")
+        row.status = final_status
         row.execution_log = exec_log
         row.requires_approval = False
         row.updated_at = datetime.now(timezone.utc)
         session.add(row)
         session.commit()
+        session.refresh(row)
+        result = _run_to_dict(row)
 
-        write_audit(
-            current_user.username,
-            current_user.role,
-            "agent_approved",
-            resource=row.agent,
-            detail=row.id,
-        )
-        return _run_to_dict(row)
+    write_audit(
+        current_user.username,
+        current_user.role,
+        "agent_approved",
+        resource=agent_name,
+        detail=run_id,
+    )
+    return result
 
 
 @router.post("/{run_id}/reject")
@@ -296,19 +309,26 @@ async def approve_run(
 def reject_run(
     request: Request,
     run_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
         row = session.get(AgentRun, run_id)
         if not row:
             raise HTTPException(status_code=404, detail="Run not found")
-        assert_same_tenant(getattr(row, "tenant_id", None), require_tenant(request))
-        row.status = "failed"
-        row.requires_approval = False
+        assert_same_tenant(getattr(row, "tenant_id", None), tenant_id)
+        if row.status != "pending_approval":
+            raise HTTPException(status_code=400, detail="Run is not pending approval")
+        if not claim_agent_run(session, run_id, to_status="failed"):
+            raise HTTPException(status_code=409, detail="Run already claimed or not pending approval")
+        row = session.get(AgentRun, run_id)
         row.summary = f"Rejected by {current_user.username}: {row.summary}"
+        row.requires_approval = False
         row.updated_at = datetime.now(timezone.utc)
         session.add(row)
         session.commit()
+        session.refresh(row)
+        result = _run_to_dict(row)
         write_audit(
             current_user.username,
             current_user.role,
@@ -316,4 +336,4 @@ def reject_run(
             resource=row.agent,
             detail=row.id,
         )
-        return _run_to_dict(row)
+        return result

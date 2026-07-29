@@ -322,11 +322,13 @@ class BaseAgent(ABC):
         policy_summary = None
 
         if self.read_only:
+            # Never leave executable commands for the orchestrator auto-exec path.
+            safe_details = {**(details or {}), "commands": []}
             return self._result(
                 context,
                 status="success",
                 summary=summary,
-                details=details,
+                details=safe_details,
                 evidence=evidence,
                 grounding=grounding,
                 confidence=confidence,

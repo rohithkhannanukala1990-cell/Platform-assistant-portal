@@ -8,12 +8,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Field, Session, SQLModel, select
 
 from ..auth import User, get_current_user
 from ..database import engine
 from .catalog import CatalogEntity
+from ..services.isolation import assert_same_tenant, require_tenant
 from ..services.scorecard_evidence import (
     build_evidence_checks,
     weighted_overall_score,
@@ -39,10 +40,14 @@ class ScorecardCheck(SQLModel, table=True):
     evaluated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-def _get_active_entity(session: Session, entity_id: str) -> CatalogEntity:
+def _get_active_entity(
+    session: Session, entity_id: str, *, tenant_id: str | None = None
+) -> CatalogEntity:
     row = session.get(CatalogEntity, entity_id)
     if not row or not row.is_active:
         raise HTTPException(status_code=404, detail="Catalog entity not found")
+    if tenant_id is not None:
+        assert_same_tenant(getattr(row, "tenant_id", None), tenant_id)
     return row
 
 
@@ -157,10 +162,12 @@ def _persist_checks(session: Session, entity_id: str, checks: list[dict[str, Any
     return rows
 
 
-async def evaluate_scorecard_evidence(entity_id: str, *, narrative: bool = False) -> dict[str, Any]:
+async def evaluate_scorecard_evidence(
+    entity_id: str, *, narrative: bool = False, tenant_id: str | None = None
+) -> dict[str, Any]:
     """Evidence-based evaluate (no network). Optional AI narrative from checks only."""
     with Session(engine) as session:
-        entity = _get_active_entity(session, entity_id)
+        entity = _get_active_entity(session, entity_id, tenant_id=tenant_id)
         checks_data = build_evidence_checks(entity)
         rows = _persist_checks(session, entity_id, checks_data)
         narrative_text = None
@@ -191,9 +198,14 @@ async def evaluate_scorecard_evidence(entity_id: str, *, narrative: bool = False
 
 
 @router.get("/{entity_id}/scorecard")
-def get_scorecard(entity_id: str, current_user: User = Depends(get_current_user)):
+def get_scorecard(
+    request: Request,
+    entity_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
-        _get_active_entity(session, entity_id)
+        _get_active_entity(session, entity_id, tenant_id=tenant_id)
         rows = session.exec(
             select(ScorecardCheck)
             .where(ScorecardCheck.entity_id == entity_id)
@@ -203,6 +215,11 @@ def get_scorecard(entity_id: str, current_user: User = Depends(get_current_user)
 
 
 @router.post("/{entity_id}/scorecard/evaluate")
-async def evaluate_scorecard(entity_id: str, current_user: User = Depends(get_current_user)):
+async def evaluate_scorecard(
+    request: Request,
+    entity_id: str,
+    current_user: User = Depends(get_current_user),
+):
     """Phase G6: evidence-based checks with weights + last_evidence_json (no network)."""
-    return await evaluate_scorecard_evidence(entity_id, narrative=False)
+    tenant_id = require_tenant(request)
+    return await evaluate_scorecard_evidence(entity_id, narrative=False, tenant_id=tenant_id)
