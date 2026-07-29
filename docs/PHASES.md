@@ -234,3 +234,11 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] `backend/tests/test_phase_p2_reliability.py` — duplicate webhook, double approve, ready db-down, page_size cap
 - [x] Pytest green (282); backlog marked; Do NOT push git
 
+## Phase P3 — Agent production-safety + eval harness
+- [x] `BaseAgent` — `finalize_result`, command policy/deny strip, prod HITL, cap 25, secret redact, evidence truncate, `_call_llm` + `GROUNDING_RULES`
+- [x] Orchestrator — reject missing `user_id`; reject missing `tenant_id` when `ENFORCE_WORKSPACE_ISOLATION`; re-validate commands; persist grounding/evidence; audit `agent_run_*`; 30s timeout; agent exceptions → failed result
+- [x] Per-agent contract — mutating paths via finalize; read-only empty commands; cost/security no_data without cloud; alert_noise rules-based (no ML claims); scorecard uses `scorecard_evidence`; documentation no HITL shell while read_only
+- [x] Eval harness — `backend/tests/fixtures/agents/*.json` (12 scenarios) + `test_agent_eval_harness.py`
+- [x] Docs — `AGENTS.md` Production verification; backlog agent bugs marked; Do NOT push git
+- [x] Pytest green (`295 passed`)
+

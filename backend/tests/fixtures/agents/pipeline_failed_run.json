@@ -1,0 +1,45 @@
+{
+  "description": "Pipeline monitor failed run — evidence includes run id from mock",
+  "agent": "pipeline_monitor_agent",
+  "mode": "run",
+  "context": {
+    "user_id": "eval-user",
+    "user_role": "Admin",
+    "environment": "development",
+    "tenant_id": "default"
+  },
+  "params": {
+    "task": "inspect failed run 987654321",
+    "owner": "acme",
+    "repo": "payments",
+    "run_id": 987654321
+  },
+  "mock_tools": {
+    "github": {
+      "get_workflow_run": {
+        "id": 987654321,
+        "name": "CI",
+        "conclusion": "failure",
+        "status": "completed",
+        "html_url": "https://github.com/acme/payments/actions/runs/987654321"
+      },
+      "list_workflow_run_jobs": [
+        {
+          "name": "test",
+          "conclusion": "failure",
+          "status": "completed",
+          "html_url": "https://github.com/acme/payments/actions/runs/987654321/job/1",
+          "steps": [{"name": "pytest", "conclusion": "failure"}]
+        }
+      ]
+    },
+    "mcp_enabled": false
+  },
+  "expected": {
+    "grounding": ["live", "partial"],
+    "status_in": ["success", "failed"],
+    "must_contain": ["987654321"],
+    "must_not_contain": ["run-000000", "invented-workflow"],
+    "commands_empty": true
+  }
+}

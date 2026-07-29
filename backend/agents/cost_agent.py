@@ -32,6 +32,7 @@ class CostAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         today = date.today()
         start = params.get("start") or today.replace(day=1).isoformat()
         end = params.get("end") or today.isoformat()

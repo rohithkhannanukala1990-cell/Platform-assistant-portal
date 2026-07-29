@@ -1,4 +1,4 @@
-"""Scorecard agent — entity scorecard evaluation from DB (grounded)."""
+"""Scorecard agent — entity scorecard evaluation from evidence service (grounded)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 from ..context import PlatformContext
 from ..routers.catalog import CatalogEntity
 from ..routers.scorecards import ScorecardCheck
+from ..services.scorecard_evidence import build_evidence_checks, weighted_overall_score
 from .base import AgentResult, BaseAgent
 
 
@@ -20,87 +21,105 @@ class ScorecardAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         service = params.get("service") or params.get("service_name")
         threshold = params.get("score_threshold")
         entity_id = params.get("entity_id")
         evidence: list[dict] = []
+        scorecards: list[dict] = []
+        overall = 0
+        failing = []
+        passing = []
 
         try:
+            entity: CatalogEntity | None = None
             if service and not entity_id:
-                ent = db.exec(
+                entity = db.exec(
                     select(CatalogEntity).where(CatalogEntity.name == service)
                 ).first()
-                entity_id = ent.id if ent else None
-                if ent:
+                entity_id = entity.id if entity else None
+            elif entity_id:
+                entity = db.get(CatalogEntity, entity_id)
+
+            if entity is not None:
+                evidence.append(
+                    self._evidence(
+                        type="catalog_entity",
+                        title=entity.name,
+                        source="catalog_db",
+                        snippet=f"entity_id={entity.id}",
+                    )
+                )
+                # Prefer evidence-based checks (Phase G6) when entity is known.
+                checks_data = build_evidence_checks(entity)
+                for c in checks_data:
+                    scorecards.append(c)
                     evidence.append(
                         self._evidence(
-                            type="catalog_entity",
-                            title=ent.name,
-                            source="catalog_db",
-                            snippet=f"entity_id={ent.id}",
+                            type="scorecard_check",
+                            title=f"{c.get('check_name')} ({c.get('status')})",
+                            source="scorecard_evidence",
+                            snippet=json.dumps(c.get("evidence") or {}, default=str)[:1000],
                         )
                     )
-
-            q = select(ScorecardCheck)
-            if entity_id:
-                q = q.where(ScorecardCheck.entity_id == entity_id)
-            checks = list(db.exec(q).all())
+                overall = weighted_overall_score(checks_data)
+                failing = [c for c in checks_data if c.get("status") == "fail"]
+                passing = [c for c in checks_data if c.get("status") == "pass"]
+            else:
+                q = select(ScorecardCheck)
+                if entity_id:
+                    q = q.where(ScorecardCheck.entity_id == entity_id)
+                checks = list(db.exec(q).all())
+                if threshold is not None:
+                    try:
+                        t = int(threshold)
+                        checks = [c for c in checks if c.score < t]
+                    except (TypeError, ValueError):
+                        pass
+                failing = [c for c in checks if c.status in ("fail", "failed")]
+                passing = [c for c in checks if c.status in ("pass", "passed", "ok")]
+                if checks:
+                    overall = round(sum(c.score for c in checks) / len(checks), 1)
+                for c in checks:
+                    row = {
+                        "entity_id": c.entity_id,
+                        "category": c.category,
+                        "check_name": c.check_name,
+                        "status": c.status,
+                        "score": c.score,
+                        "rationale": c.rationale,
+                    }
+                    scorecards.append(row)
+                    evidence.append(
+                        self._evidence(
+                            type="scorecard_check",
+                            title=f"{c.check_name} ({c.status})",
+                            source="scorecards_db",
+                            snippet=json.dumps(row, default=str)[:1000],
+                        )
+                    )
         except Exception as exc:
             return self._result(
                 context,
                 status="failed",
                 summary="Failed to query scorecard checks from DB",
-                details={"error": str(exc)[:300]},
+                details={"error": str(exc)[:300], "commands": []},
                 grounding="none",
                 confidence=0.0,
                 errors=[str(exc)[:300]],
             )
 
-        if threshold is not None:
-            try:
-                t = int(threshold)
-                checks = [c for c in checks if c.score < t]
-            except (TypeError, ValueError):
-                pass
-
-        failing = [c for c in checks if c.status in ("fail", "failed")]
-        passing = [c for c in checks if c.status in ("pass", "passed", "ok")]
-
-        overall = 0
-        if checks:
-            overall = round(sum(c.score for c in checks) / len(checks), 1)
-
-        scorecards = []
-        for c in checks:
-            row = {
-                "entity_id": c.entity_id,
-                "category": c.category,
-                "check_name": c.check_name,
-                "status": c.status,
-                "score": c.score,
-                "rationale": c.rationale,
-            }
-            scorecards.append(row)
-            evidence.append(
-                self._evidence(
-                    type="scorecard_check",
-                    title=f"{c.check_name} ({c.status})",
-                    source="scorecards_db",
-                    snippet=json.dumps(row, default=str)[:1000],
-                )
-            )
-
         note = ""
-        if not checks:
-            note = " No scorecard checks found in DB (empty result is live from DB)."
+        if not scorecards:
+            note = " No scorecard checks found (empty result is live from DB/evidence)."
 
         summary = (
             f"Scorecard for {service or entity_id or 'all'}: {overall}% "
-            f"({len(checks)} checks).{note}"
+            f"({len(scorecards)} checks).{note}"
         )
 
         llm_narrative = None
-        if checks and params.get("narrative"):
+        if scorecards and params.get("narrative"):
             try:
                 raw = await self._call_llm(
                     "Write a short narrative from scorecard check evidence only.",
@@ -120,11 +139,13 @@ class ScorecardAgent(BaseAgent):
                 "service": service,
                 "entity_id": entity_id,
                 "scorecards": scorecards,
+                "checks": scorecards,
                 "overall_score": overall,
                 "failing_checks": len(failing),
                 "passing_checks": len(passing),
-                "empty": len(checks) == 0,
+                "empty": len(scorecards) == 0,
                 "narrative": llm_narrative,
+                "commands": [],
             },
             evidence=evidence
             or [
@@ -136,7 +157,7 @@ class ScorecardAgent(BaseAgent):
                 )
             ],
             grounding="live",
-            confidence=0.9 if checks else 0.75,
+            confidence=0.9 if scorecards else 0.75,
         )
 
 

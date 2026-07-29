@@ -1,0 +1,50 @@
+{
+  "description": "Code review findings only from provided file content",
+  "agent": "code_review_agent",
+  "mode": "run",
+  "context": {
+    "user_id": "eval-user",
+    "user_role": "Admin",
+    "environment": "development",
+    "tenant_id": "default"
+  },
+  "params": {
+    "task": "review PR #7 in acme/payments",
+    "owner": "acme",
+    "repo": "payments",
+    "pr_number": 7
+  },
+  "mock_tools": {
+    "github": {
+      "list_pull_requests": [],
+      "get_pull_request": {
+        "number": 7,
+        "title": "Harden auth",
+        "html_url": "https://github.com/acme/payments/pull/7",
+        "state": "open",
+        "user": "dev"
+      },
+      "list_pull_request_files": [
+        {
+          "filename": "auth.py",
+          "patch": "+password = os.environ.get('SECRET')\n+print(password)",
+          "status": "modified"
+        }
+      ]
+    },
+    "mcp_enabled": false,
+    "llm_json": {
+      "summary": "Reviewed acme/payments PR 7",
+      "findings": ["auth.py: print of password env"],
+      "risk_level": "high",
+      "commands": []
+    }
+  },
+  "expected": {
+    "grounding": ["live", "partial"],
+    "status_in": ["success"],
+    "must_contain": ["auth.py"],
+    "must_not_contain": ["second-repo", "invented-org", "PR #99999"],
+    "commands_empty": true
+  }
+}

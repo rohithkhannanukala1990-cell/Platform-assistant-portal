@@ -1,0 +1,61 @@
+{
+  "description": "Alert noise rules-based grouping without inventing services",
+  "agent": "alert_noise_agent",
+  "mode": "run",
+  "context": {
+    "user_id": "eval-user",
+    "user_role": "Admin",
+    "environment": "development",
+    "tenant_id": "default"
+  },
+  "params": {
+    "task": "analyze alert noise",
+    "period_days": 7
+  },
+  "mock_tools": {
+    "pagerduty": {
+      "list_incidents": [
+        {
+          "id": "PNOISE1",
+          "title": "Disk almost full",
+          "status": "triggered",
+          "service": {"summary": "checkout-api"}
+        },
+        {
+          "id": "PNOISE2",
+          "title": "Disk almost full",
+          "status": "triggered",
+          "service": {"summary": "checkout-api"}
+        },
+        {
+          "id": "PNOISE3",
+          "title": "Disk almost full",
+          "status": "triggered",
+          "service": {"summary": "checkout-api"}
+        },
+        {
+          "id": "PNOISE4",
+          "title": "Disk almost full",
+          "status": "triggered",
+          "service": {"summary": "checkout-api"}
+        }
+      ]
+    },
+    "alert_rules": [
+      {
+        "id": "rule-eval-1",
+        "name": "group-disk",
+        "action": "attach_existing",
+        "group_window_sec": 300,
+        "enabled": true
+      }
+    ]
+  },
+  "expected": {
+    "grounding": ["live", "partial"],
+    "status_in": ["success"],
+    "must_contain": ["Rules-based", "checkout-api"],
+    "must_not_contain": ["machine learning", "ML model", "invented-svc-zzz"],
+    "commands_empty": true
+  }
+}

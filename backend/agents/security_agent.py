@@ -50,6 +50,7 @@ class SecurityAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         # Prefer explicit findings payload when provided (already grounded).
         injected = params.get("findings")
         if isinstance(injected, list) and injected:
@@ -121,19 +122,21 @@ class SecurityAgent(BaseAgent):
         if critical_count > 0:
             return self._result(
                 context,
-                status="pending_approval",
+                status="success",
                 summary=summary,
-                details=details,
-                requires_approval=True,
-                approval_payload={
-                    "action": "remediate_security_findings",
-                    "critical_count": critical_count,
-                    "finding_ids": [f.get("title") for f in critical[:10]],
-                },
+                details={**details, "commands": []},
+                requires_approval=False,
                 evidence=evidence,
                 grounding="live",
                 confidence=0.85,
-                execution_log="Critical findings require approval before remediation",
+                recommended_actions=[
+                    {
+                        "title": "Review and remediate critical findings",
+                        "risk": "high",
+                        "requires_approval": True,
+                        "finding_ids": [f.get("title") for f in critical[:10]],
+                    }
+                ],
             )
 
         return self._result(

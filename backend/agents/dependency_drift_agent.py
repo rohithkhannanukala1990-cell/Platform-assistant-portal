@@ -56,6 +56,7 @@ class DependencyDriftAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         connector = await self._ground_github(context, db)
         if connector is None:
             return self._no_data_result(

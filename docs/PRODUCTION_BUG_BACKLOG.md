@@ -3,7 +3,8 @@
 **Phase P0 inventory** (static audit on `899ad44`+). No fixes in that phase.  
 **Phase P1:** Fixed all P0 blockers + critical P1 security/data-plane items (SSL, SSRF, demo gates, AuthZ, SafeExecutor defaults, weak admin, CORS, tenant leaks). FE refactors deferred.  
 **Phase P2:** API reliability — webhooks idempotency/500s, Celery retries, ready probes, pagination cap, metrics/rate-limit hardening. Agent rewrites deferred to P3.  
-**Pytest:** `282 passed` (`pytest backend/tests -q`) after P2.
+**Phase P3:** Agent production-safety — BaseAgent finalize/policy/HITL, orchestrator tenant enforce, per-agent contract, eval harness (`fixtures/agents`), docs.  
+**Pytest:** `295 passed` (`pytest backend/tests -q`) after P3.
 
 ### Summary counts
 
@@ -61,14 +62,14 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 - [ ] **ID-023** Long JWT lifetime — `backend/auth.py:260` — Default 480m — Prefer 60–120m in prod example.
 - [ ] **ID-024** `.env.production.example` incomplete (webhooks/SSO) — Add placeholders for GitLab/PD/Datadog/SAML/Google.
 - [ ] **ID-025** `SECRETS_ENCRYPTION_KEY=` inline `#` comment — `.env.production.example:14` — Move hint off value line.
-- [ ] **ID-026** documentation_agent HITL while `read_only=True` — `backend/agents/documentation_agent.py:107-119` — Use `_finalize_with_policy` or success + recommended_actions. *(deferred P3 agents)*
+- [x] **ID-026** documentation_agent HITL while `read_only=True` — Fixed P3: success + `recommended_actions`, never pending shell while read_only.
 - [x] **ID-027** Daily health workflow ignores readiness — Fixed P2: also probe `/health/ready`.
 - [ ] **ID-028** Entity actions workspace TODO — Track with ID-003.
 - [ ] **ID-029** Raw `res.text()` in UI errors (systemic) — `ConnectorReadView.jsx:46`, CatalogPage, GitHub*, K8s, PagerDuty, AIAssistant, AgentRunnerPanel, EntityActionsPage, … — Shared `parseApiError(res)` → never render HTML/traceback. *(deferred P4/P6 FE)*
 - [x] **ID-030** Agent approve any tenant user — Fixed P1: `require_admin` on approve/reject.
 - [x] **ID-031** Celery retry without countdown — Fixed P2: `monitor_cicd_pipelines` uses `_backoff_countdown`; DLQ only on MaxRetriesExceeded.
 - [x] **ID-032** Webhook gateway 500 on empty `alerts`/`evalMatches` — Fixed P2: guard empty lists in `_map_to_cloud_event`.
-- [ ] **ID-033** HITL catalog action approve is silent no-op — `backend/services/catalog_actions.py:173-182` + `agents.py:252-276` — Propose Deploy pending run has `commands: []`; approve only flips success — Dispatch on `action_type` after HITL. *(deferred P3/P7 agents)*
+- [ ] **ID-033** HITL catalog action approve is silent no-op — `backend/services/catalog_actions.py:173-182` + `agents.py:252-276` — Propose Deploy pending run has `commands: []`; approve only flips success — Dispatch on `action_type` after HITL. *(deferred P7)*
 - [x] **ID-034** Celery webhook retries duplicate incidents — Fixed P2: pass `delivery_id` to task; skip if delivery/event already processed; mark error reclaimable.
 - [x] **ID-035** `monitor_cicd_pipelines` DLQ then retry — Fixed P2: DLQ only on MaxRetriesExceeded.
 - [x] **ID-036** Tool accounts matrix / category counts unscoped — Fixed P1: tenant + ownership filters on categories/matrix.
@@ -138,14 +139,14 @@ Source: [Prod/CI audit (E)](0f14541c-161e-4180-b0ba-e85ee1741f3a) after commit `
 | Live GitHub Checks for `ci_green` | P2 product | Offline/metadata only |
 | Non-prod default-allow auto-exec | P1 | ID-057 |
 | Deploy/HITL in prod | OK | `base.py` + `requires_approval_envs` |
-| Read-only agents no shell execute | Partial | Contract OK today; latent ID-059 |
-| documentation_agent approval UX | P2 | ID-026 |
+| Read-only agents no shell execute | OK | Fixed P1/P3: clear commands on read_only + orchestrator strip |
+| documentation_agent approval UX | OK | Fixed P3: ID-026 — recommended_actions, no shell HITL |
 | AGENT_REGISTRY 17 agents | Verified pass | `__init__.py` |
 | MCP dangerous → HITL | Verified pass | `hitl_bridge.py` (race = ID-007) |
 | Baseline deny not overridable by approval | Verified pass | `safe_executor.py` |
-| Catalog HITL action post-approve no-op | P2 | ID-033 |
-| Golden-path agent context tenant | P2 | ID-058 |
-| Triage / EXPLAIN / cicd-monitor fabrication | P2 | ID-060, ID-061, ID-062 |
+| Catalog HITL action post-approve no-op | P2 | ID-033 *(deferred P7)* |
+| Golden-path agent context tenant | OK | Fixed P1: ID-058 |
+| Triage / EXPLAIN / cicd-monitor fabrication | P2 | ID-060, ID-061 *(ID-062 fixed P1)* |
 | Agent LLM calls include GROUNDING_RULES | Verified pass | `BaseAgent._call_llm`; postmortem/copilot/assistant also grounded |
 | G6 entity/catalog actions no shell bypass | Verified pass | Internal DB ops; HITL creates AgentRun |
 | `subprocess` only in SafeExecutor (+ health/MCP stdio) | Verified pass | No agent bypass of policy for shell |
@@ -207,7 +208,7 @@ Source: [Prod/CI audit (E)](0f14541c-161e-4180-b0ba-e85ee1741f3a) after commit `
 | **P4** | AuthZ + auth plumbing (FE+BE) | ID-015, ID-051, ID-052, ID-053, ID-039, ID-055 |
 | **P5** | Observability + CI/probes + Celery | ID-016, ID-017, ID-020, ID-027, ID-031, ID-034, ID-035, ID-046, ID-062 |
 | **P6** | Frontend nav + errors + toasts | ID-054, ID-029, ID-037, ID-038, ID-041, ID-042, ID-049 |
-| **P7** | Agent/HITL/catalog/grounding | ID-026, ID-033, ID-044, ID-058, ID-059, ID-060, ID-061, ID-064, ID-065 |
+| **P7** | Agent/HITL/catalog/grounding | ID-033, ID-044, ID-060, ID-061, ID-064, ID-065 |
 | **P8** | Config polish + webhook edge cases | ID-022–025, ID-032, ID-040, ID-043, ID-045, ID-047, ID-048, ID-056; competitor ~ epics |
 
 ---

@@ -37,8 +37,18 @@ def _normalize_role(role: str) -> str:
 
 def _ensure_context(context: PlatformContext) -> PlatformContext:
     """Require identity fields; fill safe defaults for tenant/environment."""
+    import os
+
     if not (context.user_id or "").strip():
         raise ValueError("user_id is required on PlatformContext for agent runs")
+    enforce = (os.getenv("ENFORCE_WORKSPACE_ISOLATION") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if enforce and not (context.tenant_id or "").strip():
+        raise ValueError("tenant_id is required on PlatformContext when ENFORCE_WORKSPACE_ISOLATION is enabled")
     if not (context.tenant_id or "").strip():
         context.tenant_id = DEFAULT_TENANT_ID
     if not (context.environment or "").strip():
@@ -174,6 +184,28 @@ def _notify(session: Session, message: str, ntype: str = "info") -> None:
 def _validate_commands_in_result(
     result: AgentResult, context: PlatformContext | None = None
 ) -> AgentResult:
+    from ..agents import get_agent
+
+    # Strip commands for read-only agents (defense in depth).
+    try:
+        agent = get_agent(result.agent)
+        if getattr(agent, "read_only", False):
+            details = dict(result.details or {})
+            details["commands"] = []
+            payload = dict(result.approval_payload or {})
+            if "commands" in payload:
+                payload["commands"] = []
+            return AgentResult(
+                **{
+                    **result.model_dump(),
+                    "details": details,
+                    "approval_payload": payload or None,
+                    "requires_approval": False if result.status != "pending_approval" else result.requires_approval,
+                }
+            )
+    except Exception:
+        pass
+
     commands: list[str] = []
     if isinstance(result.details.get("commands"), list):
         commands = [str(c) for c in result.details["commands"]]
@@ -223,6 +255,7 @@ def _validate_commands_in_result(
                 "summary": "Command validation failed at orchestrator",
                 "details": {
                     **result.details,
+                    "commands": [],
                     "violations": check.violations,
                     "policy_effect": "deny",
                     "policy_reasons": reasons,
@@ -232,6 +265,31 @@ def _validate_commands_in_result(
                 "execution_log": str(check.violations),
                 "policy": policy,
                 "errors": reasons,
+            }
+        )
+
+    # Production mutating: never auto-allow shell without HITL even if policy allows.
+    env = ((context.environment if context else "") or "").strip().lower()
+    import os
+
+    process_prod = (os.getenv("ENV") or "").strip().lower() in {"production", "prod", "dr"}
+    if (env in {"production", "prod", "dr"} or process_prod) and not result.requires_approval:
+        return AgentResult(
+            **{
+                **result.model_dump(),
+                "status": "pending_approval",
+                "requires_approval": True,
+                "approval_payload": {
+                    **(result.approval_payload or {}),
+                    "commands": commands,
+                    "policy_reasons": ["production_mutating_requires_approval"],
+                },
+                "details": {
+                    **result.details,
+                    "commands": commands,
+                    "policy_effect": "require_approval",
+                },
+                "policy": policy,
             }
         )
 

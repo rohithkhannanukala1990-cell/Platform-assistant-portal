@@ -35,6 +35,7 @@ class DocumentationAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         task = str(params.get("task") or params.get("message") or "")
         action = _detect_doc_action(task, params)
         repo = params.get("repo")
@@ -104,22 +105,32 @@ class DocumentationAgent(BaseAgent):
                     draft = self._parse_llm_json(raw)
                 except Exception:
                     draft = None
+            # read_only — never pending_approval for shell; propose via recommended_actions.
             return self._result(
                 context,
-                status="pending_approval",
-                summary=f"Generate documentation for {repo or 'catalog services'}",
+                status="success",
+                summary=f"Documentation draft proposal for {repo or 'catalog services'}",
                 details={
                     "repos_checked": 0,
                     "stale_count": 0,
                     "stale_repos": [],
                     "action": "generate",
                     "draft": draft,
+                    "commands": [],
                 },
-                requires_approval=True,
-                approval_payload={"action": "generate_docs", "repo": repo, "task": task},
+                requires_approval=False,
                 evidence=evidence,
                 grounding=grounding,
                 confidence=0.55,
+                recommended_actions=[
+                    {
+                        "title": "Review and publish documentation draft",
+                        "risk": "low",
+                        "requires_approval": True,
+                        "action": "generate_docs",
+                        "repo": repo,
+                    }
+                ],
             )
 
         # Need GitHub for README checks when repos are known.

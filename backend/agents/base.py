@@ -1,4 +1,4 @@
-"""Base agent types and shared execution / grounding helpers (Phase G2)."""
+"""Base agent types and shared execution / grounding helpers (Phase G2/P3)."""
 
 from __future__ import annotations
 
@@ -25,6 +25,14 @@ Return JSON when asked with keys: summary, findings, commands, residual_risk."""
 
 VALID_GROUNDING = frozenset({"live", "partial", "none", "demo"})
 MAX_COMMANDS_PER_RESULT = 25
+MAX_EVIDENCE_CHARS = 30_000
+
+_SECRET_PATTERNS = [
+    re.compile(r"(?i)(api[_-]?key|token|secret|password|passwd|authorization)\s*[:=]\s*\S+"),
+    re.compile(r"(?i)bearer\s+[a-z0-9._\-]+"),
+    re.compile(r"(?i)ghp_[a-z0-9]{20,}"),
+    re.compile(r"(?i)xox[baprs]-[a-z0-9-]{10,}"),
+]
 
 
 class AgentResult(BaseModel):
@@ -52,6 +60,49 @@ class AgentResult(BaseModel):
         return self.model_dump()
 
 
+def _process_env_is_production() -> bool:
+    return (os.getenv("ENV") or "dev").strip().lower() in {"production", "prod", "dr"}
+
+
+def redact_secret_like(text: str) -> str:
+    out = str(text or "")
+    for pat in _SECRET_PATTERNS:
+        out = pat.sub("[REDACTED]", out)
+    return out
+
+
+def redact_structure(value: Any) -> Any:
+    if isinstance(value, str):
+        return redact_secret_like(value)
+    if isinstance(value, list):
+        return [redact_structure(v) for v in value]
+    if isinstance(value, dict):
+        return {k: redact_structure(v) for k, v in value.items()}
+    return value
+
+
+def truncate_evidence(evidence: list[dict] | None, *, max_chars: int = MAX_EVIDENCE_CHARS) -> list[dict]:
+    """Cap serialized evidence size to avoid LLM context overflow."""
+    rows = list(evidence or [])
+    blob = json.dumps(rows, default=str)
+    if len(blob) <= max_chars:
+        return rows
+    # Drop from the end until under budget; keep at least titles.
+    trimmed: list[dict] = []
+    size = 2
+    for row in rows:
+        piece = dict(row)
+        snip = str(piece.get("snippet") or "")
+        if len(snip) > 400:
+            piece["snippet"] = snip[:400] + "…"
+        candidate = json.dumps(piece, default=str)
+        if size + len(candidate) + 1 > max_chars:
+            break
+        trimmed.append(piece)
+        size += len(candidate) + 1
+    return trimmed
+
+
 class BaseAgent(ABC):
     name: str = "base_agent"
     description: str = ""
@@ -59,11 +110,20 @@ class BaseAgent(ABC):
     primary_tools: list[str] = []
     read_only: bool = False
 
-    def _should_require_approval(self, context: PlatformContext) -> bool:
+    def _env_bucket(self, context: PlatformContext) -> str:
         env = (context.environment or "").strip().lower()
-        if env in ("production", "prod", "dr"):
-            env = "production"
-        return env in [e.lower() for e in self.requires_approval_envs]
+        if env in ("production", "prod", "dr") or _process_env_is_production():
+            return "production"
+        return env or "development"
+
+    def _should_require_approval(self, context: PlatformContext) -> bool:
+        env = self._env_bucket(context)
+        return env in [e.lower() for e in self.requires_approval_envs] or (
+            env == "production" and not self.read_only
+        )
+
+    def _is_prod_mutating(self, context: PlatformContext) -> bool:
+        return (not self.read_only) and self._env_bucket(context) == "production"
 
     # ── Evidence / result factories ───────────────────────────────────────────
 
@@ -85,7 +145,7 @@ class BaseAgent(ABC):
         if url:
             row["url"] = url
         if snippet is not None:
-            row["snippet"] = str(snippet)[:2000]
+            row["snippet"] = redact_secret_like(str(snippet)[:2000])
         row.update(extra)
         return row
 
@@ -113,20 +173,23 @@ class BaseAgent(ABC):
         conf = confidence
         if conf is not None:
             conf = max(0.0, min(1.0, float(conf)))
+        safe_details = redact_structure(details or {})
+        if self.read_only and isinstance(safe_details, dict):
+            safe_details["commands"] = []
         return AgentResult(
             agent=self.name,
             status=status,
-            summary=summary,
-            details=details or {},
+            summary=redact_secret_like(summary),
+            details=safe_details if isinstance(safe_details, dict) else {},
             requires_approval=requires_approval,
-            approval_payload=approval_payload,
-            execution_log=execution_log,
+            approval_payload=redact_structure(approval_payload) if approval_payload else None,
+            execution_log=redact_secret_like(execution_log) if execution_log else None,
             timestamp=datetime.now(timezone.utc).isoformat(),
             triggered_by=context.user_id or "",
             workspace=context.workspace_id or "",
             environment=context.environment or "development",
             run_id=run_id,
-            evidence=list(evidence or []),
+            evidence=truncate_evidence(evidence),
             confidence=conf,
             grounding=g,
             policy=policy,
@@ -156,6 +219,7 @@ class BaseAgent(ABC):
                 "reason": "no_data",
                 "missing_tools": tools,
                 "connect_hint": "Connect the tool in Tool Registry, then retry.",
+                "commands": [],
             },
             grounding="none",
             confidence=0.0,
@@ -222,17 +286,56 @@ class BaseAgent(ABC):
             "safe_for_auto": bool(getattr(decision, "safe_for_auto", True)),
         }
 
-    def _cap_commands(self, commands: list[str]) -> list[str]:
+    def _cap_commands(self, commands: list[str] | None) -> list[str]:
         return [str(c) for c in (commands or []) if c][:MAX_COMMANDS_PER_RESULT]
 
     def _evidence_prompt(self, evidence: list[dict], task: str) -> str:
-        blob = json.dumps(evidence or [], indent=2, default=str)[:12000]
+        rows = truncate_evidence(evidence)
+        blob = json.dumps(rows, indent=2, default=str)
+        if len(blob) > MAX_EVIDENCE_CHARS:
+            blob = blob[: MAX_EVIDENCE_CHARS - 1] + "…"
         return (
             f"{GROUNDING_RULES}\n\n"
             f"Agent: {self.name}\n"
             f"Task: {task}\n\n"
             f"EVIDENCE:\n{blob}\n\n"
             "Respond with JSON: summary, findings (list), commands (list, may be empty), residual_risk."
+        )
+
+    def finalize_result(
+        self,
+        context: PlatformContext,
+        *,
+        summary: str,
+        details: dict | None = None,
+        commands: list[str] | None = None,
+        evidence: list[dict] | None = None,
+        grounding: str = "partial",
+        confidence: float | None = None,
+        task: str = "",
+        recommended_actions: list[dict] | None = None,
+        status: str | None = None,
+        errors: list[str] | None = None,
+    ) -> AgentResult:
+        """
+        Canonical finalize path (Phase P3).
+
+        - Caps commands to 25 and redacts secret-like strings in details
+        - Strips commands on deny / read_only
+        - Forces requires_approval on require_approval or prod mutating
+        """
+        return self._finalize_with_policy(
+            context,
+            summary=summary,
+            details=details or {},
+            commands=list(commands or []),
+            evidence=evidence,
+            grounding=grounding,
+            confidence=confidence,
+            task=task,
+            recommended_actions=recommended_actions,
+            status_hint=status,
+            errors=errors,
         )
 
     # ── LLM / execute ─────────────────────────────────────────────────────────
@@ -260,15 +363,21 @@ class BaseAgent(ABC):
                 "workspace_name": context.workspace_name or "default",
                 "environment": context.environment,
                 "tools": tools_hint,
-                "production_operating": context.is_production(),
+                "production_operating": context.is_production() or _process_env_is_production(),
             }
         )
-        system = f"{system}\n\n{GROUNDING_RULES}"
+        system = (
+            f"{system}\n\n{GROUNDING_RULES}\n"
+            "Only reason over the EVIDENCE blob provided by the user message. "
+            "If evidence is empty, say you cannot assess."
+        )
         if mcp_block:
             system = f"{system}\n\n{mcp_block}"
         body = prompt
         if evidence is not None:
             body = self._evidence_prompt(evidence, prompt)
+        elif GROUNDING_RULES not in (prompt or ""):
+            body = f"{GROUNDING_RULES}\n\n{prompt}"
         messages = [{"role": "user", "content": body}]
         model = (os.getenv("LLM_DEFAULT_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
         return await llm_router.chat(messages, model=model, system_prompt=system)
@@ -285,7 +394,8 @@ class BaseAgent(ABC):
             "tenant_id": context.tenant_id,
             "approved": False,
         }
-        if self.read_only or not cmds:
+        # Never auto-execute mutating commands in production without HITL approval.
+        if self.read_only or not cmds or self._is_prod_mutating(context):
             preview = await safe_executor.dry_run(cmds or ["echo noop"], context=policy_context)
             return {"success": True, "dry_run": True, "logs": json.dumps(preview, indent=2)}
         return await safe_executor.execute(
@@ -297,10 +407,18 @@ class BaseAgent(ABC):
         if text.startswith("```"):
             text = re.sub(r"^```(?:json)?\s*", "", text)
             text = re.sub(r"\s*```$", "", text)
+        # Extract first JSON object if model wrapped prose around it.
+        if text and text[0] not in "{[":
+            m = re.search(r"(\{.*\}|\[.*\])", text, re.DOTALL)
+            if m:
+                text = m.group(1)
         try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return {"summary": text[:500], "commands": [], "details": {}, "findings": []}
+            data = json.loads(text)
+            if isinstance(data, dict):
+                return data
+            return {"summary": str(data)[:500], "commands": [], "details": {}, "findings": []}
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return {"summary": (text or "")[:500], "commands": [], "details": {}, "findings": []}
 
     def _finalize_with_policy(
         self,
@@ -314,10 +432,12 @@ class BaseAgent(ABC):
         confidence: float | None = None,
         task: str = "",
         recommended_actions: list[dict] | None = None,
+        status_hint: str | None = None,
+        errors: list[str] | None = None,
     ) -> AgentResult:
         """Apply command policy + HITL rules and return a consistent AgentResult."""
         cmds = self._cap_commands(commands)
-        details = {**(details or {}), "commands": cmds}
+        details = redact_structure({**(details or {}), "commands": cmds})
         needs_hitl = self._should_require_approval(context)
         policy_summary = None
 
@@ -326,13 +446,14 @@ class BaseAgent(ABC):
             safe_details = {**(details or {}), "commands": []}
             return self._result(
                 context,
-                status="success",
+                status=status_hint or "success",
                 summary=summary,
                 details=safe_details,
                 evidence=evidence,
                 grounding=grounding,
                 confidence=confidence,
                 recommended_actions=recommended_actions,
+                errors=errors,
                 execution_log="Read-only agent — no commands executed",
             )
 
@@ -344,18 +465,23 @@ class BaseAgent(ABC):
                     context,
                     status="failed",
                     summary="Command policy denied unsafe commands",
-                    details={**details, "policy_effect": "deny", "policy_reasons": decision.reasons},
+                    details={
+                        **details,
+                        "commands": [],
+                        "policy_effect": "deny",
+                        "policy_reasons": decision.reasons,
+                    },
                     evidence=evidence,
                     grounding=grounding,
                     confidence=confidence,
                     policy=policy_summary,
-                    errors=list(decision.reasons),
+                    errors=list(decision.reasons) + list(errors or []),
                     execution_log="; ".join(decision.reasons),
                 )
             if decision.effect == "require_approval":
                 needs_hitl = True
 
-        if needs_hitl or (cmds and context.is_production() and not self.read_only):
+        if needs_hitl or (cmds and self._is_prod_mutating(context)):
             return self._result(
                 context,
                 status="pending_approval",
@@ -368,11 +494,12 @@ class BaseAgent(ABC):
                 confidence=confidence,
                 policy=policy_summary,
                 recommended_actions=recommended_actions,
+                errors=errors,
             )
 
         return self._result(
             context,
-            status="success",
+            status=status_hint or "success",
             summary=summary,
             details=details,
             evidence=evidence,
@@ -380,10 +507,12 @@ class BaseAgent(ABC):
             confidence=confidence,
             policy=policy_summary,
             recommended_actions=recommended_actions,
+            errors=errors,
         )
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
         """Default path — LLM with empty evidence → grounding none (no invention)."""
+        params = params if isinstance(params, dict) else {}
         if not (context.user_id or "").strip() and (os.getenv("ENV") or "").lower() not in (
             "test",
             "dev",

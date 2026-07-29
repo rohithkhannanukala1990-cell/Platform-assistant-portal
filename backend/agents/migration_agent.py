@@ -20,6 +20,7 @@ class MigrationAgent(BaseAgent):
     primary_tools = ["kubectl", "helm", "terraform", "flyway", "liquibase"]
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         service_name = (
             params.get("service_name")
             or params.get("service")

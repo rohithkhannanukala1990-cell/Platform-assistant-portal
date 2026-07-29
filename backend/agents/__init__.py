@@ -57,6 +57,7 @@ def list_agents() -> list[dict]:
             "description": agent.description,
             "requires_approval_envs": agent.requires_approval_envs,
             "primary_tools": agent.primary_tools,
+            "read_only": bool(getattr(agent, "read_only", False)),
         }
         for agent in AGENT_REGISTRY.values()
     ]

@@ -40,6 +40,7 @@ class CatalogHealthAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         evidence: list[dict] = []
         try:
             entities = list(

@@ -1,0 +1,39 @@
+{
+  "description": "Scorecard evidence checks present with LLM_MOCK (no fantasy)",
+  "agent": "scorecard_agent",
+  "mode": "run",
+  "context": {
+    "user_id": "eval-user",
+    "user_role": "Admin",
+    "environment": "development",
+    "tenant_id": "default"
+  },
+  "params": {
+    "task": "evaluate scorecard",
+    "narrative": false
+  },
+  "setup": {
+    "catalog_entity": {
+      "name": "eval-payments",
+      "kind": "Service",
+      "lifecycle": "production",
+      "owner_team": "platform",
+      "repo_url": "https://github.com/acme/eval-payments",
+      "tags": "{\"tier\": \"1\", \"runbook_url\": \"https://runbooks.example/payments\", \"oncall_link\": \"https://pd.example/oncall\", \"ci\": \"green\"}",
+      "health_status": "healthy",
+      "tenant_id": "default"
+    },
+    "pass_entity_id": true
+  },
+  "mock_tools": {
+    "llm_mock": true
+  },
+  "expected": {
+    "grounding": ["live"],
+    "status_in": ["success"],
+    "must_contain": ["has_owner"],
+    "must_not_contain": ["fantasy-check-xyz", "invented-score-999"],
+    "commands_empty": true,
+    "min_checks": 1
+  }
+}

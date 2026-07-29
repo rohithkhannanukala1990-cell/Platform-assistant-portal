@@ -32,6 +32,7 @@ class InfraAgent(BaseAgent):
     primary_tools = ["Terraform", "Pulumi", "AWS", "GCP", "Azure", "Kubernetes"]
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         task = (params.get("task") or params.get("message") or "").lower()
         namespace = params.get("namespace") or "default"
         region = params.get("region")

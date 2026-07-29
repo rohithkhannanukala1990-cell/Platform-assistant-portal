@@ -43,6 +43,7 @@ class OnboardingAgent(BaseAgent):
     primary_tools = ["GitHub", "Jira", "GoldenPaths DB"]
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         task = str(params.get("task") or params.get("message") or "")
         service_name, team, template = _parse_onboarding(task, params)
         evidence: list[dict] = []

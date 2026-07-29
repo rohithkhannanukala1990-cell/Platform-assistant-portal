@@ -47,17 +47,30 @@ Every agent must:
 
 ## Orchestrator guarantees
 
-- Requires `user_id` (+ fills `tenant_id` / `environment` defaults)
-- 30s timeout, RBAC gate, command cap (25)
-- Re-validates commands with policy context
+- Requires `user_id`; rejects missing `tenant_id` when `ENFORCE_WORKSPACE_ISOLATION` is on (else fills defaults)
+- 30s timeout, RBAC gate, command cap (25); agent exceptions → failed `AgentResult`
+- Re-validates commands with policy context (strip read_only; prod mutating → HITL)
 - Persists `evidence` / `grounding` / `policy` into run `details_json`
-- Redacts secrets before persist; audits `agent_run_started` / `agent_run_completed` / `agent_run_denied_policy`
+- Redacts secrets before persist; audits `agent_run_started` / `agent_run_completed` / `agent_run_denied_policy` / `agent_pending_approval`
 
 ## UI
 
 Agent runner / history show a **grounding badge**, collapsible **evidence**, **policy** summary, and a Tool Registry link when `grounding=none`.
 
+## Production verification
+
+Before promoting agent changes:
+
+1. **Contract in code** — every `AGENT_REGISTRY` agent returns `AgentResult` via `_result` / `_no_data_result` / `finalize_result` (policy + HITL + command cap 25 + secret redaction).
+2. **Read-only** — `read_only=True` agents always clear `details.commands` / approval commands; orchestrator strips again.
+3. **Production mutating** — context `environment` in `{production,prod,dr}` **or** process `ENV` same → mutating agents set `requires_approval=True`; `auto_heal_agent` never executes without approval.
+4. **Deny never executes** — policy `deny` → `status=failed`, empty commands, audit `agent_run_denied_policy`.
+5. **Eval harness** — `pytest backend/tests/test_agent_eval_harness.py -q` loads `backend/tests/fixtures/agents/*.json` (incident, code review, pipeline, auto-heal, deploy, scorecard, alert noise, infra, migration).
+6. **LLM failures** — agent/orchestrator catch → `status=failed` AgentResult (not HTTP 500 from the run path).
+7. **Evidence size** — `_call_llm` truncates evidence (~30k chars) and always injects `GROUNDING_RULES`.
+
 ## See also
 
 - [`COMMAND_POLICY.md`](./COMMAND_POLICY.md) — Guardrails v2
 - [`MCP.md`](./MCP.md) — MCP HITL tools
+- [`PRODUCTION_BUG_BACKLOG.md`](./PRODUCTION_BUG_BACKLOG.md) — agent IDs fixed in P3

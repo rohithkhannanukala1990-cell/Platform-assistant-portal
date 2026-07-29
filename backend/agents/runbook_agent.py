@@ -52,6 +52,7 @@ class RunbookAgent(BaseAgent):
     primary_tools = ["Confluence", "Kubernetes", "Ansible", "GoldenPaths DB"]
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         task = str(params.get("task") or params.get("message") or "")
         action = _detect_runbook_action(task, params)
         query = params.get("query") or task

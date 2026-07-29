@@ -51,6 +51,7 @@ class CodeReviewAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         from ..mcp.agent_mcp import list_github_repos_prefer_mcp, mcp_enabled
 
         connector = await self._ground_github(context, db)

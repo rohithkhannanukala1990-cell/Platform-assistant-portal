@@ -23,6 +23,7 @@ class AutoHealAgent(BaseAgent):
     primary_tools = ["Kubernetes", "ArgoCD"]
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         task = str(params.get("task") or params.get("message") or "")
         service_name = params.get("service_name")
         namespace = params.get("namespace") or "default"

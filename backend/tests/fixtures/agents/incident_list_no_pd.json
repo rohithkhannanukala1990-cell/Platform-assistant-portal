@@ -1,0 +1,25 @@
+{
+  "description": "Incident list with PagerDuty disconnected → grounding none / no_data",
+  "agent": "incident_agent",
+  "mode": "run",
+  "context": {
+    "user_id": "eval-user",
+    "user_role": "Admin",
+    "environment": "development",
+    "tenant_id": "default",
+    "workspace_id": "ws-eval"
+  },
+  "params": {
+    "task": "list open incidents"
+  },
+  "mock_tools": {
+    "pagerduty": null
+  },
+  "expected": {
+    "grounding": ["none"],
+    "status_in": ["skipped"],
+    "must_not_contain": ["INCIDENT-FAKE-999", "invented-service"],
+    "commands_policy": null,
+    "commands_empty": true
+  }
+}

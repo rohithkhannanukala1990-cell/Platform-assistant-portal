@@ -22,6 +22,7 @@ class AlertNoiseAgent(BaseAgent):
     read_only = True
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         tenant_id = context.tenant_id or "default"
         configured_rules = list_alert_rules(tenant_id)
         rules_summary = [
@@ -145,7 +146,7 @@ class AlertNoiseAgent(BaseAgent):
                 "analyzed_at": datetime.now(timezone.utc).isoformat(),
             },
             evidence=evidence[:80],
-            grounding="live" if incidents else ("rules" if rules_summary else "none"),
+            grounding="live" if incidents else ("partial" if rules_summary else "none"),
             confidence=0.85 if incidents or rules_summary else 0.7,
         )
 

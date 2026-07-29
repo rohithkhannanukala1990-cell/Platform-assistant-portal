@@ -147,6 +147,7 @@ class TesterAgent(BaseAgent):
         }
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         task = params.get("task") or params.get("message") or ""
         intent = _detect_intent(task)
         connector = await self._ground_github(context, db)

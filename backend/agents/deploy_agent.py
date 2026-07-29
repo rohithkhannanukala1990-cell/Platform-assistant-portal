@@ -52,6 +52,7 @@ class DeployAgent(BaseAgent):
     primary_tools = ["GitHub Actions", "ArgoCD", "Kubernetes", "Helm"]
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
+        params = params if isinstance(params, dict) else {}
         task = str(params.get("task") or params.get("message") or "")
         service_name, version, target_env, namespace = _parse_deploy_params(params, task)
         image_tag = params.get("image") or f"{service_name}:{version}"

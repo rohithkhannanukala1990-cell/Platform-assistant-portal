@@ -1,0 +1,26 @@
+{
+  "description": "Code review with GitHub disconnected → no_data",
+  "agent": "code_review_agent",
+  "mode": "run",
+  "context": {
+    "user_id": "eval-user",
+    "user_role": "Admin",
+    "environment": "development",
+    "tenant_id": "default"
+  },
+  "params": {
+    "task": "review open PRs",
+    "owner": "acme",
+    "repo": "payments"
+  },
+  "mock_tools": {
+    "github": null,
+    "mcp_enabled": false
+  },
+  "expected": {
+    "grounding": ["none"],
+    "status_in": ["skipped"],
+    "must_not_contain": ["invented-finding", "fake-pr-42"],
+    "commands_empty": true
+  }
+}
