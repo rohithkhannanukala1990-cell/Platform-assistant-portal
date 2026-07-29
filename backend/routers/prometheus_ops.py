@@ -17,7 +17,7 @@ def _connector(user: User) -> PrometheusConnector:
 
 @router.get("/alerts")
 async def api_prometheus_alerts(
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=100),
     current_user: User = Depends(get_current_user),
 ):
     return await _connector(current_user).list_alerts(limit=limit)

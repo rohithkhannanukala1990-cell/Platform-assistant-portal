@@ -946,7 +946,7 @@ def _execution_with_context(session: Session, e: AIToolExecution) -> dict[str, A
 def list_executions(
     status: Optional[str] = Query(None),
     workspace_id: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=100),
     _admin: User = Depends(require_admin),
     _perm: None = Depends(require_permission("ai_tools", "execute")),
 ):

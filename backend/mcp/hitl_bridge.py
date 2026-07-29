@@ -184,7 +184,7 @@ def list_calls(tenant_id: Optional[str] = None, *, status: Optional[str] = None,
             query = query.where(MCPToolCall.tenant_id == tenant_id)
         if status:
             query = query.where(MCPToolCall.status == status)
-        query = query.order_by(MCPToolCall.created_at.desc()).limit(max(1, min(limit, 200)))
+        query = query.order_by(MCPToolCall.created_at.desc()).limit(max(1, min(limit, 100)))
         return list(session.exec(query).all())
 
 

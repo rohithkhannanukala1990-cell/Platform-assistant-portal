@@ -271,14 +271,17 @@ async def log_requests(request: Request, call_next):
     duration_seconds = time.perf_counter() - start
     duration_ms = round(duration_seconds * 1000, 3)
     status_code = str(response.status_code)
-    HTTP_REQUESTS_TOTAL.labels(
-        method=request.method,
-        status_code=status_code,
-    ).inc()
-    HTTP_REQUEST_DURATION_SECONDS.labels(
-        method=request.method,
-        status_code=status_code,
-    ).observe(duration_seconds)
+    try:
+        HTTP_REQUESTS_TOTAL.labels(
+            method=request.method,
+            status_code=status_code,
+        ).inc()
+        HTTP_REQUEST_DURATION_SECONDS.labels(
+            method=request.method,
+            status_code=status_code,
+        ).observe(duration_seconds)
+    except Exception:
+        pass  # never let bad prometheus labels break the request
     logger.info(
         "HTTP request",
         extra={

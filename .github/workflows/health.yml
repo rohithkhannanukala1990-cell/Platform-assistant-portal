@@ -33,6 +33,11 @@ jobs:
           else
             STATUS=$(echo "$BODY" | jq -r '.status // "unknown"')
           fi
+          # Also probe readiness (db + redis) — summary alone can be green while deps are down.
+          READY_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 20 "$PORTAL_URL/health/ready" || echo "000")
+          if [ "$READY_CODE" != "200" ]; then
+            STATUS="critical"
+          fi
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           if [ "$STATUS" = "critical" ] || [ "$STATUS" = "unknown" ]; then
             echo "HEALTH_FAILED=true" >> "$GITHUB_ENV"

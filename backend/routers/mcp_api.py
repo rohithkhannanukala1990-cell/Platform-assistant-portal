@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from ..auth import User, get_current_user, require_admin, write_audit
@@ -195,7 +195,7 @@ async def call_tool(body: ToolCallRequest, request: Request, user: User = Depend
 def list_calls(
     request: Request,
     call_status: Optional[str] = None,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=100),
     _user: User = Depends(get_current_user),
 ):
     tenant_id = require_tenant(request)

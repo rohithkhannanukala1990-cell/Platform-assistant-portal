@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -141,7 +141,7 @@ async def health_check():
     """Liveness — process is up (no dependency checks)."""
     return {
         "status": "ok",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "version": "1.0.0",
         "service": "platform-assistant-portal",
     }

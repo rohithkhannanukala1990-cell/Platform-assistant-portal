@@ -17,7 +17,7 @@ def test_clamp_page_defaults():
     page, size, offset = clamp_page(3, 25)
     assert page == 3 and size == 25 and offset == 50
     _, size, _ = clamp_page(1, 999)
-    assert size == 200
+    assert size == 100
 
 
 def test_redis_url_prefers_ratelimit_then_celery(monkeypatch):

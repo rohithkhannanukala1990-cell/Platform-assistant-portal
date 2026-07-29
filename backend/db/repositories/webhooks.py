@@ -35,8 +35,17 @@ def update_webhook_event(event_id: int, status: str, incident_id: int | None = N
             session.commit()
 
 
+def get_webhook_event(event_id: int) -> WebhookEvent | None:
+    with Session(engine) as session:
+        ev = session.get(WebhookEvent, event_id)
+        if ev is None:
+            return None
+        session.expunge(ev)
+        return ev
+
+
 def get_recent_webhook_events(limit: int = 40) -> list[dict]:
-    limit = max(1, min(int(limit or 40), 500))
+    limit = max(1, min(int(limit or 40), 100))
     with Session(engine) as session:
         rows = session.exec(
             select(WebhookEvent).order_by(WebhookEvent.timestamp.desc()).limit(limit)

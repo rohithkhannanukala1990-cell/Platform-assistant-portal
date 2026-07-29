@@ -14,6 +14,7 @@ drains any asyncio tasks that were spawned internally with create_task()
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 from celery.exceptions import MaxRetriesExceededError
@@ -26,6 +27,9 @@ from .services.celery_failures import record_task_failure
 logger = logging.getLogger(__name__)
 
 _TRIAGE_MAX_RETRIES = 5
+
+# Permanent client/data errors — do not burn retries (ID-046).
+_PERMANENT_ERRORS = (ValueError, KeyError, TypeError, json.JSONDecodeError)
 
 
 def _run_async(coro):
@@ -46,6 +50,13 @@ def _run_async(coro):
 def _backoff_countdown(retries: int) -> int:
     """Exponential backoff with cap (seconds): 5, 10, 20, 40, 80… max 300."""
     return min(300, 5 * (2 ** max(0, int(retries))))
+
+
+def _is_permanent(exc: BaseException) -> bool:
+    if isinstance(exc, _PERMANENT_ERRORS):
+        return True
+    cause = getattr(exc, "__cause__", None)
+    return isinstance(cause, _PERMANENT_ERRORS)
 
 
 def _dead_letter(task_self, *, queue: str, args, error: BaseException) -> None:
@@ -85,14 +96,45 @@ def _dead_letter(task_self, *, queue: str, args, error: BaseException) -> None:
     acks_late=True,
     queue="triage",
 )
-def process_inbound_webhook(self, payload: dict, source: str, event_id: int):
-    """Normalize inbound payload → rules-based correlation → AI triage."""
+def process_inbound_webhook(
+    self, payload: dict, source: str, event_id: int, delivery_id: str | None = None
+):
+    """Normalize inbound payload → rules-based correlation → AI triage.
+
+    ``delivery_id`` is the idempotency key: already-processed deliveries skip
+    re-ingest so Celery retries do not create duplicate incidents (ID-034).
+    """
     from .main import _map_to_cloud_event, _route_owner
     from .services.incidents_service import ingest_webhook_alert
+    from .services.webhook_delivery import delivery_already_processed, mark_delivery_status
+    from .db.repositories.webhooks import get_webhook_event
 
-    logger.info("[celery] process_inbound_webhook source=%s event_id=%s", source, event_id)
+    logger.info(
+        "[celery] process_inbound_webhook source=%s event_id=%s delivery_id=%s",
+        source,
+        event_id,
+        delivery_id,
+    )
 
     try:
+        # Idempotency: skip if delivery or webhook event already succeeded.
+        if delivery_id and delivery_already_processed(delivery_id):
+            logger.info(
+                "[celery] process_inbound_webhook skip already-processed delivery_id=%s",
+                delivery_id,
+            )
+            return {"skipped": True, "reason": "delivery_already_processed", "delivery_id": delivery_id}
+
+        existing_ev = get_webhook_event(event_id)
+        if existing_ev and existing_ev.status in {"processed", "suppressed", "grouped"} and existing_ev.incident_id:
+            if delivery_id:
+                mark_delivery_status(delivery_id, existing_ev.status)
+            return {
+                "skipped": True,
+                "reason": "event_already_processed",
+                "incident_id": existing_ev.incident_id,
+            }
+
         _event_type, log_text, _ = _map_to_cloud_event(payload, source)
         owner_role = _route_owner(source)
         tenant_id = str(payload.get("tenant_id") or "default")
@@ -110,6 +152,8 @@ def process_inbound_webhook(self, payload: dict, source: str, event_id: int):
                 update_webhook_event(event_id, status=status, incident_id=result.get("id"))
             else:
                 update_webhook_event(event_id, status="processed", incident_id=result.get("id"))
+            if delivery_id:
+                mark_delivery_status(delivery_id, status if status in ("suppressed", "grouped") else "processed")
             logger.info(
                 "[celery] %s → %s incident=%s routed to %s",
                 source,
@@ -122,6 +166,19 @@ def process_inbound_webhook(self, payload: dict, source: str, event_id: int):
 
     except Exception as exc:
         update_webhook_event(event_id, status="error")
+        if delivery_id:
+            try:
+                mark_delivery_status(delivery_id, "error")
+            except Exception:
+                pass
+        if _is_permanent(exc):
+            _dead_letter(
+                self,
+                queue="triage",
+                args=[payload, source, event_id, delivery_id],
+                error=exc,
+            )
+            raise
         retries = int(getattr(self.request, "retries", 0) or 0)
         try:
             record_celery_task_retry("tasks.process_inbound_webhook", "triage")
@@ -133,7 +190,7 @@ def process_inbound_webhook(self, payload: dict, source: str, event_id: int):
             _dead_letter(
                 self,
                 queue="triage",
-                args=[payload, source, event_id],
+                args=[payload, source, event_id, delivery_id],
                 error=exc,
             )
             raise
@@ -159,6 +216,14 @@ def process_webhook_log(self, log_text: str, source: str):
         _run_async(_run())
 
     except Exception as exc:
+        if _is_permanent(exc):
+            _dead_letter(
+                self,
+                queue="triage",
+                args=[log_text, source],
+                error=exc,
+            )
+            raise
         retries = int(getattr(self.request, "retries", 0) or 0)
         try:
             record_celery_task_retry("tasks.process_webhook_log", "triage")
@@ -193,6 +258,14 @@ def notify_incident(self, incident_id: int, message: str, ntype: str = "info"):
     try:
         create_notification(message=message, type=ntype, incident_id=incident_id)
     except Exception as exc:
+        if _is_permanent(exc):
+            _dead_letter(
+                self,
+                queue="notify",
+                args=[incident_id, message, ntype],
+                error=exc,
+            )
+            raise
         retries = int(getattr(self.request, "retries", 0) or 0)
         try:
             record_celery_task_retry("tasks.notify_incident", "notify")
@@ -286,9 +359,13 @@ def monitor_cicd_pipelines(self):
         }
 
     except Exception as exc:
+        retries = int(getattr(self.request, "retries", 0) or 0)
         try:
-            record_celery_task_failure("tasks.monitor_cicd_pipelines", "celery")
+            record_celery_task_retry("tasks.monitor_cicd_pipelines", "celery")
         except Exception:
             pass
-        _dead_letter(self, queue="celery", args=[], error=exc)
-        raise self.retry(exc=exc)
+        try:
+            raise self.retry(exc=exc, countdown=_backoff_countdown(retries))
+        except MaxRetriesExceededError:
+            _dead_letter(self, queue="celery", args=[], error=exc)
+            raise

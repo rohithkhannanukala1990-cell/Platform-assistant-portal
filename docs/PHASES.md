@@ -222,3 +222,15 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Pytest green (268); backlog P0 + critical P1 marked `[x]`; no git push; no P2 feature work
 - [x] Prod/CI audit follow-up (ID-070–074): frontend tmpfs; secrets fail-fast (`${VAR:?err}` + reject empty `SECRET_KEY`); SAML/Google/LLM/webhook env passthrough; daily health workflow `pipefail` + treat curl failure as critical
 
+## Phase P2 — API correctness, reliability, observability (non-agent)
+- [x] Webhooks — empty alerts/evalMatches no longer 500; invalid HMAC stays 403; duplicate `delivery_id` → 200; failed deliveries reclaimable
+- [x] Celery — `delivery_id` idempotency on inbound webhook; permanent errors no retry; monitor_cicd DLQ only after max retries + backoff
+- [x] Approvals — double-approve covered by CAS (agents/incidents) + regression tests
+- [x] `/health/ready` — 503 when DB down; compose/CI/daily health prefer ready
+- [x] Pagination — `MAX_PAGE_SIZE=100`; Query `le=100` on list endpoints
+- [x] Rate limit — Redis when URL set; documented fail-open API / login memory fallback
+- [x] Metrics — `_safe_label` + HTTP middleware never throws on bad labels
+- [x] CI Python 3.12; liveness UTC timezone-aware
+- [x] `backend/tests/test_phase_p2_reliability.py` — duplicate webhook, double approve, ready db-down, page_size cap
+- [x] Pytest green (282); backlog marked; Do NOT push git
+

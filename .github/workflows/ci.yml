@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       - name: Install dependencies
         run: |
           pip install -r backend/requirements.txt
@@ -72,9 +72,9 @@ jobs:
           docker compose -f docker-compose.yml up -d
           UP_RC=$?
           set -e
-          # Poll /health directly so we do not rely solely on compose depends_on.
+          # Poll /health/ready so Redis/DB failures fail CI health (ID-016).
           for i in $(seq 1 40); do
-            if curl -fsS http://localhost:8000/health; then
+            if curl -fsS http://localhost:8000/health/ready; then
               echo "Backend healthy"
               docker compose -f docker-compose.yml ps
               docker compose -f docker-compose.yml down -v

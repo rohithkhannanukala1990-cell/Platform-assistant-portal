@@ -176,12 +176,19 @@ def _map_to_cloud_event(payload: dict, source: str) -> tuple[str, str, str]:
         payload.get("Message"),                      # AWS SNS JSON inside message
         payload.get("head_commit", {}).get("message") if isinstance(payload.get("head_commit"), dict) else None,  # GitHub push
         payload.get("description"),
-        payload.get("alerts", [{}])[0].get("annotations", {}).get("summary") if isinstance(payload.get("alerts"), list) else None,  # Prometheus AlertManager
-        payload.get("evalMatches", [{}])[0].get("title") if isinstance(payload.get("evalMatches"), list) else None,  # Grafana
         payload.get("output"),   # Falco
         payload.get("issue", {}).get("title") if isinstance(payload.get("issue"), dict) else None,  # Snyk
         payload.get("app", {}).get("name") if isinstance(payload.get("app"), dict) else None,  # ArgoCD
     ]
+    # Prometheus / Grafana — guard empty lists (bare `[{}][0]` IndexErrors on []).
+    alerts = payload.get("alerts")
+    if isinstance(alerts, list) and alerts and isinstance(alerts[0], dict):
+        ann = alerts[0].get("annotations")
+        if isinstance(ann, dict):
+            candidates.append(ann.get("summary"))
+    eval_matches = payload.get("evalMatches")
+    if isinstance(eval_matches, list) and eval_matches and isinstance(eval_matches[0], dict):
+        candidates.append(eval_matches[0].get("title"))
     log_text = next((c for c in candidates if c), None)
     if not log_text:
         log_text = f"Inbound webhook event from {source}:\n{_json.dumps(payload, indent=2)}"
@@ -297,7 +304,7 @@ async def inbound_webhook_gateway(request: Request):
     })
 
     try:
-        task = process_inbound_webhook.delay(payload, source, ev.id)
+        task = process_inbound_webhook.delay(payload, source, ev.id, delivery_id)
         task_id = task.id
     except Exception:
         # Redis not available in local dev — fall back to in-process coroutine
@@ -373,7 +380,7 @@ async def github_native_webhook(request: Request):
 
 @router.get("/api/webhooks/activity")
 def webhook_activity(
-    limit: int = Query(40, ge=1, le=200),
+    limit: int = Query(40, ge=1, le=100),
     current_user: User = Depends(get_current_user),
 ):
     return get_recent_webhook_events(limit=limit)

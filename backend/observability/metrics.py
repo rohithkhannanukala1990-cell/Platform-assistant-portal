@@ -6,6 +6,14 @@ from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from prometheus_client.core import REGISTRY, GaugeMetricFamily
 from prometheus_client.registry import Collector
 
+
+def _safe_label(value: str | None, *, max_len: int = 64, default: str = "unknown") -> str:
+    """Sanitize prometheus label values so bad input never raises."""
+    raw = (value or default).strip() or default
+    # Prometheus label values shouldn't be huge; strip control chars.
+    cleaned = "".join(ch for ch in raw if ch.isprintable())
+    return cleaned[:max_len] or default
+
 INCIDENTS_TOTAL = Counter(
     "aiops_incidents_total",
     "Total incidents triaged",
@@ -128,8 +136,8 @@ WEBHOOK_FAILURES_TOTAL = WEBHOOK_SIGNATURE_FAILURES_TOTAL
 def record_connector_error(connector: str, error_type: str) -> None:
     try:
         CONNECTOR_ERRORS_TOTAL.labels(
-            connector=connector or "unknown",
-            error_type=error_type or "unknown",
+            connector=_safe_label(connector),
+            error_type=_safe_label(error_type),
         ).inc()
     except Exception:
         pass
@@ -138,7 +146,7 @@ def record_connector_error(connector: str, error_type: str) -> None:
 def observe_health_probe(probe_name: str, duration_seconds: float) -> None:
     try:
         HEALTH_PROBE_DURATION_SECONDS.labels(
-            probe_name=probe_name or "unknown",
+            probe_name=_safe_label(probe_name),
         ).observe(max(0.0, float(duration_seconds)))
     except Exception:
         pass
@@ -153,7 +161,7 @@ def record_webhook_signature_failure() -> None:
 
 def record_webhook_duplicate(source: str) -> None:
     try:
-        WEBHOOK_DUPLICATES_TOTAL.labels(source=source or "unknown").inc()
+        WEBHOOK_DUPLICATES_TOTAL.labels(source=_safe_label(source)).inc()
     except Exception:
         pass
 
@@ -161,8 +169,8 @@ def record_webhook_duplicate(source: str) -> None:
 def record_alert_suppressed(source: str, rule_id: str) -> None:
     try:
         ALERTS_SUPPRESSED_TOTAL.labels(
-            source=source or "unknown",
-            rule_id=rule_id or "unknown",
+            source=_safe_label(source),
+            rule_id=_safe_label(rule_id),
         ).inc()
     except Exception:
         pass
@@ -171,8 +179,8 @@ def record_alert_suppressed(source: str, rule_id: str) -> None:
 def record_alert_grouped(source: str, rule_id: str) -> None:
     try:
         ALERTS_GROUPED_TOTAL.labels(
-            source=source or "unknown",
-            rule_id=rule_id or "unknown",
+            source=_safe_label(source),
+            rule_id=_safe_label(rule_id),
         ).inc()
     except Exception:
         pass
@@ -181,8 +189,8 @@ def record_alert_grouped(source: str, rule_id: str) -> None:
 def record_celery_task_retry(task: str, queue: str) -> None:
     try:
         CELERY_TASK_RETRIES_TOTAL.labels(
-            task=task or "unknown",
-            queue=queue or "celery",
+            task=_safe_label(task, max_len=128),
+            queue=_safe_label(queue),
         ).inc()
     except Exception:
         pass
@@ -191,8 +199,8 @@ def record_celery_task_retry(task: str, queue: str) -> None:
 def record_celery_task_failure(task: str, queue: str) -> None:
     try:
         CELERY_TASK_FAILURES_TOTAL.labels(
-            task=task or "unknown",
-            queue=queue or "celery",
+            task=_safe_label(task, max_len=128),
+            queue=_safe_label(queue),
         ).inc()
     except Exception:
         pass
@@ -200,7 +208,7 @@ def record_celery_task_failure(task: str, queue: str) -> None:
 
 def record_demo_data_served(endpoint: str) -> None:
     try:
-        DEMO_DATA_SERVED_TOTAL.labels(endpoint=endpoint or "unknown").inc()
+        DEMO_DATA_SERVED_TOTAL.labels(endpoint=_safe_label(endpoint)).inc()
     except Exception:
         pass
 
@@ -208,8 +216,8 @@ def record_demo_data_served(endpoint: str) -> None:
 def record_github_api_request(operation: str, status: str) -> None:
     try:
         GITHUB_API_REQUESTS_TOTAL.labels(
-            operation=operation or "unknown",
-            status=status or "unknown",
+            operation=_safe_label(operation),
+            status=_safe_label(status),
         ).inc()
     except Exception:
         pass
@@ -217,7 +225,7 @@ def record_github_api_request(operation: str, status: str) -> None:
 
 def record_login_failure(reason: str = "invalid_credentials") -> None:
     try:
-        LOGIN_FAILURES_TOTAL.labels(reason=reason or "unknown").inc()
+        LOGIN_FAILURES_TOTAL.labels(reason=_safe_label(reason)).inc()
     except Exception:
         pass
 

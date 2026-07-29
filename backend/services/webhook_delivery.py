@@ -5,10 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from ..database import engine
 from ..db.models.ops import WebhookDelivery
+
+# Statuses that may be reclaimed so a failed process does not permanently drop the event.
+_RECLAIMABLE = frozenset({"error", "failed"})
+_DONE = frozenset({"processed", "suppressed", "grouped"})
 
 
 def extract_delivery_id(
@@ -51,6 +55,8 @@ def claim_delivery(delivery_id: str, source: str, *, status: str = "received") -
     """Insert delivery row after signature verify.
 
     Returns (is_new, row). is_new=False means duplicate — caller should return 200.
+    Rows previously marked ``error``/``failed`` are reclaimed so provider retries
+    are not permanently dropped (ID-056).
     """
     did = (delivery_id or "").strip()
     if not did:
@@ -68,8 +74,18 @@ def claim_delivery(delivery_id: str, source: str, *, status: str = "received") -
             session.refresh(row)
             return True, row
     except IntegrityError:
-        existing = get_delivery(did)
-        return False, existing
+        with Session(engine) as session:
+            existing = session.get(WebhookDelivery, did)
+            if existing is None:
+                return False, None
+            if existing.status in _RECLAIMABLE:
+                existing.status = status
+                existing.source = (source or "").strip().lower() or existing.source
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
+                return True, existing
+            return False, existing
 
 
 def mark_delivery_status(delivery_id: str, status: str) -> None:
@@ -83,3 +99,11 @@ def mark_delivery_status(delivery_id: str, status: str) -> None:
         row.status = status
         session.add(row)
         session.commit()
+
+
+def delivery_already_processed(delivery_id: str | None) -> bool:
+    """True when delivery ledger shows a successful terminal status."""
+    if not delivery_id:
+        return False
+    row = get_delivery(delivery_id)
+    return row is not None and row.status in _DONE

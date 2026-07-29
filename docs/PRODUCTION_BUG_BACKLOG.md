@@ -2,7 +2,8 @@
 
 **Phase P0 inventory** (static audit on `899ad44`+). No fixes in that phase.  
 **Phase P1:** Fixed all P0 blockers + critical P1 security/data-plane items (SSL, SSRF, demo gates, AuthZ, SafeExecutor defaults, weak admin, CORS, tenant leaks). FE refactors deferred.  
-**Pytest:** `268 passed` (`pytest backend/tests -q`) after P1.
+**Phase P2:** API reliability — webhooks idempotency/500s, Celery retries, ready probes, pagination cap, metrics/rate-limit hardening. Agent rewrites deferred to P3.  
+**Pytest:** `282 passed` (`pytest backend/tests -q`) after P2.
 
 ### Summary counts
 
@@ -39,7 +40,7 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 - [x] **ID-013** API/celery containers run as root — Fixed P1: non-root `USER appuser` in `backend/Dockerfile`.
 - [x] **ID-014** Agent reject ignores status — Fixed P1: reject gated on `pending_approval` + CAS to failed.
 - [x] **ID-015** EntityAction create is any authenticated user — Fixed P1: `require_admin` on create.
-- [ ] **ID-016** Local/CI healthchecks use liveness only — `docker-compose.yml:101`, `.github/workflows/ci.yml:77` — Prefer `/health/ready` where Redis exists. *(deferred P5)*
+- [x] **ID-016** Local/CI healthchecks use liveness only — Fixed P2: compose + CI poll `/health/ready`; daily health workflow also probes ready.
 - [ ] **ID-017** Prod Prometheus scrape target wrong — `prometheus/prometheus.yml:8` → `backend:8000` — Use `api_1`/`api_2` for HA. *(deferred P5)*
 - [x] **ID-018** Pending incident approvals leak across tenants — Fixed P1: `get_pending_approvals(..., tenant_id=)`.
 - [x] **ID-019** Catalog search ignores tenant — Fixed P1: `apply_tenant_filter` on search.
@@ -54,32 +55,32 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 
 ## Medium (P2)
 
-- [ ] **ID-020** CI Python 3.11 vs Dockerfile 3.12 — `.github/workflows/ci.yml:21` — Pin CI to 3.12.
+- [x] **ID-020** CI Python 3.11 vs Dockerfile 3.12 — Fixed P2: CI + pr-check pinned to 3.12.
 - [ ] **ID-021** *(superseded by ID-054)* — kept for history; treat as duplicate of ID-054.
-- [ ] **ID-022** Naive UTC on liveness — `backend/routers/health_api.py:144` — Use `datetime.now(timezone.utc)`.
+- [x] **ID-022** Naive UTC on liveness — Fixed P2: `datetime.now(timezone.utc)`.
 - [ ] **ID-023** Long JWT lifetime — `backend/auth.py:260` — Default 480m — Prefer 60–120m in prod example.
 - [ ] **ID-024** `.env.production.example` incomplete (webhooks/SSO) — Add placeholders for GitLab/PD/Datadog/SAML/Google.
 - [ ] **ID-025** `SECRETS_ENCRYPTION_KEY=` inline `#` comment — `.env.production.example:14` — Move hint off value line.
-- [ ] **ID-026** documentation_agent HITL while `read_only=True` — `backend/agents/documentation_agent.py:107-119` — Use `_finalize_with_policy` or success + recommended_actions.
-- [ ] **ID-027** Daily health workflow ignores readiness — `.github/workflows/health.yml:28` — Also probe `/health/ready`.
+- [ ] **ID-026** documentation_agent HITL while `read_only=True` — `backend/agents/documentation_agent.py:107-119` — Use `_finalize_with_policy` or success + recommended_actions. *(deferred P3 agents)*
+- [x] **ID-027** Daily health workflow ignores readiness — Fixed P2: also probe `/health/ready`.
 - [ ] **ID-028** Entity actions workspace TODO — Track with ID-003.
-- [ ] **ID-029** Raw `res.text()` in UI errors (systemic) — `ConnectorReadView.jsx:46`, CatalogPage, GitHub*, K8s, PagerDuty, AIAssistant, AgentRunnerPanel, EntityActionsPage, … — Shared `parseApiError(res)` → never render HTML/traceback.
+- [ ] **ID-029** Raw `res.text()` in UI errors (systemic) — `ConnectorReadView.jsx:46`, CatalogPage, GitHub*, K8s, PagerDuty, AIAssistant, AgentRunnerPanel, EntityActionsPage, … — Shared `parseApiError(res)` → never render HTML/traceback. *(deferred P4/P6 FE)*
 - [x] **ID-030** Agent approve any tenant user — Fixed P1: `require_admin` on approve/reject.
-- [ ] **ID-031** Celery retry without countdown — `backend/tasks.py:288` — Use `_backoff_countdown`; only DLQ on MaxRetriesExceeded.
-- [ ] **ID-032** Webhook gateway 500 on empty `alerts`/`evalMatches` — `backend/routers/webhooks_api.py:179-180` — `[]` passes `isinstance(list)` then `[0]` → IndexError — Guard `and payload["alerts"]`.
-- [ ] **ID-033** HITL catalog action approve is silent no-op — `backend/services/catalog_actions.py:173-182` + `agents.py:252-276` — Propose Deploy pending run has `commands: []`; approve only flips success — Dispatch on `action_type` after HITL.
-- [ ] **ID-034** Celery webhook retries duplicate incidents — `backend/tasks.py:88-139` — Retry after `ingest_webhook_alert` recreates incident; `delivery_id` not passed to task — Idempotent ingest on delivery_id.
-- [ ] **ID-035** `monitor_cicd_pipelines` DLQ then retry — `backend/tasks.py:282-288` — `_dead_letter` before `retry` → phantom DLQ + duplicate incident risk — DLQ only on MaxRetriesExceeded.
+- [x] **ID-031** Celery retry without countdown — Fixed P2: `monitor_cicd_pipelines` uses `_backoff_countdown`; DLQ only on MaxRetriesExceeded.
+- [x] **ID-032** Webhook gateway 500 on empty `alerts`/`evalMatches` — Fixed P2: guard empty lists in `_map_to_cloud_event`.
+- [ ] **ID-033** HITL catalog action approve is silent no-op — `backend/services/catalog_actions.py:173-182` + `agents.py:252-276` — Propose Deploy pending run has `commands: []`; approve only flips success — Dispatch on `action_type` after HITL. *(deferred P3/P7 agents)*
+- [x] **ID-034** Celery webhook retries duplicate incidents — Fixed P2: pass `delivery_id` to task; skip if delivery/event already processed; mark error reclaimable.
+- [x] **ID-035** `monitor_cicd_pipelines` DLQ then retry — Fixed P2: DLQ only on MaxRetriesExceeded.
 - [x] **ID-036** Tool accounts matrix / category counts unscoped — Fixed P1: tenant + ownership filters on categories/matrix.
-- [ ] **ID-037** Dashboard AWS-cost agent toast spam — `src/components/DashboardView.jsx:183-209` + `AuthContext.jsx` agents-run toast — POST `/api/agents/run` every mount — Silent widget fetch or dedicated GET.
-- [ ] **ID-038** Unhandled rejections in admin polling — `AuditLogView.jsx:40-53`, `UserManagement.jsx:46-54`, `OpsPortal.jsx:163-165` — try/catch + `.catch` on intervals.
-- [ ] **ID-039** AgentApprovalsWidget incidents fetch without auth — `src/components/AgentApprovalsWidget.jsx:570` — Use `authFetch`.
-- [ ] **ID-055** IntegrationsPage webhook activity unauthenticated — `src/components/IntegrationsPage.jsx:198-225` — Use `authFetch`; surface errors.
-- [ ] **ID-056** Webhook claim-before-process can drop events — `backend/routers/webhooks_api.py:238+` — Failed process still returns duplicate on provider retry — Mark failed claimable.
+- [ ] **ID-037** Dashboard AWS-cost agent toast spam — `src/components/DashboardView.jsx:183-209` + `AuthContext.jsx` agents-run toast — POST `/api/agents/run` every mount — Silent widget fetch or dedicated GET. *(deferred P6 FE)*
+- [ ] **ID-038** Unhandled rejections in admin polling — `AuditLogView.jsx:40-53`, `UserManagement.jsx:46-54`, `OpsPortal.jsx:163-165` — try/catch + `.catch` on intervals. *(deferred P6 FE)*
+- [ ] **ID-039** AgentApprovalsWidget incidents fetch without auth — `src/components/AgentApprovalsWidget.jsx:570` — Use `authFetch`. *(deferred P4 FE)*
+- [ ] **ID-055** IntegrationsPage webhook activity unauthenticated — `src/components/IntegrationsPage.jsx:198-225` — Use `authFetch`; surface errors. *(deferred P4 FE)*
+- [x] **ID-056** Webhook claim-before-process can drop events — Fixed P2: `error`/`failed` deliveries reclaimable on provider retry.
 - [x] **ID-058** Golden-path agent step missing `tenant_id` on PlatformContext — Fixed P1: thread `tenant_id` from run/inputs into `PlatformContext`.
 - [x] **ID-059** `_finalize_with_policy` keeps `details.commands` for read_only — Fixed P1: clear `commands` on read_only return.
-- [ ] **ID-060** Incident triage LLM prompts lack GROUNDING_RULES — `backend/ai/ai_utils.py:7-42`, `incidents_service.py` prompt — Can invent commands/paths/evidence — Prepend shared grounding constraint.
-- [ ] **ID-061** DB query analyzer fabricates mock EXPLAIN — `backend/routers/platform_misc.py:368-412` — Fake Seq Scan / timings presented as analysis — Return explicit no-live-EXPLAIN state.
+- [ ] **ID-060** Incident triage LLM prompts lack GROUNDING_RULES — `backend/ai/ai_utils.py:7-42`, `incidents_service.py` prompt — Can invent commands/paths/evidence — Prepend shared grounding constraint. *(deferred P3/P7)*
+- [ ] **ID-061** DB query analyzer fabricates mock EXPLAIN — `backend/routers/platform_misc.py:368-412` — Fake Seq Scan / timings presented as analysis — Return explicit no-live-EXPLAIN state. *(deferred P7)*
 - [x] **ID-062** `monitor_cicd_pipelines` invents incidents from demo fixtures — Fixed P1: gated by `demo_data_enabled()`; no-op when false.
 - [x] **ID-063** Incident approve lacks Admin/owner authz — Fixed P1: `require_admin` on approve/reject.
 
@@ -93,12 +94,15 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 - [ ] **ID-043** Dead scorecard AI parse leftovers — `backend/routers/scorecards.py:49+`.
 - [ ] **ID-044** `tool_executor.approve_execution` stub payload — `backend/ai/tool_executor.py:141-152`.
 - [ ] **ID-045** Smoke scripts use `python` — `scripts/beta_smoke.sh:19` — Prefer `python3`.
-- [ ] **ID-046** Permanent Celery errors still retry 5× — `backend/tasks.py:123-139` — Don’t retry ValueError/KeyError/JSONDecodeError.
+- [x] **ID-046** Permanent Celery errors still retry 5× — Fixed P2: ValueError/KeyError/TypeError/JSONDecodeError → DLQ, no retry.
 - [ ] **ID-047** Role-filtered incident list truncates at 500 — `backend/routers/incidents.py:122-126` — Filter `owner_role` in SQL.
 - [ ] **ID-048** MFA-role DB read swallow — `backend/auth.py:235-242` — Log + consider fail-closed.
 - [ ] **ID-049** Frontend P3 polish — GitHub double-fetch repos; clipboard `.then` without `.catch`; index keys on reorderable lists; OncallWidget maps 500→empty — See frontend audit notes.
 - [ ] **ID-064** Entity actions simulated success for unwired handlers — `backend/routers/entity_actions.py:152-157` — `generate-cicd` / `generate-infra` / `create-jira-ticket` return `completed` + `simulated: true` — Use `not_implemented` status.
 - [ ] **ID-065** `PlatformContext.from_dict` silently defaults `tenant_id=None` — `backend/context.py:86-91` — Log or resolve via `resolve_tenant_id` (call-site bug: ID-058).
+- [x] **ID-079** Pagination max page_size too high — Fixed P2: `MAX_PAGE_SIZE=100` (+ Query le=100 on lists).
+- [x] **ID-080** Prometheus metrics can throw on bad labels / middleware — Fixed P2: `_safe_label` + try/except around HTTP metrics.
+- [x] **ID-081** Rate-limit Redis policy undocumented — Fixed P2: documented fail-open API counters + login memory fallback in `rate_limit.py`.
 
 ---
 
