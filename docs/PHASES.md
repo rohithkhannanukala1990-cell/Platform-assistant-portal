@@ -242,3 +242,11 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Docs — `AGENTS.md` Production verification; backlog agent bugs marked; Do NOT push git
 - [x] Pytest green (`295 passed`)
 
+## Phase P4 — Prod-like agent E2E + HITL loop
+- [x] Prod-like test env — `ENV=production`, `ENABLE_DEMO_DATA=false`, `ENFORCE_WORKSPACE_ISOLATION=true`, `LLM_MOCK=1`, Fernet `SECRETS_ENCRYPTION_KEY`
+- [x] `backend/tests/test_phase_p4_agents_prod_e2e.py` — incident no-PD, PD account isolation, code_review mock, deploy HITL + approve dry-run/deny, double approve CAS, MCP dangerous pending, kubectl delete require_approval, demo off → no_data
+- [x] Approve path dry-runs commands before execute; policy deny never reaches subprocess
+- [x] `scripts/agent_prod_smoke.py` — list agents + read-only run; exit non-zero on HTTP 500
+- [x] pytest marker `prod_e2e`
+- [x] Pytest green (`303 passed`); Do NOT push git
+

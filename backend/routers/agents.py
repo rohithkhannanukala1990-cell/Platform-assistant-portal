@@ -126,9 +126,18 @@ def list_all_agents(current_user: User = Depends(get_current_user)):
 @limiter.limit("10/minute")
 async def run_agent(
     request: Request,
-    body: RunAgentRequest,
     current_user: User = Depends(get_current_user),
 ):
+    # Parse body from Request (SlowAPI + Annotated Body ForwardRef is unreliable).
+    try:
+        raw = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+    try:
+        body = RunAgentRequest.model_validate(raw if isinstance(raw, dict) else {})
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid RunAgentRequest: {exc}")
+
     ctx = _build_platform_context(request, body, current_user)
     with Session(engine) as session:
         result = await orchestrator_agent.run(
@@ -266,20 +275,39 @@ async def approve_run(
     exec_log = None
     final_status = "success"
     if commands:
-        out = await safe_executor.execute(
-            commands,
-            incident_id=0,
-            approved_by=current_user.username,
-            context={
-                "role": current_user.role,
-                "environment": env,
-                "tool": "shell",
-                "tenant_id": run_tenant,
-                "approved": True,
-            },
-        )
-        exec_log = out.get("logs")
-        final_status = "success" if out.get("success") else "failed"
+        exec_ctx = {
+            "role": current_user.role,
+            "environment": env,
+            "tool": "shell",
+            "tenant_id": run_tenant,
+            "approved": True,
+            "approved_by": current_user.username,
+        }
+        # HITL: dry-run / policy preview first — deny never reaches subprocess.
+        preview = await safe_executor.dry_run(commands, context=exec_ctx)
+        preview_log = json.dumps(
+            {"dry_run": True, "all_safe": preview.get("all_safe"), "steps": preview.get("steps")},
+            default=str,
+        )[:4000]
+        if not preview.get("all_safe"):
+            exec_log = f"[approve dry-run blocked]\n{preview_log}"
+            final_status = "failed"
+            write_audit(
+                current_user.username,
+                current_user.role,
+                "agent_run_denied_policy",
+                resource=agent_name,
+                detail=f"{run_id}: dry-run policy deny",
+            )
+        else:
+            out = await safe_executor.execute(
+                commands,
+                incident_id=0,
+                approved_by=current_user.username,
+                context=exec_ctx,
+            )
+            exec_log = f"[approve dry-run ok]\n{preview_log}\n{out.get('logs') or ''}"
+            final_status = "success" if out.get("success") else "failed"
 
     with Session(engine) as session:
         row = session.get(AgentRun, run_id)
