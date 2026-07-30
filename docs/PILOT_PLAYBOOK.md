@@ -19,6 +19,7 @@ bash scripts/pilot_smoke.sh   # BASE_URL=http://localhost by default (nginx)
 4. Confirm `/health/ready` returns `status=ready` with `checks.database` + `checks.redis` ok.
 5. Rotate seed admin password; enroll MFA if required.
 6. Connect first-class tools the partner will use (GitHub, PagerDuty, Slack, …) via Tool Registry — **no global env fallbacks** on API paths.
+7. Walk `scripts/agent_realworld_checklist.md` with real keys (code review → pipeline → HITL → postmortem → audit → User B isolation).
 
 ## Week 1 — Design partner focus
 

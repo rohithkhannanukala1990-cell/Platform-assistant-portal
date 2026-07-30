@@ -198,7 +198,7 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Prod defaults: `ENABLE_DEMO_DATA=false`, `ENFORCE_WORKSPACE_ISOLATION=true`, `ENV=production`
 - [x] `/health/live` + `/health/ready` (db + redis); `/ready` alias
 - [x] `docs/PILOT_PLAYBOOK.md` — 2-week design partner, metrics, feedback
-- [x] `scripts/pilot_smoke.sh` extends `beta_smoke.sh`
+- [x] `scripts/pilot_smoke.sh` HA smoke (expanded in P6: agents + policy evaluate)
 - [x] `docs/BETA_GONOGO.md` G1–G6 + G7 checkboxes; `docs/product_comparison.md`
 - [x] `backend/tests/test_phase_g7_ha_pilot.py` — ready logic + compose/config defaults
 
@@ -259,4 +259,12 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Golden paths — clearer invalid template/entity errors; steps_json validate on create
 - [x] `backend/tests/test_phase_p5_competitor_gaps.py`; `docs/product_comparison.md` symbols updated
 - [x] Pytest green (`311 passed`); Do NOT push git
+
+## Phase P6 — Production compose + real-life smoke
+- [x] Harden `deploy/docker-compose.prod.yml` — ready healthchecks, healthy `depends_on` (api×2 + frontend), optional resource limits
+- [x] Expand `scripts/pilot_smoke.sh` — `/health/ready`, `/api/llm/status`, login + `/api/agents/`, policy evaluate sample; fail on HTTP 500
+- [x] `scripts/agent_realworld_checklist.md` — operator steps with real keys (env → tools → agents → HITL → postmortem → audit → isolation)
+- [x] `.env.production.example` — `ENABLE_DEMO_DATA=false`, `SECRETS_ENCRYPTION_KEY` (no inline `#`), `ENFORCE_WORKSPACE_ISOLATION`
+- [x] `backend/tests/test_phase_p6_compose_config.py`
+- [x] Pytest green (`314 passed`); Do NOT push git
 

@@ -6,7 +6,11 @@ from pathlib import Path
 # Must run before importing backend.* (database URL is read at import time).
 _test_db = Path(__file__).resolve().parent.parent / "test_pytest.db"
 if _test_db.exists():
-    _test_db.unlink(missing_ok=True)
+    try:
+        _test_db.unlink(missing_ok=True)
+    except PermissionError:
+        # Windows: prior pytest/IDE may still hold the file — use a unique DB path.
+        _test_db = Path(__file__).resolve().parent.parent / f"test_pytest_{os.getpid()}.db"
 
 os.environ["DATABASE_URL"] = f"sqlite:///{_test_db.as_posix()}"
 os.environ["SKIP_BACKGROUND_SCHEDULER"] = "1"

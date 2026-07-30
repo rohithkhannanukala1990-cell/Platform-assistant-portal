@@ -63,7 +63,7 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 - [x] **ID-022** Naive UTC on liveness — Fixed P2: `datetime.now(timezone.utc)`.
 - [ ] **ID-023** Long JWT lifetime — `backend/auth.py:260` — Default 480m — Prefer 60–120m in prod example.
 - [ ] **ID-024** `.env.production.example` incomplete (webhooks/SSO) — Add placeholders for GitLab/PD/Datadog/SAML/Google.
-- [ ] **ID-025** `SECRETS_ENCRYPTION_KEY=` inline `#` comment — `.env.production.example:14` — Move hint off value line.
+- [x] **ID-025** `SECRETS_ENCRYPTION_KEY=` inline `#` comment — Fixed P6: hint moved above value line in `.env.production.example`.
 - [x] **ID-026** documentation_agent HITL while `read_only=True` — Fixed P3: success + `recommended_actions`, never pending shell while read_only.
 - [x] **ID-027** Daily health workflow ignores readiness — Fixed P2: also probe `/health/ready`.
 - [ ] **ID-028** Entity actions workspace TODO — Track with ID-003.
