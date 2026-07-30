@@ -13,8 +13,9 @@ from sqlmodel import Session
 from ..auth import User, get_current_user, require_admin, write_audit
 from ..database import engine
 from ..db.models.alerts import VALID_ALERT_ACTIONS, AlertRule
-from ..services.alert_rules import _serialize_rule, list_alert_rules
+from ..services.alert_rules import _serialize_rule, evaluate_alert_dry_run, list_alert_rules
 from ..services.isolation import require_tenant
+from ..observability.metrics import alert_correlation_counters
 
 router = APIRouter(prefix="/api/alert-rules", tags=["alert-rules"])
 
@@ -28,6 +29,45 @@ class AlertRuleBody(BaseModel):
     action: str = "create_incident"
     priority: int = 100
     enabled: bool = True
+
+
+class AlertDryRunBody(BaseModel):
+    title: Optional[str] = None
+    service: Optional[str] = None
+    severity: Optional[str] = None
+    source: str = "dry-run"
+    log_text: str = ""
+    payload: Optional[dict] = None
+
+
+@router.get("/stats")
+def alert_rule_stats(request: Request, current_user: User = Depends(require_admin)):
+    """Admin counters for rules-based correlation (not ML)."""
+    _ = require_tenant(request)
+    return alert_correlation_counters()
+
+
+@router.post("/dry-run")
+def alert_rule_dry_run(
+    request: Request,
+    body: AlertDryRunBody,
+    current_user: User = Depends(get_current_user),
+):
+    """Preview which rule would match — no bucket/metric side effects."""
+    tenant_id = require_tenant(request)
+    payload = dict(body.payload or {})
+    if body.title:
+        payload.setdefault("title", body.title)
+    if body.service:
+        payload.setdefault("service", body.service)
+    if body.severity:
+        payload.setdefault("severity", body.severity)
+    return evaluate_alert_dry_run(
+        tenant_id=tenant_id,
+        source=body.source or "dry-run",
+        log_text=body.log_text or body.title or "",
+        payload=payload,
+    )
 
 
 def _validate_body(body: AlertRuleBody) -> None:

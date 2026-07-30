@@ -95,7 +95,7 @@ def test_applicable_invalid_template_id_returns_404(client, admin_token):
         headers=auth_headers(admin_token),
     )
     assert response.status_code == 404
-    assert "Template not found" in response.json()["detail"]
+    assert "not found" in response.json()["detail"].lower()
 
 
 def test_applicable_invalid_entity_id_returns_404(client, admin_token):
@@ -105,7 +105,7 @@ def test_applicable_invalid_entity_id_returns_404(client, admin_token):
         headers=auth_headers(admin_token),
     )
     assert response.status_code == 404
-    assert "Catalog entity not found" in response.json()["detail"]
+    assert "not found" in response.json()["detail"].lower()
 
 
 def test_applicable_for_entity_returns_kind_matched_paths(client, admin_token):

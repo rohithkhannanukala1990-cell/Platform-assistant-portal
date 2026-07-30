@@ -36,7 +36,7 @@ class Incident(SQLModel, table=True):
 
 
 class IncidentPostmortem(SQLModel, table=True):
-    """Versioned postmortem document for an incident (Phase G3)."""
+    """Versioned postmortem document for an incident (Phase G3/P5)."""
 
     __tablename__ = "incident_postmortems"
 
@@ -46,6 +46,8 @@ class IncidentPostmortem(SQLModel, table=True):
     version: int = Field(default=1, index=True)
     markdown: str = Field(default="")
     sections_json: str = Field(default="{}")
+    action_items_json: str = Field(default="[]")  # checklist / catalog action links
+    template_variant: str = Field(default="SEV2")  # SEV1 | SEV2
     generated_by: str = Field(default="")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -250,3 +250,13 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] pytest marker `prod_e2e`
 - [x] Pytest green (`303 passed`); Do NOT push git
 
+## Phase P5 — Competitor gap closures (important only)
+- [x] Scorecards — optional live GitHub Actions CI on default branch; metadata fallback; UI live vs metadata badge
+- [x] Postmortems — SEV1/SEV2 templates, copy markdown API, action_items checklist JSON, no invented timeline tests
+- [x] Self-service — builtins + propose_deploy HITL; Actions empty/loading states
+- [x] Alert correlation — dry-run API + admin counters; rules-based (not ML)
+- [x] On-call — multi-schedule list + PD deep links; scheduling stays in PD
+- [x] Golden paths — clearer invalid template/entity errors; steps_json validate on create
+- [x] `backend/tests/test_phase_p5_competitor_gaps.py`; `docs/product_comparison.md` symbols updated
+- [x] Pytest green (`311 passed`); Do NOT push git
+

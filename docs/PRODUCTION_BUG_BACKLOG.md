@@ -5,7 +5,8 @@
 **Phase P2:** API reliability — webhooks idempotency/500s, Celery retries, ready probes, pagination cap, metrics/rate-limit hardening. Agent rewrites deferred to P3.  
 **Phase P3:** Agent production-safety — BaseAgent finalize/policy/HITL, orchestrator tenant enforce, per-agent contract, eval harness (`fixtures/agents`), docs.  
 **Phase P4:** Prod-like agent E2E + HITL (`test_phase_p4_agents_prod_e2e`, approve dry-run-first, `agent_prod_smoke.py`).  
-**Pytest:** `303 passed` (`pytest backend/tests -q`) after P4.
+**Phase P5:** Competitor gaps — live scorecard CI, SEV postmortems, alert dry-run, multi-schedule on-call.  
+**Pytest:** `311 passed` (`pytest backend/tests -q`) after P5.
 
 ### Summary counts
 

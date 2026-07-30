@@ -3,7 +3,7 @@ import { ExternalLink, Loader2, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
-export default function OncallWidget({ compact = false, service = null, scheduleId = null }) {
+export default function OncallWidget({ compact = false, service = null, scheduleId = null, scheduleIds = null }) {
   const { authFetch } = useAuth()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -16,6 +16,10 @@ export default function OncallWidget({ compact = false, service = null, schedule
       const params = new URLSearchParams()
       if (service) params.set('service', service)
       if (scheduleId) params.set('schedule_id', scheduleId)
+      const ids = Array.isArray(scheduleIds) ? scheduleIds : []
+      for (const sid of ids) {
+        if (sid) params.append('schedule_ids', sid)
+      }
       const qs = params.toString()
       const res = await authFetch(`/api/oncall/now${qs ? `?${qs}` : ''}`)
       if (res.status === 400) {
@@ -30,7 +34,7 @@ export default function OncallWidget({ compact = false, service = null, schedule
     } finally {
       setLoading(false)
     }
-  }, [authFetch, service, scheduleId])
+  }, [authFetch, service, scheduleId, scheduleIds])
 
   useEffect(() => {
     void load()
@@ -79,17 +83,34 @@ export default function OncallWidget({ compact = false, service = null, schedule
         Scheduling remains in PagerDuty — this widget is read-only.
       </p>
       {!oncalls.length ? (
-        <p className="text-xs text-slate-500">No on-call entries for current filters.</p>
+        <p className="text-xs text-slate-500">
+          No on-call entries for current filters. Open PagerDuty to manage schedules.
+        </p>
       ) : (
         <ul className={`space-y-2 ${compact ? 'text-xs' : 'text-sm'}`}>
           {oncalls.slice(0, compact ? 3 : 8).map((row, idx) => (
-            <li key={`${row.user}-${row.schedule}-${idx}`} className="flex flex-wrap gap-x-2 text-slate-300">
+            <li key={`${row.user}-${row.schedule_id || row.schedule}-${idx}`} className="flex flex-wrap gap-x-2 text-slate-300">
               <span className="font-medium text-white">{row.user || '—'}</span>
               <span className="text-slate-500">·</span>
-              <span className="text-slate-400">{row.schedule || row.service || 'schedule'}</span>
+              <span className="text-slate-400">{row.schedule || row.schedule_id || row.service || 'schedule'}</span>
             </li>
           ))}
         </ul>
+      )}
+      {Array.isArray(data?.schedules) && data.schedules.length > 1 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {data.schedules.map((s) => (
+            <a
+              key={s.schedule_id}
+              href={s.pd_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-accent hover:underline"
+            >
+              Schedule {s.schedule_id}
+            </a>
+          ))}
+        </div>
       )}
     </div>
   )

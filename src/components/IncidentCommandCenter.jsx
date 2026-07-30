@@ -313,6 +313,21 @@ export default function IncidentCommandCenter() {
     }
   }
 
+  async function copyPostmortemMarkdown() {
+    setBusy('postmortem-copy')
+    try {
+      const res = await authFetch(`/api/incidents/${id}/postmortem/markdown`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || `Copy failed (${res.status})`)
+      await navigator.clipboard.writeText(data.markdown || '')
+      showToast('Postmortem markdown copied', 'success')
+    } catch (e) {
+      showToast(e.message || 'Copy failed', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   function startPostmortemEdit() {
     setPostmortemDraft(postmortem?.markdown || '')
     setPostmortemEditing(true)
@@ -687,6 +702,17 @@ export default function IncidentCommandCenter() {
                     <Download className="w-3 h-3" />
                   )}
                   Download
+                </button>
+                <button
+                  type="button"
+                  onClick={() => copyPostmortemMarkdown()}
+                  disabled={!!busy}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs text-slate-300 hover:text-white hover:bg-card disabled:opacity-50 transition-colors"
+                >
+                  {busy === 'postmortem-copy' ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : null}
+                  Copy markdown
                 </button>
               </>
             )}

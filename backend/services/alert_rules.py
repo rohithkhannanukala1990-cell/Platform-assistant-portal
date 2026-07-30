@@ -249,6 +249,68 @@ def evaluate_alert_ingest(
         )
 
 
+def evaluate_alert_dry_run(
+    *,
+    tenant_id: str,
+    source: str = "dry-run",
+    log_text: str = "",
+    payload: dict | None = None,
+) -> dict[str, Any]:
+    """Match-only dry-run — never mutates buckets or increments metrics."""
+    fields = extract_alert_fields(payload, source=source, log_text=log_text)
+    with Session(engine) as session:
+        rules = session.exec(
+            select(AlertRule)
+            .where(AlertRule.tenant_id == tenant_id, AlertRule.enabled == True)  # noqa: E712
+            .order_by(col(AlertRule.priority), col(AlertRule.name))
+        ).all()
+        matched = None
+        for rule in rules:
+            if _rule_matches(rule, fields):
+                matched = rule
+                break
+        if not matched:
+            return {
+                "matched": False,
+                "action": ACTION_CREATE_INCIDENT,
+                "reason": "no_matching_rule",
+                "fields": {
+                    "title": fields.title,
+                    "service": fields.service,
+                    "severity": fields.severity,
+                    "source": fields.source,
+                },
+                "would_mutate": False,
+            }
+        fingerprint = _fingerprint(tenant_id, matched.id, fields)
+        bucket = _get_bucket(session, fingerprint)
+        window = max(0, int(matched.group_window_sec or 0))
+        in_window = bool(window > 0 and bucket and _within_window(bucket, window))
+        action = matched.action
+        reason = "matched_rule"
+        if action == ACTION_SUPPRESS:
+            reason = "would_suppress"
+        elif in_window:
+            reason = "would_group_within_window"
+            action = ACTION_ATTACH_EXISTING
+        return {
+            "matched": True,
+            "rule_id": matched.id,
+            "rule_name": matched.name,
+            "action": action,
+            "reason": reason,
+            "group_window_sec": window,
+            "existing_incident_id": bucket.incident_id if bucket and in_window else None,
+            "fields": {
+                "title": fields.title,
+                "service": fields.service,
+                "severity": fields.severity,
+                "source": fields.source,
+            },
+            "would_mutate": False,
+        }
+
+
 def register_grouped_incident(
     *,
     tenant_id: str,

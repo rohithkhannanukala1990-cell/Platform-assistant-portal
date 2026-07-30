@@ -963,6 +963,7 @@ function scoreBarColor(score) {
 
 function CheckRow({ check }) {
   const evidence = check.evidence && typeof check.evidence === 'object' ? check.evidence : null
+  const evidenceSource = evidence?.source === 'github_checks' ? 'live' : evidence?.source ? 'metadata' : null
   const evidenceBits = evidence
     ? Object.entries(evidence)
         .filter(([, v]) => v != null && v !== '')
@@ -975,6 +976,18 @@ function CheckRow({ check }) {
       <div className="flex items-center gap-2 text-sm">
         <CheckStatusIcon status={check.status} />
         <span className="flex-1 min-w-0 text-slate-300 truncate font-mono text-xs">{check.check_name}</span>
+        {evidenceSource && (
+          <span
+            className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded border ${
+              evidenceSource === 'live'
+                ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30'
+                : 'text-slate-400 bg-slate-800 border-border'
+            }`}
+            title={evidenceBits}
+          >
+            {evidenceSource === 'live' ? 'live' : 'metadata'}
+          </span>
+        )}
         <span className="text-[10px] uppercase font-semibold text-slate-500">{check.status}</span>
         <span className="text-slate-400 tabular-nums w-8 text-right">{check.score}</span>
         <div className="w-20 h-1.5 rounded-full bg-gray-700 overflow-hidden flex-shrink-0">
@@ -1080,8 +1093,16 @@ function ActionsTab({
 
   const hasSelf = Array.isArray(selfServiceActions) && selfServiceActions.length > 0
   const hasLegacy = Array.isArray(actions) && actions.length > 0
+  if (loading) {
+    return <p className="text-center text-slate-500 py-8 text-sm">Loading actions…</p>
+  }
   if (!hasSelf && !hasLegacy) {
-    return <p className="text-center text-slate-500 py-8">No actions available for this entity.</p>
+    return (
+      <div className="text-center text-slate-500 py-8 space-y-1">
+        <p>No self-service actions available for this entity.</p>
+        <p className="text-xs text-slate-600">Builtins: golden path, scorecard refresh, open incident, propose deploy (HITL).</p>
+      </div>
+    )
   }
 
   return (

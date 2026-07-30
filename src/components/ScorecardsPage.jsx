@@ -669,20 +669,31 @@ export default function ScorecardsPage() {
                             {check.evidence &&
                               typeof check.evidence === 'object' &&
                               Object.keys(check.evidence).length > 0 && (
-                                <p
-                                  className="text-[10px] text-slate-600 mt-1 pl-4 font-mono truncate"
-                                  title={JSON.stringify(check.evidence)}
-                                >
-                                  evidence:{' '}
-                                  {Object.entries(check.evidence)
-                                    .filter(([, v]) => v != null && v !== '')
-                                    .slice(0, 4)
-                                    .map(
-                                      ([k, v]) =>
-                                        `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`
-                                    )
-                                    .join(' · ')}
-                                </p>
+                                <div className="mt-1 pl-4 flex flex-wrap items-center gap-2">
+                                  <span
+                                    className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded border ${
+                                      check.evidence.source === 'github_checks'
+                                        ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30'
+                                        : 'text-slate-400 bg-slate-800 border-border'
+                                    }`}
+                                  >
+                                    {check.evidence.source === 'github_checks' ? 'live' : 'metadata'}
+                                  </span>
+                                  <p
+                                    className="text-[10px] text-slate-600 font-mono truncate flex-1"
+                                    title={JSON.stringify(check.evidence)}
+                                  >
+                                    evidence:{' '}
+                                    {Object.entries(check.evidence)
+                                      .filter(([, v]) => v != null && v !== '')
+                                      .slice(0, 4)
+                                      .map(
+                                        ([k, v]) =>
+                                          `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`
+                                      )
+                                      .join(' · ')}
+                                  </p>
+                                </div>
                               )}
                           </div>
                         ))}

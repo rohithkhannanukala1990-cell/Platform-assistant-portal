@@ -11,12 +11,12 @@ This is a **design-partner honesty** sheet, not marketing. Symbols:
 | Capability | Platform Assistant | Port | Backstage | incident.io / PD Scribe | Notes |
 |------------|-------------------|------|-----------|-------------------------|-------|
 | Service catalog | ✓ | ✓ | ✓ | ✗ | Portal catalog + dependencies |
-| Scorecards | ~ | ✓ | ~ (plugins) | ✗ | G6 evidence checks + weights; CI green is **offline/metadata**, not live GitHub Checks API |
+| Scorecards | ✓ | ✓ | ~ (plugins) | ✗ | Evidence checks + weights; **live GitHub Actions CI** when connector present, metadata fallback offline |
 | Self-service actions | ~ | ✓ | ~ | ✗ | CatalogAction builtins + HITL deploy propose; not a full Port action marketplace |
-| Golden paths / scaffolder | ~ | ~ | ✓ | ✗ | Templates + runs exist; not Backstage Software Templates depth |
-| On-call now | ~ | ✗ | ✗ | ✓ | Widget + PD schedules; **scheduling stays in PagerDuty** |
-| Alert correlation | ~ | ✗ | ✗ | ✓ | **Rules-based** grouping/suppress (G4) — not ML |
-| Postmortems | ~ | ✗ | ✗ | ✓ | AI draft from incident evidence (G3); not a full timeline product |
+| Golden paths / scaffolder | ~ | ~ | ✓ | ✗ | Templates + runs + clearer invalid-template errors; not Backstage Software Templates depth |
+| On-call now | ~ | ✗ | ✗ | ✓ | Multi-schedule list + PD deep links; **scheduling stays in PagerDuty** |
+| Alert correlation | ~ | ✗ | ✗ | ✓ | Rules-based grouping/suppress + **dry-run tester** + admin counters — not ML |
+| Postmortems | ✓ | ✗ | ✗ | ✓ | SEV1/SEV2 templates, action-item checklist, copy markdown; timeline grounded (no invent) |
 | Agents + HITL | ✓ | ✗ | ✗ | ~ | Guardrails / command policy (G1–G2) |
 | First-class connectors | ~ | ~ | ~ | ~ | Slack/Prom/Argo/webhook pack (G5); long-tail via MCP |
 | MCP long-tail | ✓ | ✗ | ~ | ✗ | Explicitly not a replacement for Tool Registry |

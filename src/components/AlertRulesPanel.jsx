@@ -25,12 +25,17 @@ export default function AlertRulesPanel() {
   const [error, setError] = useState(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
+  const [dryRun, setDryRun] = useState({ title: '', service: '', severity: '' })
+  const [dryResult, setDryResult] = useState(null)
+  const [stats, setStats] = useState(null)
 
   const load = useCallback(async () => {
     try {
       const res = await authFetch('/api/alert-rules')
       if (!res.ok) throw new Error('Failed to load alert rules')
       setRules(await res.json())
+      const st = await authFetch('/api/alert-rules/stats')
+      if (st.ok) setStats(await st.json())
     } catch (e) {
       setError(e.message || 'Failed to load alert rules')
     }
@@ -75,6 +80,28 @@ export default function AlertRulesPanel() {
     if (res.ok) await load()
   }
 
+  async function runDryRun(e) {
+    e.preventDefault()
+    setError(null)
+    setDryResult(null)
+    try {
+      const res = await authFetch('/api/alert-rules/dry-run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: dryRun.title || 'dry-run alert',
+          service: dryRun.service || null,
+          severity: dryRun.severity || null,
+        }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.detail || 'Dry-run failed')
+      setDryResult(body)
+    } catch (err) {
+      setError(err.message || 'Dry-run failed')
+    }
+  }
+
   if (role !== 'Admin') {
     return (
       <p className="text-xs text-slate-500">Alert rules are available to administrators only.</p>
@@ -88,6 +115,45 @@ export default function AlertRulesPanel() {
         <h3 className="text-xs font-bold text-white uppercase tracking-wide">Alert rules (v1)</h3>
         <span className="text-[10px] text-slate-500">Rules-based correlation — not ML</span>
       </div>
+
+      {stats && (
+        <p className="text-[11px] text-slate-500">
+          Counters: suppressed={stats.suppressed_total ?? 0} · grouped={stats.grouped_total ?? 0}
+        </p>
+      )}
+
+      <form onSubmit={runDryRun} className="grid gap-2 md:grid-cols-4 text-xs border border-border rounded-lg p-3">
+        <p className="md:col-span-4 text-[10px] uppercase tracking-wide text-slate-500">Dry-run tester</p>
+        <input
+          className="bg-black/30 border border-border rounded-lg px-2 py-1.5 text-slate-200"
+          placeholder="Title"
+          value={dryRun.title}
+          onChange={(e) => setDryRun((d) => ({ ...d, title: e.target.value }))}
+        />
+        <input
+          className="bg-black/30 border border-border rounded-lg px-2 py-1.5 text-slate-200"
+          placeholder="Service"
+          value={dryRun.service}
+          onChange={(e) => setDryRun((d) => ({ ...d, service: e.target.value }))}
+        />
+        <input
+          className="bg-black/30 border border-border rounded-lg px-2 py-1.5 text-slate-200"
+          placeholder="Severity"
+          value={dryRun.severity}
+          onChange={(e) => setDryRun((d) => ({ ...d, severity: e.target.value }))}
+        />
+        <button
+          type="submit"
+          className="px-3 py-1.5 rounded-lg bg-slate-800 border border-border text-slate-200 font-semibold hover:bg-slate-700"
+        >
+          Test match
+        </button>
+        {dryResult && (
+          <pre className="md:col-span-4 text-[10px] text-slate-400 overflow-auto max-h-28">
+            {JSON.stringify(dryResult, null, 2)}
+          </pre>
+        )}
+      </form>
 
       {error && (
         <div className="text-xs text-red-400 border border-red-500/30 bg-red-500/10 rounded-lg px-3 py-2">

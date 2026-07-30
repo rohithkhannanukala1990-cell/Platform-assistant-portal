@@ -29,8 +29,32 @@ POSTMORTEM_SECTIONS = [
     "Timeline",
 ]
 
-POSTMORTEM_SYSTEM_PROMPT = f"""You are a senior SRE writing an incident postmortem.
+SEV_TEMPLATE_HINTS = {
+    "SEV1": (
+        "This is a SEV1 / Critical incident template. Emphasize customer impact, "
+        "blast radius, executive communication, and immediate containment. "
+        "Action items must include owner-ready follow-ups and validation checks."
+    ),
+    "SEV2": (
+        "This is a SEV2 / High-or-below incident template. Focus on technical root cause, "
+        "detection gaps, and concrete remediation with clear owners."
+    ),
+}
+
+
+def severity_to_template_variant(severity: str | None) -> str:
+    s = (severity or "").strip().lower()
+    if s in {"critical", "sev1", "p1", "sev-1", "1"}:
+        return "SEV1"
+    return "SEV2"
+
+
+def _build_system_prompt(variant: str) -> str:
+    hint = SEV_TEMPLATE_HINTS.get(variant) or SEV_TEMPLATE_HINTS["SEV2"]
+    return f"""You are a senior SRE writing an incident postmortem.
 {POSTMORTEM_MARKER}
+Template variant: {variant}
+{hint}
 
 Return ONLY markdown with exactly these level-2 headings (in this order):
 ## Summary
@@ -52,6 +76,9 @@ Rules:
 """
 
 
+POSTMORTEM_SYSTEM_PROMPT = _build_system_prompt("SEV2")
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -71,11 +98,53 @@ def _parse_sections(markdown: str) -> dict[str, str]:
     return sections
 
 
+def _parse_action_items(sections: dict[str, str], context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build checklist JSON from Action items section + grounded action_plan."""
+    items: list[dict[str, Any]] = []
+    body = sections.get("Action items") or ""
+    for line in body.splitlines():
+        text = line.strip().lstrip("-*").strip()
+        if not text or text.lower().startswith("not documented"):
+            continue
+        items.append(
+            {
+                "title": text[:300],
+                "status": "open",
+                "source": "postmortem",
+                "catalog_action": None,
+            }
+        )
+    if not items:
+        for a in (context.get("action_plan") or [])[:10]:
+            items.append(
+                {
+                    "title": str(a)[:300],
+                    "status": "open",
+                    "source": "incident_action_plan",
+                    "catalog_action": None,
+                }
+            )
+    # Suggest catalog action linkage for common follow-ups (checklist only — no invent).
+    for item in items:
+        low = item["title"].lower()
+        if "scorecard" in low or "coverage" in low:
+            item["catalog_action"] = "request_scorecard_refresh"
+        elif "deploy" in low or "rollback" in low:
+            item["catalog_action"] = "propose_deploy"
+        elif "golden path" in low or "scaffold" in low:
+            item["catalog_action"] = "run_golden_path"
+    return items[:25]
+
+
 def _serialize_postmortem(row: IncidentPostmortem) -> dict[str, Any]:
     try:
         sections = json.loads(row.sections_json or "{}")
     except (json.JSONDecodeError, TypeError, ValueError):
         sections = {}
+    try:
+        action_items = json.loads(getattr(row, "action_items_json", None) or "[]")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        action_items = []
     return {
         "id": row.id,
         "incident_id": row.incident_id,
@@ -83,6 +152,8 @@ def _serialize_postmortem(row: IncidentPostmortem) -> dict[str, Any]:
         "version": row.version,
         "markdown": row.markdown,
         "sections": sections if isinstance(sections, dict) else {},
+        "action_items": action_items if isinstance(action_items, list) else [],
+        "template_variant": getattr(row, "template_variant", None) or "SEV2",
         "generated_by": row.generated_by,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -210,16 +281,21 @@ def _ensure_sections(markdown: str, context: dict[str, Any]) -> tuple[str, dict[
     return rebuilt, sections
 
 
-async def generate_postmortem_markdown(context: dict[str, Any]) -> str:
+async def generate_postmortem_markdown(
+    context: dict[str, Any],
+    *,
+    template_variant: str | None = None,
+) -> str:
+    variant = template_variant or severity_to_template_variant(context.get("severity"))
     payload = json.dumps(context, default=str, indent=2)
     user_prompt = (
-        "Generate a postmortem from this incident context JSON.\n"
+        f"Generate a {variant} postmortem from this incident context JSON.\n"
         "Timeline section must list ONLY these events — do not add any others:\n\n"
         f"INCIDENT_CONTEXT_JSON:\n{payload}"
     )
     raw = await llm_service.chat(
         prompt=user_prompt,
-        system_prompt=POSTMORTEM_SYSTEM_PROMPT,
+        system_prompt=_build_system_prompt(variant),
         temperature=0.2,
         max_tokens=4096,
     )
@@ -234,8 +310,14 @@ def save_postmortem(
     markdown: str,
     generated_by: str,
     sections: Optional[dict[str, str]] = None,
+    action_items: Optional[list[dict[str, Any]]] = None,
+    template_variant: str = "SEV2",
+    context: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     parsed = sections if sections is not None else _parse_sections(markdown)
+    items = action_items
+    if items is None:
+        items = _parse_action_items(parsed, context or {})
     now = datetime.now(timezone.utc)
     with Session(engine) as session:
         latest = session.exec(
@@ -253,6 +335,8 @@ def save_postmortem(
             version=version,
             markdown=markdown,
             sections_json=json.dumps(parsed, default=str),
+            action_items_json=json.dumps(items, default=str),
+            template_variant=template_variant,
             generated_by=generated_by,
             created_at=now,
             updated_at=now,
@@ -271,6 +355,7 @@ def update_postmortem(
     editor: str,
 ) -> dict[str, Any] | None:
     sections = _parse_sections(markdown)
+    items = _parse_action_items(sections, {})
     now = datetime.now(timezone.utc)
     with Session(engine) as session:
         row = session.exec(
@@ -285,6 +370,7 @@ def update_postmortem(
             return None
         row.markdown = markdown
         row.sections_json = json.dumps(sections, default=str)
+        row.action_items_json = json.dumps(items, default=str)
         row.generated_by = editor
         row.updated_at = now
         session.add(row)
@@ -298,17 +384,61 @@ async def generate_postmortem_for_incident(
     *,
     tenant_id: str,
     actor: str,
+    template_variant: str | None = None,
 ) -> dict[str, Any]:
     incident = get_incident(incident_id, tenant_id=tenant_id)
     if not incident:
         raise ValueError("Incident not found")
     context = build_postmortem_context(incident)
-    markdown = await generate_postmortem_markdown(context)
+    variant = template_variant or severity_to_template_variant(context.get("severity"))
+    markdown = await generate_postmortem_markdown(context, template_variant=variant)
     sections = _parse_sections(markdown)
+    action_items = _parse_action_items(sections, context)
     return save_postmortem(
         incident_id,
         tenant_id=tenant_id,
         markdown=markdown,
         generated_by=actor,
         sections=sections,
+        action_items=action_items,
+        template_variant=variant,
+        context=context,
     )
+
+
+def timeline_event_fingerprint(ev: dict[str, Any]) -> str:
+    return "|".join(
+        [
+            str(ev.get("type") or ""),
+            str(ev.get("at") or ""),
+            str(ev.get("actor") or ""),
+            str(ev.get("detail") or ""),
+        ]
+    )
+
+
+def assert_timeline_not_invented(markdown: str, context: dict[str, Any]) -> list[str]:
+    """Return list of invented timeline detail strings (empty if grounded)."""
+    sections = _parse_sections(markdown)
+    body = sections.get("Timeline") or ""
+    allowed = {
+        str(ev.get("detail") or "").strip().lower()
+        for ev in (context.get("timeline") or [])
+        if str(ev.get("detail") or "").strip()
+    }
+    invented: list[str] = []
+    for line in body.splitlines():
+        text = line.strip().lstrip("-*").strip()
+        if not text or text.lower().startswith("no timeline"):
+            continue
+        # Accept lines that contain a known detail substring.
+        low = text.lower()
+        if allowed and not any(d and d in low for d in allowed):
+            # Also allow structural labels without new facts
+            if "—" in text or ":" in text:
+                detail_part = text.split(":", 1)[-1].strip().lower()
+                if detail_part and not any(d and d in detail_part for d in allowed):
+                    invented.append(text[:200])
+            else:
+                invented.append(text[:200])
+    return invented

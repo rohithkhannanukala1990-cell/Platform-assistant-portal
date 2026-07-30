@@ -680,6 +680,28 @@ def download_incident_postmortem(
     )
 
 
+@router.get("/api/incidents/{incident_id}/postmortem/markdown")
+def copy_incident_postmortem_markdown(
+    request: Request,
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """JSON payload for copy-to-clipboard (markdown + action_items checklist)."""
+    tenant_id = require_tenant(request)
+    if not get_incident(incident_id, tenant_id=tenant_id):
+        raise HTTPException(status_code=404, detail="Incident not found")
+    postmortem = get_latest_postmortem(incident_id, tenant_id=tenant_id)
+    if not postmortem:
+        raise HTTPException(status_code=404, detail="Postmortem not found")
+    return {
+        "markdown": postmortem.get("markdown") or "",
+        "action_items": postmortem.get("action_items") or [],
+        "template_variant": postmortem.get("template_variant") or "SEV2",
+        "version": postmortem.get("version"),
+        "incident_id": incident_id,
+    }
+
+
 JIRA_FORMAT_PROMPT = """You are a senior SRE writing a Jira incident ticket.
 Given the incident data below, return ONLY a JSON object with these fields:
 - "title": concise one-line issue summary (max 100 chars)

@@ -17,6 +17,7 @@ from .catalog import CatalogEntity
 from ..services.isolation import assert_same_tenant, require_tenant
 from ..services.scorecard_evidence import (
     build_evidence_checks,
+    build_evidence_checks_async,
     weighted_overall_score,
 )
 
@@ -163,12 +164,28 @@ def _persist_checks(session: Session, entity_id: str, checks: list[dict[str, Any
 
 
 async def evaluate_scorecard_evidence(
-    entity_id: str, *, narrative: bool = False, tenant_id: str | None = None
+    entity_id: str,
+    *,
+    narrative: bool = False,
+    tenant_id: str | None = None,
+    user: User | None = None,
 ) -> dict[str, Any]:
-    """Evidence-based evaluate (no network). Optional AI narrative from checks only."""
+    """Evidence-based evaluate. Uses live GitHub CI when connector present; else metadata."""
     with Session(engine) as session:
         entity = _get_active_entity(session, entity_id, tenant_id=tenant_id)
-        checks_data = build_evidence_checks(entity)
+        github = None
+        if user is not None:
+            try:
+                from ..services.github_access import try_github_connector_for_user
+
+                github = try_github_connector_for_user(
+                    user,
+                    tenant_id=tenant_id,
+                    workspace_id=getattr(user, "workspace_id", None),
+                )
+            except Exception:
+                github = None
+        checks_data = await build_evidence_checks_async(entity, github_connector=github)
         rows = _persist_checks(session, entity_id, checks_data)
         narrative_text = None
         if narrative:
@@ -220,6 +237,8 @@ async def evaluate_scorecard(
     entity_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Phase G6: evidence-based checks with weights + last_evidence_json (no network)."""
+    """Evidence-based checks; live GitHub CI when connector present, else metadata."""
     tenant_id = require_tenant(request)
-    return await evaluate_scorecard_evidence(entity_id, narrative=False, tenant_id=tenant_id)
+    return await evaluate_scorecard_evidence(
+        entity_id, narrative=False, tenant_id=tenant_id, user=current_user
+    )

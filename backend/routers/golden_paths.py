@@ -829,7 +829,10 @@ def list_applicable_golden_paths(
 
         template = session.get(Template, template_id)
         if not template or not template.is_active:
-            raise HTTPException(status_code=404, detail="Template not found")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workspace template not found or inactive (template_id={template_id})",
+            )
         paths = find_applicable_paths_for_template(session, template)
 
     if entity_id:
@@ -839,7 +842,10 @@ def list_applicable_golden_paths(
         # workspace relationship. WorkspaceMember cannot currently scope it.
         entity = session.get(CatalogEntity, entity_id)
         if not entity or not entity.is_active:
-            raise HTTPException(status_code=404, detail="Catalog entity not found")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Catalog entity not found or inactive (entity_id={entity_id})",
+            )
         from ..health import get_entity_health_summary
 
         entity_health = get_entity_health_summary(session, entity)
@@ -878,6 +884,18 @@ def create_golden_path_template(
     dup = session.exec(select(GoldenPathTemplate).where(GoldenPathTemplate.slug == slug)).first()
     if dup:
         raise HTTPException(status_code=400, detail="Slug already exists")
+    try:
+        steps = json.loads(body.steps_json or "[]")
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid golden path steps_json: must be valid JSON ({exc})",
+        ) from exc
+    if not isinstance(steps, list):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid golden path steps_json: must contain a JSON list of steps",
+        )
     now = _now()
     row = GoldenPathTemplate(
         name=body.name.strip(),
@@ -886,7 +904,7 @@ def create_golden_path_template(
         category=(body.category or "General").strip(),
         entity_kind=body.entity_kind,
         config_schema_json=body.config_schema_json,
-        steps_json=body.steps_json,
+        steps_json=json.dumps(steps),
         is_active=body.is_active,
         created_by=current_user.username,
         created_at=now,

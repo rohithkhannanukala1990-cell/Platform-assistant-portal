@@ -315,16 +315,31 @@ class GitHubConnector(_BaseGitHub):
             if isinstance(f, dict)
         ]
 
+    async def get_repository(self, owner: str, repo: str) -> dict[str, Any]:
+        """GET /repos/{owner}/{repo} — default branch and metadata."""
+        data = await self._get(f"/repos/{owner}/{repo}")
+        if not isinstance(data, dict):
+            return {}
+        return {
+            "full_name": data.get("full_name"),
+            "default_branch": data.get("default_branch") or "main",
+            "html_url": data.get("html_url"),
+            "private": bool(data.get("private")),
+        }
+
     async def list_workflow_runs(
         self,
         repo: str,
         status: str | None = "failure",
         per_page: int = 20,
+        branch: str | None = None,
     ) -> list[dict[str, Any]]:
         try:
             params: dict[str, Any] = {"per_page": per_page}
             if status:
                 params["status"] = status
+            if branch:
+                params["branch"] = branch
             data = await self._get(
                 f"/repos/{repo}/actions/runs",
                 params=params,

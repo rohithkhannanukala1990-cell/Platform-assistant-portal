@@ -104,6 +104,10 @@ ALERTS_GROUPED_TOTAL = Counter(
     "Alerts grouped into existing incidents by rules-based correlation",
     ["source", "rule_id"],
 )
+
+# Process-local admin counters (also mirrored in Prometheus labels above).
+_ALERT_SUPPRESSED_COUNT = 0
+_ALERT_GROUPED_COUNT = 0
 CELERY_TASK_RETRIES_TOTAL = Counter(
     "celery_task_retries_total",
     "Celery task retry attempts",
@@ -172,6 +176,8 @@ def record_alert_suppressed(source: str, rule_id: str) -> None:
             source=_safe_label(source),
             rule_id=_safe_label(rule_id),
         ).inc()
+        global _ALERT_SUPPRESSED_COUNT
+        _ALERT_SUPPRESSED_COUNT += 1
     except Exception:
         pass
 
@@ -182,8 +188,20 @@ def record_alert_grouped(source: str, rule_id: str) -> None:
             source=_safe_label(source),
             rule_id=_safe_label(rule_id),
         ).inc()
+        global _ALERT_GROUPED_COUNT
+        _ALERT_GROUPED_COUNT += 1
     except Exception:
         pass
+
+
+def alert_correlation_counters() -> dict:
+    """Simple admin counters (process-local) for rules-based correlation UX."""
+    return {
+        "suppressed_total": int(_ALERT_SUPPRESSED_COUNT),
+        "grouped_total": int(_ALERT_GROUPED_COUNT),
+        "method": "rules_based",
+        "note": "Not ML. Prometheus series also exposed on /metrics.",
+    }
 
 
 def record_celery_task_retry(task: str, queue: str) -> None:

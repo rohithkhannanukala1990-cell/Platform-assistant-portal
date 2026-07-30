@@ -634,6 +634,8 @@ def _migrate():
         ("llmproviderconfig", "metadata_json", "TEXT", "'{}'"),
         ("scorecard_checks", "last_evidence_json", "TEXT", "'{}'"),
         ("scorecard_checks", "weight", "REAL", "0"),
+        ("incident_postmortems", "action_items_json", "TEXT", "'[]'"),
+        ("incident_postmortems", "template_variant", "TEXT", "'SEV2'"),
     ]
     with Session(engine) as session:
         for table, col, col_type, default in migrations:
