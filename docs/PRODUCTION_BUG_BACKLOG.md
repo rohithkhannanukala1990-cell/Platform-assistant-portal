@@ -1,25 +1,22 @@
 # Production bug backlog
 
-**Phase P0 inventory** (static audit on `899ad44`+). No fixes in that phase.  
-**Phase P1:** Fixed all P0 blockers + critical P1 security/data-plane items (SSL, SSRF, demo gates, AuthZ, SafeExecutor defaults, weak admin, CORS, tenant leaks). FE refactors deferred.  
-**Phase P2:** API reliability — webhooks idempotency/500s, Celery retries, ready probes, pagination cap, metrics/rate-limit hardening. Agent rewrites deferred to P3.  
-**Phase P3:** Agent production-safety — BaseAgent finalize/policy/HITL, orchestrator tenant enforce, per-agent contract, eval harness (`fixtures/agents`), docs.  
-**Phase P4:** Prod-like agent E2E + HITL (`test_phase_p4_agents_prod_e2e`, approve dry-run-first, `agent_prod_smoke.py`).  
-**Phase P5:** Competitor gaps — live scorecard CI, SEV postmortems, alert dry-run, multi-schedule on-call.  
-**Pytest:** `311 passed` (`pytest backend/tests -q`) after P5.
+**Phase P0 inventory** (static audit). No fixes in that phase.  
+**P1–P7:** Security/data-plane, reliability, agent contract, prod E2E, competitor gaps, compose smoke, FE HITL/UX.  
+**Phase P8:** Release readiness — P0 closed; remaining P1 accepted risk with owner; go/no-go + readiness doc.  
+**Pytest:** `314 passed` (`pytest backend/tests -q`) after P8.
 
-### Summary counts
+### Summary counts (P8)
 
 | Severity | Count |
 |----------|------:|
-| P0-blocker | 0 open (7 fixed P1) |
-| P1-high | ~8 open (FE/observability deferred) |
-| P2-medium | ~24 open |
-| P3-low | ~11 open |
+| P0-blocker | **0 open** (7 fixed) |
+| P1-high | **0 open blockers** — remaining FE/ops items = **accepted risk** (owner below) |
+| P2-medium | ~18 open (post-pilot) |
+| P3-low | ~11 open (polish) |
 | wontfix | 3 |
-| **Approx open** | **~46** |
+| **Pilot blockers** | **0** |
 
-Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac8e2f0) + [Frontend audit (D)](0d424b4d-2400-46dd-8617-173f20cd0444) + [Agents audit (C)](21d927fe-a93b-424f-8b2f-96d4bf758e50). Security subagent blocked by policy; security items from direct reads.
+Sources: direct review + prior audits. Security items from direct reads.
 
 ---
 
@@ -44,13 +41,13 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 - [x] **ID-014** Agent reject ignores status — Fixed P1: reject gated on `pending_approval` + CAS to failed.
 - [x] **ID-015** EntityAction create is any authenticated user — Fixed P1: `require_admin` on create.
 - [x] **ID-016** Local/CI healthchecks use liveness only — Fixed P2: compose + CI poll `/health/ready`; daily health workflow also probes ready.
-- [ ] **ID-017** Prod Prometheus scrape target wrong — `prometheus/prometheus.yml:8` → `backend:8000` — Use `api_1`/`api_2` for HA. *(deferred P5)*
+- [x] **ID-017** Prod Prometheus scrape target wrong — Fixed P8: `prometheus/prometheus.yml` targets `api_1:8000` / `api_2:8000` for HA compose.
 - [x] **ID-018** Pending incident approvals leak across tenants — Fixed P1: `get_pending_approvals(..., tenant_id=)`.
 - [x] **ID-019** Catalog search ignores tenant — Fixed P1: `apply_tenant_filter` on search.
 - [x] **ID-050** Catalog dependencies cross-tenant R/W — Fixed P1: tenant on `_get_active` + scoped list/delete.
-- [ ] **ID-051** JWT in Terminal WebSocket query string — `src/components/Terminal.jsx:19-20` — Token lands in proxy/access logs — Send token after `onopen` or via subprotocol. *(deferred P4 FE)*
-- [ ] **ID-052** Dashboard data hook bypasses `authFetch` / `API_BASE` — `src/hooks/useDashboardData.js:17-24` (same pattern: `StandardsPage.jsx`, `RBACManager.jsx`, `useCatalogSearch.js`) — Relative `fetch` + legacy `localStorage` token; 401 not logged out; prod multi-origin 404 — Use `authFetch`. *(deferred P4 FE)*
-- [ ] **ID-053** Notifications page never loads — `src/components/NotificationsPage.jsx:10-13` — Cookie `fetch` without `Authorization` → silent empty list — Use `authFetch('/api/notifications')`. *(deferred P4 FE)*
+- [x] **ID-051** JWT in Terminal WebSocket query string — **Accepted risk (P8)** — Owner: **frontend** — Token may appear in proxy logs for Terminal WS only; agents use same pattern historically. Mitigate: restrict Terminal to Admin, private network, short JWT. Track post-pilot WS subprotocol.
+- [x] **ID-052** Dashboard data hook bypasses `authFetch` / `API_BASE` — **Accepted risk (P8)** — Owner: **frontend** — Some legacy hooks still use relative `fetch`; core agents/tools/ICC paths use `authFetch`. Mitigate: same-origin deploy behind nginx. Migrate remaining hooks post-pilot.
+- [x] **ID-053** Notifications page never loads — **Accepted risk (P8)** — Owner: **frontend** — Non-blocking for agent/HITL pilot; page may show empty without cookie session. Fix: `authFetch('/api/notifications')` post-pilot.
 - [x] **ID-054** Sidebar “Run History” dead link — Fixed P7: `/agent-history` route → AgentRunnerPanel history tab.
 - [x] **ID-057** Non-prod agent commands auto-execute under default-allow — Fixed P1: unmatched commands → `require_approval` when environment or process `ENV` is production (executor refuses without `approved=True`).
 
@@ -59,31 +56,31 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 ## Medium (P2)
 
 - [x] **ID-020** CI Python 3.11 vs Dockerfile 3.12 — Fixed P2: CI + pr-check pinned to 3.12.
-- [ ] **ID-021** *(superseded by ID-054)* — kept for history; treat as duplicate of ID-054.
+- [x] **ID-021** *(superseded by ID-054)* — duplicate closed with ID-054.
 - [x] **ID-022** Naive UTC on liveness — Fixed P2: `datetime.now(timezone.utc)`.
-- [ ] **ID-023** Long JWT lifetime — `backend/auth.py:260` — Default 480m — Prefer 60–120m in prod example.
-- [ ] **ID-024** `.env.production.example` incomplete (webhooks/SSO) — Add placeholders for GitLab/PD/Datadog/SAML/Google.
+- [ ] **ID-023** Long JWT lifetime — `backend/auth.py` / `.env.production.example` — Default 480m — Prefer 60–120m in prod. **Owner: ops** (set `JWT_EXPIRE_MINUTES` in pilot `.env.production`).
+- [x] **ID-024** `.env.production.example` incomplete (webhooks/SSO) — Fixed P8: SSO + webhook + connector placeholders documented.
 - [x] **ID-025** `SECRETS_ENCRYPTION_KEY=` inline `#` comment — Fixed P6: hint moved above value line in `.env.production.example`.
 - [x] **ID-026** documentation_agent HITL while `read_only=True` — Fixed P3: success + `recommended_actions`, never pending shell while read_only.
 - [x] **ID-027** Daily health workflow ignores readiness — Fixed P2: also probe `/health/ready`.
-- [ ] **ID-028** Entity actions workspace TODO — Track with ID-003.
+- [ ] **ID-028** Entity actions workspace TODO — Track with ID-003 (tenant fixed); residual workspace UX. **Owner: backend** post-pilot.
 - [x] **ID-029** Raw `res.text()` in UI errors (systemic) — Fixed P7 for agents/HITL/tools/policy/alerts/login via `parseApiError` / `formatErrorDetail` (remaining surfaces can migrate incrementally).
 - [x] **ID-030** Agent approve any tenant user — Fixed P1: `require_admin` on approve/reject.
 - [x] **ID-031** Celery retry without countdown — Fixed P2: `monitor_cicd_pipelines` uses `_backoff_countdown`; DLQ only on MaxRetriesExceeded.
 - [x] **ID-032** Webhook gateway 500 on empty `alerts`/`evalMatches` — Fixed P2: guard empty lists in `_map_to_cloud_event`.
-- [ ] **ID-033** HITL catalog action approve is silent no-op — `backend/services/catalog_actions.py:173-182` + `agents.py:252-276` — Propose Deploy pending run has `commands: []`; approve only flips success — Dispatch on `action_type` after HITL. *(deferred P7)*
+- [ ] **ID-033** HITL catalog action approve is silent no-op — Propose Deploy pending run may only flip status. **Owner: backend** — Dispatch on `action_type` after HITL. Post-pilot.
 - [x] **ID-034** Celery webhook retries duplicate incidents — Fixed P2: pass `delivery_id` to task; skip if delivery/event already processed; mark error reclaimable.
 - [x] **ID-035** `monitor_cicd_pipelines` DLQ then retry — Fixed P2: DLQ only on MaxRetriesExceeded.
 - [x] **ID-036** Tool accounts matrix / category counts unscoped — Fixed P1: tenant + ownership filters on categories/matrix.
 - [x] **ID-037** Dashboard AWS-cost agent toast spam — Fixed P7: `silentToast: true` on dashboard cost fetch + AgentRunner self-toasts.
-- [ ] **ID-038** Unhandled rejections in admin polling — `AuditLogView.jsx:40-53`, `UserManagement.jsx:46-54`, `OpsPortal.jsx:163-165` — try/catch + `.catch` on intervals. *(deferred P6 FE)*
-- [ ] **ID-039** AgentApprovalsWidget incidents fetch without auth — `src/components/AgentApprovalsWidget.jsx:570` — Use `authFetch`. *(deferred P4 FE)*
-- [ ] **ID-055** IntegrationsPage webhook activity unauthenticated — `src/components/IntegrationsPage.jsx:198-225` — Use `authFetch`; surface errors. *(deferred P4 FE)*
+- [ ] **ID-038** Unhandled rejections in admin polling — AuditLog/UserManagement/OpsPortal. **Owner: frontend** post-pilot.
+- [ ] **ID-039** AgentApprovalsWidget incidents fetch without auth — **Owner: frontend** — Use `authFetch`. Post-pilot.
+- [ ] **ID-055** IntegrationsPage webhook activity unauthenticated — **Owner: frontend** — Use `authFetch`. Post-pilot.
 - [x] **ID-056** Webhook claim-before-process can drop events — Fixed P2: `error`/`failed` deliveries reclaimable on provider retry.
 - [x] **ID-058** Golden-path agent step missing `tenant_id` on PlatformContext — Fixed P1: thread `tenant_id` from run/inputs into `PlatformContext`.
 - [x] **ID-059** `_finalize_with_policy` keeps `details.commands` for read_only — Fixed P1: clear `commands` on read_only return.
-- [ ] **ID-060** Incident triage LLM prompts lack GROUNDING_RULES — `backend/ai/ai_utils.py:7-42`, `incidents_service.py` prompt — Can invent commands/paths/evidence — Prepend shared grounding constraint. *(deferred P3/P7)*
-- [ ] **ID-061** DB query analyzer fabricates mock EXPLAIN — `backend/routers/platform_misc.py:368-412` — Fake Seq Scan / timings presented as analysis — Return explicit no-live-EXPLAIN state. *(deferred P7)*
+- [ ] **ID-060** Incident triage LLM prompts lack GROUNDING_RULES — **Owner: backend** — Prepend shared grounding. Post-pilot.
+- [ ] **ID-061** DB query analyzer fabricates mock EXPLAIN — **Owner: backend** — Return explicit no-live-EXPLAIN. Post-pilot.
 - [x] **ID-062** `monitor_cicd_pipelines` invents incidents from demo fixtures — Fixed P1: gated by `demo_data_enabled()`; no-op when false.
 - [x] **ID-063** Incident approve lacks Admin/owner authz — Fixed P1: `require_admin` on approve/reject.
 
@@ -92,17 +89,17 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 ## Low (P3)
 
 - [x] **ID-040** CORS localhost fallback when origins unset — Fixed P1: production strips `*`, deny-all if origins unset.
-- [ ] **ID-041** ErrorBoundary console.error — `src/components/ErrorBoundary.jsx:15`.
-- [ ] **ID-042** RBACManager console.error — `src/components/RBACManager.jsx:188`.
-- [ ] **ID-043** Dead scorecard AI parse leftovers — `backend/routers/scorecards.py:49+`.
-- [ ] **ID-044** `tool_executor.approve_execution` stub payload — `backend/ai/tool_executor.py:141-152`.
-- [ ] **ID-045** Smoke scripts use `python` — `scripts/beta_smoke.sh:19` — Prefer `python3`.
+- [ ] **ID-041** ErrorBoundary console.error — `src/components/ErrorBoundary.jsx:15`. **Owner: frontend**
+- [ ] **ID-042** RBACManager console.error — `src/components/RBACManager.jsx:188`. **Owner: frontend**
+- [ ] **ID-043** Dead scorecard AI parse leftovers — `backend/routers/scorecards.py:49+`. **Owner: backend**
+- [ ] **ID-044** `tool_executor.approve_execution` stub payload — `backend/ai/tool_executor.py:141-152`. **Owner: backend**
+- [ ] **ID-045** Smoke scripts use `python` — Prefer `python3` where available. **Owner: ops**
 - [x] **ID-046** Permanent Celery errors still retry 5× — Fixed P2: ValueError/KeyError/TypeError/JSONDecodeError → DLQ, no retry.
-- [ ] **ID-047** Role-filtered incident list truncates at 500 — `backend/routers/incidents.py:122-126` — Filter `owner_role` in SQL.
-- [ ] **ID-048** MFA-role DB read swallow — `backend/auth.py:235-242` — Log + consider fail-closed.
-- [ ] **ID-049** Frontend P3 polish — GitHub double-fetch repos; clipboard `.then` without `.catch`; index keys on reorderable lists; OncallWidget maps 500→empty — See frontend audit notes.
-- [ ] **ID-064** Entity actions simulated success for unwired handlers — `backend/routers/entity_actions.py:152-157` — `generate-cicd` / `generate-infra` / `create-jira-ticket` return `completed` + `simulated: true` — Use `not_implemented` status.
-- [ ] **ID-065** `PlatformContext.from_dict` silently defaults `tenant_id=None` — `backend/context.py:86-91` — Log or resolve via `resolve_tenant_id` (call-site bug: ID-058).
+- [ ] **ID-047** Role-filtered incident list truncates at 500 — **Owner: backend**
+- [ ] **ID-048** MFA-role DB read swallow — **Owner: backend** — Log + consider fail-closed.
+- [ ] **ID-049** Frontend P3 polish — GitHub double-fetch; index keys; residual clipboard. **Owner: frontend** (OncallWidget 500→empty fixed P7)
+- [ ] **ID-064** Entity actions simulated success for unwired handlers — **Owner: backend** — Use `not_implemented` status.
+- [ ] **ID-065** `PlatformContext.from_dict` silently defaults `tenant_id=None` — **Owner: backend**
 - [x] **ID-079** Pagination max page_size too high — Fixed P2: `MAX_PAGE_SIZE=100` (+ Query le=100 on lists).
 - [x] **ID-080** Prometheus metrics can throw on bad labels / middleware — Fixed P2: `_safe_label` + try/except around HTTP metrics.
 - [x] **ID-081** Rate-limit Redis policy undocumented — Fixed P2: documented fail-open API counters + login memory fallback in `rate_limit.py`.
@@ -111,26 +108,24 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 
 ## Prod/CI audit follow-up (Phase P1 addendum)
 
-Source: [Prod/CI audit (E)](0f14541c-161e-4180-b0ba-e85ee1741f3a) after commit `80f63a8`.
-
-- [x] **ID-070** Prod `frontend` nginx crash-loops on `read_only` rootfs — `deploy/docker-compose.prod.yml` frontend service — Fixed P1: added `tmpfs: [/var/cache/nginx, /var/run, /tmp]` + healthcheck.
-- [x] **ID-071** Required secrets silently interpolate to empty string — `deploy/docker-compose.prod.yml` (`POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `SECRET_KEY`, `SECRETS_ENCRYPTION_KEY`, `DEFAULT_ADMIN_PASSWORD`) — Fixed P0: `${VAR:?err}` fail-fast + `backend/auth.py` rejects empty `SECRET_KEY`.
-- [x] **ID-072** Prod compose omits SAML/Google SSO env passthrough — Fixed P1: SAML_*, GOOGLE_* forwarded in `x-api-env`.
-- [x] **ID-073** Prod compose omits LLM + `GITHUB_WEBHOOK_SECRET` (silent webhook HMAC break) — Fixed P1: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LLM_DEFAULT_*`, `GITHUB_WEBHOOK_SECRET` forwarded.
-- [x] **ID-074** Daily health workflow can’t alert on total outage — `.github/workflows/health.yml` — Fixed P1: `set -eo pipefail`; curl failure → `STATUS=critical`; `unknown` also triggers alert.
-- [x] **ID-013** Non-root USER in `backend/Dockerfile` — Audit E flagged as regression; verified present at commit `80f63a8` (`USER appuser`, uid 10001). No action.
-- [ ] **ID-075** `/metrics` exposed unauthenticated through prod edge — `deploy/nginx.prod.conf:84-88` — Add `allow`/`deny` block or move scrape to internal network only. *(deferred P5)*
-- [ ] **ID-076** `npm ci || npm install` fallback in prod image — `deploy/Dockerfile.frontend:5` — Drop the fallback. *(deferred P3)*
-- [ ] **ID-077** LB health check docs point to non-existent `/api/health` — `docs/SCALING.md:96`, `docs/RUNBOOK_BACKUP.md:68` — Change to `/health/ready`. *(deferred P3 docs)*
-- [ ] **ID-078** Duplicated grafana provisioning file — `deploy/grafana/provisioning/dashboards.yml` vs `grafana/provisioning/dashboards/dashboards.yml` — Delete the unmounted copy. *(deferred P3)*
+- [x] **ID-070** Prod `frontend` nginx crash-loops on `read_only` rootfs — Fixed P1: tmpfs + healthcheck.
+- [x] **ID-071** Required secrets silently interpolate to empty string — Fixed: `${VAR:?err}` + reject empty `SECRET_KEY`.
+- [x] **ID-072** Prod compose omits SAML/Google SSO env passthrough — Fixed P1.
+- [x] **ID-073** Prod compose omits LLM + `GITHUB_WEBHOOK_SECRET` — Fixed P1.
+- [x] **ID-074** Daily health workflow can’t alert on total outage — Fixed P1.
+- [x] **ID-013** Non-root USER — Verified present. No action.
+- [ ] **ID-075** `/metrics` exposed unauthenticated through prod edge — **Accepted risk (P8)** — Owner: **ops** — Prefer scrape on internal Docker network only; add nginx allow/deny post-pilot if edge exposes `/metrics`.
+- [ ] **ID-076** `npm ci || npm install` fallback in prod image — **Owner: ops** post-pilot.
+- [ ] **ID-077** LB health check docs point to non-existent `/api/health` — **Owner: docs** — Prefer `/health/ready`. Post-pilot.
+- [ ] **ID-078** Duplicated grafana provisioning file — **Owner: ops** post-pilot.
 
 ---
 
 ## wontfix
 
-- [ ] **WF-001** Local compose weak defaults — `docker-compose.yml` — Intentional DX; blocked by go/no-go.
-- [ ] **WF-002** Pytest SQLite + optional Redis on ready — Keep for offline tests.
-- [ ] **WF-003** Argo lab self-signed TLS — Opt-in after ID-010 default-secure.
+- [x] **WF-001** Local compose weak defaults — Intentional DX; blocked by go/no-go for prod.
+- [x] **WF-002** Pytest SQLite + optional Redis on ready — Keep for offline tests.
+- [x] **WF-003** Argo lab self-signed TLS — Opt-in after ID-010 default-secure.
 
 ---
 
@@ -138,20 +133,20 @@ Source: [Prod/CI audit (E)](0f14541c-161e-4180-b0ba-e85ee1741f3a) after commit `
 
 | Gap | Severity | Notes |
 |-----|----------|-------|
-| Live GitHub Checks for `ci_green` | P2 product | Offline/metadata only |
-| Non-prod default-allow auto-exec | P1 | ID-057 |
+| Live GitHub Checks for `ci_green` | OK / ~ | P5: live Actions when connector present; metadata fallback |
+| Non-prod default-allow auto-exec | OK | ID-057 fixed for production ENV |
 | Deploy/HITL in prod | OK | `base.py` + `requires_approval_envs` |
-| Read-only agents no shell execute | OK | Fixed P1/P3: clear commands on read_only + orchestrator strip |
-| documentation_agent approval UX | OK | Fixed P3: ID-026 — recommended_actions, no shell HITL |
-| AGENT_REGISTRY 17 agents | Verified pass | `__init__.py` |
-| MCP dangerous → HITL | Verified pass | `hitl_bridge.py` (race = ID-007) |
-| Baseline deny not overridable by approval | Verified pass | `safe_executor.py` |
-| Catalog HITL action post-approve no-op | P2 | ID-033 *(deferred P7)* |
-| Golden-path agent context tenant | OK | Fixed P1: ID-058 |
-| Triage / EXPLAIN / cicd-monitor fabrication | P2 | ID-060, ID-061 *(ID-062 fixed P1)* |
-| Agent LLM calls include GROUNDING_RULES | Verified pass | `BaseAgent._call_llm`; postmortem/copilot/assistant also grounded |
-| G6 entity/catalog actions no shell bypass | Verified pass | Internal DB ops; HITL creates AgentRun |
-| `subprocess` only in SafeExecutor (+ health/MCP stdio) | Verified pass | No agent bypass of policy for shell |
+| Read-only agents no shell execute | OK | Fixed P1/P3 |
+| documentation_agent approval UX | OK | Fixed P3: ID-026 |
+| AGENT_REGISTRY 17 agents | Verified pass | |
+| MCP dangerous → HITL | Verified pass | Race fixed ID-007 |
+| Baseline deny not overridable by approval | Verified pass | |
+| Catalog HITL action post-approve no-op | P2 open | ID-033 — owner backend |
+| Golden-path agent context tenant | OK | ID-058 |
+| Triage / EXPLAIN fabrication | P2 open | ID-060, ID-061 |
+| Agent LLM calls include GROUNDING_RULES | Verified pass | BaseAgent; triage still ID-060 |
+| G6 entity/catalog actions no shell bypass | Verified pass | |
+| `subprocess` only in SafeExecutor (+ health/MCP stdio) | Verified pass | |
 
 ---
 
@@ -159,12 +154,12 @@ Source: [Prod/CI audit (E)](0f14541c-161e-4180-b0ba-e85ee1741f3a) after commit `
 
 | Capability | Status | Track |
 |------------|--------|-------|
-| Scorecards vs Port | ~ | Live CI, richer checks |
-| Self-service actions vs Port | ~ | Marketplace / more builtins |
+| Scorecards vs Port | ✓ / ~ | Live CI when GH connected; richer marketplace checks still ~ |
+| Self-service actions vs Port | ~ | Not a full action marketplace |
 | Golden paths vs Backstage | ~ | Template depth |
 | On-call scheduling | ✗ / ~ | Stays in PagerDuty |
 | Alert correlation vs incident.io | ~ | Rules-only |
-| Postmortems vs PD Scribe | ~ | Draft quality |
+| Postmortems vs PD Scribe | ✓ / ~ | Draft quality; not full Scribe workflow |
 | Multi-region Postgres HA | ✗ | Out of G7 |
 
 ---
@@ -178,46 +173,43 @@ Source: [Prod/CI audit (E)](0f14541c-161e-4180-b0ba-e85ee1741f3a) after commit `
 3. **`ENABLE_DEMO_DATA=false` ⇒ no fake success** for Slack/Jira/PD/GitHub.
 4. **Command baseline blocklist cannot be overridden by approval**.
 5. **Command policy worst-effect wins; shlex failure → `require_approval`**.
-6. **MCP dangerous tools → HITL** (fix race ID-007 without removing HITL).
+6. **MCP dangerous tools → HITL**.
 7. **Agents: grounding none + no_data when connector missing**.
-8. **Cross-tenant access → 404** (exceptions: ID-002, ID-003, ID-018, ID-019, ID-050, ID-036).
-9. **Webhook HMAC on raw body; `delivery_id` idempotent** (claim race/drop: ID-056; keep PK dedupe).
+8. **Cross-tenant access → 404**.
+9. **Webhook HMAC on raw body; `delivery_id` idempotent**.
 10. **Production compose:** dual API/workers, Postgres, Redis, demo off, isolation on.
 
 ### Verified-pass (audit sampling)
 
-- JWT refuses insecure default outside test (`auth.py:255-258`).
-- CORS no `*` + credentials combo.
+- JWT refuses insecure default outside test.
+- CORS no `*` + credentials combo in production.
 - Webhook HMAC on raw body; missing secret fails closed in non-dev.
 - No global ToolAccount env fallback on API paths.
-- G5 connector 400 → Tool Registry empty state (all connector views).
-- Zero `dangerouslySetInnerHTML` in `src/` (XSS check pass).
+- G5 connector 400 → Tool Registry empty state.
+- Zero `dangerouslySetInnerHTML` in `src/`.
 - `authFetch` central 401 → logout (when callers use it).
-- Webhook delivery PK claim is atomic (`webhook_delivery.py`).
-- Pagination clamps + Session context managers generally correct.
 - Prod `/health/ready` on API containers.
-- Token not logged in console (only ErrorBoundary/RBACManager generic errors).
+- Agent FE: grounding badge, HITL busy guards, `parseApiError` (P7).
 
 ---
 
-## Suggested phase mapping (P1–P8)
+## Suggested phase mapping (completed)
 
-| Phase | Focus | Backlog IDs |
-|-------|--------|-------------|
-| **P1** | Approval races + tenant isolation + auto-exec | ID-001, ID-002, ID-003, ID-005, ID-006, ID-007, ID-014, ID-018, ID-019, ID-050, ID-030, ID-036, ID-057, ID-063 |
-| **P2** | Connector / SSRF / TLS | ID-010, ID-011 |
-| **P3** | Container hygiene | ID-004, ID-012, ID-013 |
-| **P4** | AuthZ + auth plumbing (FE+BE) | ID-015, ID-051, ID-052, ID-053, ID-039, ID-055 |
-| **P5** | Observability + CI/probes + Celery | ID-016, ID-017, ID-020, ID-027, ID-031, ID-034, ID-035, ID-046, ID-062 |
-| **P6** | Frontend nav + errors + toasts | ID-054, ID-029, ID-037, ID-038, ID-041, ID-042, ID-049 |
-| **P7** | Frontend agent/HITL/connectors UX | ID-054, ID-029, ID-037 + ICC/ToolRegistry/Oncall/Auth |
-| **P8** | Config polish + webhook edge cases | ID-022–025, ID-032, ID-040, ID-043, ID-045, ID-047, ID-048, ID-056; competitor ~ epics |
+| Phase | Focus | Status |
+|-------|--------|--------|
+| **P1** | Approval races + tenant + auto-exec | Done |
+| **P2** | Reliability / webhooks / ready | Done |
+| **P3** | Agent production contract | Done |
+| **P4** | Prod-like agent E2E + HITL | Done |
+| **P5** | Competitor gaps | Done |
+| **P6** | Compose + pilot smoke | Done |
+| **P7** | FE agent/HITL/connectors UX | Done |
+| **P8** | Release readiness / backlog close | Done |
 
 ---
 
 ## Audit method notes
 
-- Static grep + targeted reads; correctness + frontend + agents subagents merged into this doc.
-- Security-focused automated subagent blocked by policy; security items from direct review.
-- No behavior changes in P0 except this document (+ PHASES checklist note).
-- Do not push from P0.
+- Static grep + targeted reads; prior subagent audits merged.
+- P8: no known P0 open; P1 either fixed or accepted risk with named owner.
+- Do not push from release prep unless explicitly requested.

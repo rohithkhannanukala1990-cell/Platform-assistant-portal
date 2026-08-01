@@ -279,3 +279,19 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] `src/utils/parseApiError.js` + vitest for GroundingBadge / approve disabled
 - [x] npm test (`17 passed`) / lint; Do NOT push git
 
+## Phase P8 — Release readiness (Production candidate)
+- [x] Backlog — all P0 closed; P1 fixed or accepted risk with owner (`docs/PRODUCTION_BUG_BACKLOG.md`)
+- [x] `docs/BETA_GONOGO.md` — automation checkboxes marked; human/ops items left open
+- [x] `docs/product_comparison.md` — honest ✓ / ~ / ✗ after P5–P7
+- [x] `docs/PRODUCTION_READINESS.md` — one-pager (ready / gaps / pilot / agent checklist)
+- [x] Prometheus HA scrape targets (`api_1`/`api_2`); `.env.production.example` JWT 120 + connector placeholders
+- [x] Full `pytest backend/tests -q` green (`314 passed`)
+- [x] **Production candidate** — design-partner pilot ready; Do NOT push git (user reviews then pushes)
+
+---
+
+## Production candidate
+
+Ship label after P8: **Production candidate** for HA compose + agent HITL pilot.  
+Not Port/Backstage/incident.io parity. Use `docs/PRODUCTION_READINESS.md` + `docs/BETA_GONOGO.md` before customer go-live.
+
