@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Bell, Loader2, Plus, Trash2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { formatErrorDetail, parseApiError } from '../utils/parseApiError'
 
 const ACTION_OPTIONS = [
   { value: 'create_incident', label: 'Create incident' },
@@ -27,6 +28,7 @@ export default function AlertRulesPanel() {
   const [saving, setSaving] = useState(false)
   const [dryRun, setDryRun] = useState({ title: '', service: '', severity: '' })
   const [dryResult, setDryResult] = useState(null)
+  const [dryRunning, setDryRunning] = useState(false)
   const [stats, setStats] = useState(null)
 
   const load = useCallback(async () => {
@@ -63,7 +65,7 @@ export default function AlertRulesPanel() {
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        throw new Error(body.detail || 'Create failed')
+        throw new Error(formatErrorDetail(body.detail ?? body, 'Create failed'))
       }
       setForm(EMPTY_FORM)
       await load()
@@ -82,8 +84,10 @@ export default function AlertRulesPanel() {
 
   async function runDryRun(e) {
     e.preventDefault()
+    if (dryRunning) return
     setError(null)
     setDryResult(null)
+    setDryRunning(true)
     try {
       const res = await authFetch('/api/alert-rules/dry-run', {
         method: 'POST',
@@ -94,11 +98,12 @@ export default function AlertRulesPanel() {
           severity: dryRun.severity || null,
         }),
       })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body.detail || 'Dry-run failed')
-      setDryResult(body)
+      if (!res.ok) throw new Error(await parseApiError(res, 'Dry-run failed'))
+      setDryResult(await res.json())
     } catch (err) {
       setError(err.message || 'Dry-run failed')
+    } finally {
+      setDryRunning(false)
     }
   }
 
@@ -144,8 +149,10 @@ export default function AlertRulesPanel() {
         />
         <button
           type="submit"
-          className="px-3 py-1.5 rounded-lg bg-slate-800 border border-border text-slate-200 font-semibold hover:bg-slate-700"
+          disabled={dryRunning}
+          className="px-3 py-1.5 rounded-lg bg-slate-800 border border-border text-slate-200 font-semibold hover:bg-slate-700 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
         >
+          {dryRunning ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
           Test match
         </button>
         {dryResult && (

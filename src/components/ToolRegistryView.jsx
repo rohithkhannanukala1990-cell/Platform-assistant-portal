@@ -15,6 +15,7 @@ import {
   Filter,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { mapConnectionError, parseApiError } from '../utils/parseApiError'
 
 const CATEGORIES = [
   { id: 'cloud', label: 'Cloud Providers', icon: '☁️' },
@@ -349,16 +350,9 @@ export default function ToolRegistryView() {
     try {
       const res = await authFetch('/api/github/repos?per_page=20')
       if (!res.ok) {
-        const text = await res.text()
-        let detail = text
-        try {
-          const j = JSON.parse(text)
-          detail = j.detail || text
-        } catch {
-          /* keep text */
-        }
+        const detail = await parseApiError(res, 'Failed to load repositories')
         setGithubRepos([])
-        setGithubReposError(typeof detail === 'string' ? detail : 'Failed to load repositories')
+        setGithubReposError(detail)
         return
       }
       const data = await res.json()
@@ -384,7 +378,9 @@ export default function ToolRegistryView() {
           `/api/tools/${encodeURIComponent(toolId)}/accounts/${encodeURIComponent(accountId)}/test`,
           { method: 'POST' }
         )
-        const data = res.ok ? await res.json() : { connected: false, error: await res.text() }
+        const data = res.ok
+          ? await res.json()
+          : { connected: false, error: mapConnectionError(await parseApiError(res, 'Connection failed')) }
         setConnectionResults((r) => ({ ...r, [accountId]: data }))
         void fetchAccounts(toolId)
         if (toolId === 'github' && data?.connected) {
@@ -393,7 +389,7 @@ export default function ToolRegistryView() {
       } catch (e) {
         setConnectionResults((r) => ({
           ...r,
-          [accountId]: { connected: false, error: String(e?.message || e) },
+          [accountId]: { connected: false, error: mapConnectionError(e?.message || e) },
         }))
       } finally {
         setIsTestingConnection((m) => ({ ...m, [accountId]: false }))
@@ -437,8 +433,7 @@ export default function ToolRegistryView() {
         })
       }
       if (!res.ok) {
-        const t = await res.text()
-        setFormError(t || 'Save failed')
+        setFormError(await parseApiError(res, 'Save failed'))
         setSaving(false)
         return
       }

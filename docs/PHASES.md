@@ -268,3 +268,14 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] `backend/tests/test_phase_p6_compose_config.py`
 - [x] Pytest green (`314 passed`); Do NOT push git
 
+## Phase P7 — Frontend production bugs + agent/HITL UX
+- [x] AgentRunnerPanel — grounding/evidence/policy, disable Run without workspace/task, Reset always available, safe API errors, HITL double-submit guard
+- [x] AgentRunHistory — grounding column + drawer evidence/policy/errors; `/agent-history` route
+- [x] IncidentCommandCenter — busy guards, safe detail errors, clipboard catch
+- [x] Tool Registry — mapped connection errors; never echo raw token/HTML
+- [x] CommandPolicy evaluate + AlertRules dry-run loading/errors
+- [x] OncallWidget empty/error → Tool Registry link
+- [x] Auth login — MFA only on enrollment code; production-safe messages; silentToast for dashboard cost widget
+- [x] `src/utils/parseApiError.js` + vitest for GroundingBadge / approve disabled
+- [x] npm test (`17 passed`) / lint; Do NOT push git
+

@@ -2,16 +2,19 @@ import { useCallback, useEffect, useState } from 'react'
 import { ExternalLink, Loader2, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { parseApiError } from '../utils/parseApiError'
 
 export default function OncallWidget({ compact = false, service = null, scheduleId = null, scheduleIds = null }) {
   const { authFetch } = useAuth()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notConnected, setNotConnected] = useState(false)
+  const [loadError, setLoadError] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setNotConnected(false)
+    setLoadError(null)
     try {
       const params = new URLSearchParams()
       if (service) params.set('service', service)
@@ -27,10 +30,15 @@ export default function OncallWidget({ compact = false, service = null, schedule
         setData(null)
         return
       }
-      if (!res.ok) throw new Error('Failed to load on-call')
+      if (!res.ok) {
+        setData(null)
+        setLoadError(await parseApiError(res, 'Failed to load on-call'))
+        return
+      }
       setData(await res.json())
-    } catch {
+    } catch (e) {
       setData(null)
+      setLoadError(e?.message || 'Failed to load on-call')
     } finally {
       setLoading(false)
     }
@@ -62,6 +70,17 @@ export default function OncallWidget({ compact = false, service = null, schedule
     )
   }
 
+  if (loadError) {
+    return (
+      <div className={`rounded-xl border border-red-500/30 bg-red-500/10 ${compact ? 'p-3' : 'p-4'}`}>
+        <p className="text-xs text-red-300">{loadError}</p>
+        <Link to="/tool-registry" className="text-[11px] text-accent hover:underline mt-1 inline-block">
+          Check Tool Registry
+        </Link>
+      </div>
+    )
+  }
+
   return (
     <div className={`rounded-xl border border-border bg-card/50 ${compact ? 'p-3' : 'p-4'}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
@@ -83,9 +102,14 @@ export default function OncallWidget({ compact = false, service = null, schedule
         Scheduling remains in PagerDuty — this widget is read-only.
       </p>
       {!oncalls.length ? (
-        <p className="text-xs text-slate-500">
-          No on-call entries for current filters. Open PagerDuty to manage schedules.
-        </p>
+        <div className="space-y-1">
+          <p className="text-xs text-slate-500">
+            No on-call entries for current filters.
+          </p>
+          <Link to="/tool-registry" className="text-[11px] text-accent hover:underline inline-block">
+            Verify PagerDuty in Tool Registry
+          </Link>
+        </div>
       ) : (
         <ul className={`space-y-2 ${compact ? 'text-xs' : 'text-sm'}`}>
           {oncalls.slice(0, compact ? 3 : 8).map((row, idx) => (

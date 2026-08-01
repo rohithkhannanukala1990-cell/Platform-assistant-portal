@@ -105,8 +105,7 @@ function PrivateRoute({ children, adminOnly = false }) {
 }
 
 function SettingsPage() {
-  const location = useLocation()
-  return <SettingsModal onClose={() => window.history.back()} key={location.key} />
+  return <SettingsModal onClose={() => window.history.back()} />
 }
 
 function OpsPortalRoute() {
@@ -245,6 +244,7 @@ function AuthenticatedRoutes() {
           <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
           <Route path="/health" element={<PrivateRoute><HealthDashboard /></PrivateRoute>} />
           <Route path="/agents" element={<PrivateRoute><AgentRunnerPanel /></PrivateRoute>} />
+          <Route path="/agent-history" element={<PrivateRoute><AgentRunnerPanel /></PrivateRoute>} />
           <Route path="/editor" element={<PrivateRoute><CodeEditor /></PrivateRoute>} />
           <Route path="/terminal" element={<PrivateRoute><Terminal /></PrivateRoute>} />
           <Route path="/approvals" element={<PrivateRoute><AgentApprovalsWidget /></PrivateRoute>} />

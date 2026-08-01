@@ -190,6 +190,7 @@ export default function DashboardView() {
           task: 'aws cost this month breakdown by service',
           context: { workspace_id: workspaceId },
         }),
+        silentToast: true,
       })
       if (!res.ok) {
         setCostData(null)

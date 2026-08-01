@@ -6,6 +6,8 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import { useToast } from './ToastNotification'
+import { GroundingBadge } from './agent/AgentRunBadges'
+import { parseApiError } from '../utils/parseApiError'
 
 const PAGE_SIZE = 20
 
@@ -182,17 +184,7 @@ function RunDetailDrawer({ run, onClose, mode }) {
         <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
           <div className="flex flex-wrap gap-2 items-center">
             <StatusBadge status={run.status} />
-            {!isAi && (
-              <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                (run.details?.grounding || 'none') === 'live'
-                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                  : (run.details?.grounding || 'none') === 'partial'
-                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                    : 'bg-neutral-700/40 text-neutral-400 border-neutral-600'
-              }`}>
-                grounding: {run.details?.grounding || 'none'}
-              </span>
-            )}
+            {!isAi && <GroundingBadge grounding={run.details?.grounding || run.grounding} />}
             <span className="text-[11px] text-neutral-500">
               {isAi
                 ? (run.environment || run.conversation_context?.environment || '—')
@@ -205,10 +197,16 @@ function RunDetailDrawer({ run, onClose, mode }) {
             )}
           </div>
 
-          {!isAi && run.details?.grounding === 'none' && (
+          {!isAi && (run.details?.grounding || run.grounding) === 'none' && (
             <p className="text-[11px] text-amber-300/90">
               No live connector data.{' '}
               <a href="/tools" className="underline hover:text-amber-200">Open Tool Registry</a>
+            </p>
+          )}
+
+          {!isAi && (run.status === 'failed' || run.status === 'error') && (
+            <p className="text-[11px] text-red-300/90 border border-red-500/20 bg-red-500/10 rounded-lg px-2 py-1.5">
+              {run.summary || run.details?.error || 'Run failed'}
             </p>
           )}
 
@@ -334,7 +332,9 @@ export default function AgentRunHistory() {
       const res = await authFetch(`/api/ai/executions?${params}`)
       if (!res.ok) {
         setAiExecutions([])
-        if (res.status !== 403) toast.error('Failed to load AI executions')
+        if (res.status !== 403) {
+          toast.error(await parseApiError(res, 'Failed to load AI executions'))
+        }
         return
       }
       setAiExecutions(await res.json())
@@ -361,7 +361,9 @@ export default function AgentRunHistory() {
         const res = await authFetch(`/api/agents/runs?${params}`)
         if (!res.ok) {
           if (!append) setRuns([])
-          if (res.status !== 404) toast.error('Failed to load agent run history')
+          if (res.status !== 404) {
+            toast.error(await parseApiError(res, 'Failed to load agent run history'))
+          }
           return
         }
         const data = await res.json()
@@ -468,7 +470,10 @@ export default function AgentRunHistory() {
                 </th>
                 <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Status</th>
                 <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
-                  {source === 'ai' ? 'Env' : 'Duration'}
+                  {source === 'ai' ? 'Env' : 'Grounding'}
+                </th>
+                <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
+                  {source === 'ai' ? 'HITL' : 'Duration'}
                 </th>
                 <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 w-16">Actions</th>
               </tr>
@@ -476,14 +481,14 @@ export default function AgentRunHistory() {
             <tbody>
               {loading && (source === 'ai' ? aiExecutions : runs).length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-neutral-500">
+                  <td colSpan={7} className="px-4 py-10 text-center text-neutral-500">
                     <Loader2 className="w-5 h-5 animate-spin inline-block mr-2 text-indigo-400" />
                     Loading history…
                   </td>
                 </tr>
               ) : source === 'ai' && aiExecutions.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-0">
+                  <td colSpan={7} className="p-0">
                     <EmptyState
                       icon="🤖"
                       title={isAdmin ? 'No AI tool executions yet.' : 'AI execution history requires Admin.'}
@@ -500,7 +505,7 @@ export default function AgentRunHistory() {
                 </tr>
               ) : source === 'agents' && runs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-0">
+                  <td colSpan={7} className="p-0">
                     <EmptyState
                       icon="🤖"
                       title="No agent runs yet."
@@ -532,6 +537,9 @@ export default function AgentRunHistory() {
                     <td className="px-4 py-3 text-xs text-neutral-400 whitespace-nowrap">
                       {ex.environment || ex.conversation_context?.environment || '—'}
                     </td>
+                    <td className="px-4 py-3 text-xs text-neutral-400">
+                      {ex.requires_hitl ? 'yes' : '—'}
+                    </td>
                     <td className="px-4 py-3">
                       <button
                         type="button"
@@ -561,6 +569,9 @@ export default function AgentRunHistory() {
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={run.status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <GroundingBadge grounding={run.details?.grounding || run.grounding} />
                     </td>
                     <td className="px-4 py-3 text-xs text-neutral-400 whitespace-nowrap">
                       {formatDuration(run)}

@@ -51,7 +51,7 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 - [ ] **ID-051** JWT in Terminal WebSocket query string — `src/components/Terminal.jsx:19-20` — Token lands in proxy/access logs — Send token after `onopen` or via subprotocol. *(deferred P4 FE)*
 - [ ] **ID-052** Dashboard data hook bypasses `authFetch` / `API_BASE` — `src/hooks/useDashboardData.js:17-24` (same pattern: `StandardsPage.jsx`, `RBACManager.jsx`, `useCatalogSearch.js`) — Relative `fetch` + legacy `localStorage` token; 401 not logged out; prod multi-origin 404 — Use `authFetch`. *(deferred P4 FE)*
 - [ ] **ID-053** Notifications page never loads — `src/components/NotificationsPage.jsx:10-13` — Cookie `fetch` without `Authorization` → silent empty list — Use `authFetch('/api/notifications')`. *(deferred P4 FE)*
-- [ ] **ID-054** Sidebar “Run History” dead link — `src/components/Sidebar.jsx:157` (`/agent-history`) vs `App.jsx` (`/history` or missing `AgentRunHistory` route) — Wire route to `AgentRunHistory` **or** point nav to `/history`. *(deferred P6 FE)*
+- [x] **ID-054** Sidebar “Run History” dead link — Fixed P7: `/agent-history` route → AgentRunnerPanel history tab.
 - [x] **ID-057** Non-prod agent commands auto-execute under default-allow — Fixed P1: unmatched commands → `require_approval` when environment or process `ENV` is production (executor refuses without `approved=True`).
 
 ---
@@ -67,7 +67,7 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 - [x] **ID-026** documentation_agent HITL while `read_only=True` — Fixed P3: success + `recommended_actions`, never pending shell while read_only.
 - [x] **ID-027** Daily health workflow ignores readiness — Fixed P2: also probe `/health/ready`.
 - [ ] **ID-028** Entity actions workspace TODO — Track with ID-003.
-- [ ] **ID-029** Raw `res.text()` in UI errors (systemic) — `ConnectorReadView.jsx:46`, CatalogPage, GitHub*, K8s, PagerDuty, AIAssistant, AgentRunnerPanel, EntityActionsPage, … — Shared `parseApiError(res)` → never render HTML/traceback. *(deferred P4/P6 FE)*
+- [x] **ID-029** Raw `res.text()` in UI errors (systemic) — Fixed P7 for agents/HITL/tools/policy/alerts/login via `parseApiError` / `formatErrorDetail` (remaining surfaces can migrate incrementally).
 - [x] **ID-030** Agent approve any tenant user — Fixed P1: `require_admin` on approve/reject.
 - [x] **ID-031** Celery retry without countdown — Fixed P2: `monitor_cicd_pipelines` uses `_backoff_countdown`; DLQ only on MaxRetriesExceeded.
 - [x] **ID-032** Webhook gateway 500 on empty `alerts`/`evalMatches` — Fixed P2: guard empty lists in `_map_to_cloud_event`.
@@ -75,7 +75,7 @@ Sources: direct review + [Correctness audit (B)](aba54458-cbee-4bfb-9d1c-d81eeac
 - [x] **ID-034** Celery webhook retries duplicate incidents — Fixed P2: pass `delivery_id` to task; skip if delivery/event already processed; mark error reclaimable.
 - [x] **ID-035** `monitor_cicd_pipelines` DLQ then retry — Fixed P2: DLQ only on MaxRetriesExceeded.
 - [x] **ID-036** Tool accounts matrix / category counts unscoped — Fixed P1: tenant + ownership filters on categories/matrix.
-- [ ] **ID-037** Dashboard AWS-cost agent toast spam — `src/components/DashboardView.jsx:183-209` + `AuthContext.jsx` agents-run toast — POST `/api/agents/run` every mount — Silent widget fetch or dedicated GET. *(deferred P6 FE)*
+- [x] **ID-037** Dashboard AWS-cost agent toast spam — Fixed P7: `silentToast: true` on dashboard cost fetch + AgentRunner self-toasts.
 - [ ] **ID-038** Unhandled rejections in admin polling — `AuditLogView.jsx:40-53`, `UserManagement.jsx:46-54`, `OpsPortal.jsx:163-165` — try/catch + `.catch` on intervals. *(deferred P6 FE)*
 - [ ] **ID-039** AgentApprovalsWidget incidents fetch without auth — `src/components/AgentApprovalsWidget.jsx:570` — Use `authFetch`. *(deferred P4 FE)*
 - [ ] **ID-055** IntegrationsPage webhook activity unauthenticated — `src/components/IntegrationsPage.jsx:198-225` — Use `authFetch`; surface errors. *(deferred P4 FE)*
@@ -210,7 +210,7 @@ Source: [Prod/CI audit (E)](0f14541c-161e-4180-b0ba-e85ee1741f3a) after commit `
 | **P4** | AuthZ + auth plumbing (FE+BE) | ID-015, ID-051, ID-052, ID-053, ID-039, ID-055 |
 | **P5** | Observability + CI/probes + Celery | ID-016, ID-017, ID-020, ID-027, ID-031, ID-034, ID-035, ID-046, ID-062 |
 | **P6** | Frontend nav + errors + toasts | ID-054, ID-029, ID-037, ID-038, ID-041, ID-042, ID-049 |
-| **P7** | Agent/HITL/catalog/grounding | ID-033, ID-044, ID-060, ID-061, ID-064, ID-065 |
+| **P7** | Frontend agent/HITL/connectors UX | ID-054, ID-029, ID-037 + ICC/ToolRegistry/Oncall/Auth |
 | **P8** | Config polish + webhook edge cases | ID-022–025, ID-032, ID-040, ID-043, ID-045, ID-047, ID-048, ID-056; competitor ~ epics |
 
 ---

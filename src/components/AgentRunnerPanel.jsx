@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
-  Bot, CheckCircle2, Loader2, Play, RotateCcw, XCircle,
+  Bot, Loader2, Play, RotateCcw,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { usePlatformContext } from '../contexts/PlatformContext'
 import { useToast } from './ToastNotification'
 import { API_BASE } from '../config/apiBase'
+import { parseApiError } from '../utils/parseApiError'
+import { AgentApproveRejectButtons, GroundingBadge } from './agent/AgentRunBadges'
 import AgentRunHistory from './AgentRunHistory'
 
 const AGENT_NAMES = [
@@ -29,22 +31,7 @@ const AGENT_NAMES = [
   'migration_agent',
 ]
 
-const TERMINAL_STATUSES = new Set(['success', 'failed', 'pending_approval', 'skipped', 'dry_run'])
-
-function GroundingBadge({ grounding }) {
-  const g = (grounding || 'none').toLowerCase()
-  const styles = {
-    live: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-    partial: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
-    demo: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
-    none: 'bg-neutral-700/40 text-neutral-400 border-neutral-600',
-  }
-  return (
-    <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold border ${styles[g] || styles.none}`}>
-      grounding: {g}
-    </span>
-  )
-}
+const TERMINAL_STATUSES = new Set(['success', 'failed', 'pending_approval', 'skipped', 'dry_run', 'error', 'rejected'])
 
 function buildAgentRunWsUrl(runId, token) {
   const qs = `token=${encodeURIComponent(token || '')}`
@@ -219,27 +206,18 @@ function AgentRunCard({ card, onApprove, onReject, busy }) {
         </div>
       )}
 
+      {card.status === 'failed' && card.summary && (
+        <p className="text-[11px] text-red-300/90 border border-red-500/20 bg-red-500/10 rounded-lg px-2 py-1.5">
+          {card.summary}
+        </p>
+      )}
+
       {pending && (
-        <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onApprove(card)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold hover:bg-emerald-600/30 disabled:opacity-40"
-          >
-            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-            Approve
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onReject(card)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-bold hover:bg-red-500/20 disabled:opacity-40"
-          >
-            <XCircle className="w-3.5 h-3.5" />
-            Reject
-          </button>
-        </div>
+        <AgentApproveRejectButtons
+          busy={busy}
+          onApprove={() => onApprove(card)}
+          onReject={() => onReject(card)}
+        />
       )}
     </div>
   )
@@ -248,7 +226,7 @@ function AgentRunCard({ card, onApprove, onReject, busy }) {
 export default function AgentRunnerPanel() {
   const location = useLocation()
   const { authFetch, token } = useAuth()
-  const { toDict, isProduction } = usePlatformContext()
+  const { toDict, isProduction, workspace_id: workspaceId } = usePlatformContext()
   const { toast } = useToast()
 
   const [activeTab, setActiveTab] = useState('run')
@@ -257,17 +235,28 @@ export default function AgentRunnerPanel() {
   const [cards, setCards] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
+  const actionBusyRef = useRef(false)
   const wsRef = useRef(null)
 
   useEffect(() => {
-    if (location.state?.focusHistory || location.state?.goldenPathRun) {
+    if (
+      location.state?.focusHistory ||
+      location.state?.goldenPathRun ||
+      location.pathname === '/agent-history'
+    ) {
       setActiveTab('history')
     }
-  }, [location.state])
+  }, [location.state, location.pathname])
 
   const envLabel = isProduction() ? '🔴 PRODUCTION' : '🟡 STAGING'
 
   const allTerminal = cards.length > 0 && cards.every((c) => TERMINAL_STATUSES.has(c.status))
+  const missingWorkspace = !workspaceId
+  const canRun =
+    !!task.trim() &&
+    !missingWorkspace &&
+    !submitting &&
+    !(cards.length > 0 && !allTerminal)
 
   const toggleAgent = (name) => {
     setSelectedAgents((prev) =>
@@ -327,7 +316,16 @@ export default function AgentRunnerPanel() {
         }
       }
 
-      ws.onerror = () => toast.error('Agent run connection failed')
+      ws.onerror = () => {
+        toast.error('Agent run connection failed')
+        setCards((prev) =>
+          prev.map((c) =>
+            c.status === 'running'
+              ? { ...c, status: 'failed', summary: c.summary || 'Connection lost' }
+              : c
+          )
+        )
+      }
     },
     [closeWs, token, toast, updateCard]
   )
@@ -336,6 +334,10 @@ export default function AgentRunnerPanel() {
     const trimmed = task.trim()
     if (!trimmed) {
       toast.warning('Enter a task description')
+      return
+    }
+    if (!workspaceId) {
+      toast.warning('Select a workspace before running agents')
       return
     }
 
@@ -348,6 +350,7 @@ export default function AgentRunnerPanel() {
       run_id: null,
       status: 'running',
       summary: 'Starting…',
+      grounding: 'none',
       startedAt: Date.now(),
     }))
     setCards(initialCards)
@@ -363,11 +366,11 @@ export default function AgentRunnerPanel() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        silentToast: true,
       })
 
       if (!res.ok) {
-        const errText = await res.text()
-        throw new Error(errText || 'Agent run failed')
+        throw new Error(await parseApiError(res, 'Agent run failed'))
       }
 
       const result = await res.json()
@@ -378,7 +381,7 @@ export default function AgentRunnerPanel() {
         toast.success('Agent run completed successfully')
       } else if (result.status === 'pending_approval') {
         toast.warning('Agent run requires approval')
-      } else if (result.status === 'failed') {
+      } else if (result.status === 'failed' || result.status === 'skipped') {
         toast.error(result.summary || 'Agent run failed')
       }
 
@@ -389,12 +392,14 @@ export default function AgentRunnerPanel() {
         )
       }
     } catch (e) {
-      toast.error(e.message || 'Agent run failed')
+      const msg = e.message || 'Agent run failed'
+      toast.error(msg === 'undefined' ? 'Agent run failed' : msg)
       setCards((prev) =>
         prev.map((c) => ({
           ...c,
           status: 'failed',
-          summary: e.message || 'Run failed',
+          summary: msg === 'undefined' ? 'Run failed' : msg,
+          grounding: c.grounding || 'none',
         }))
       )
     } finally {
@@ -403,33 +408,43 @@ export default function AgentRunnerPanel() {
   }
 
   const handleApprove = async (card) => {
-    if (!card.run_id) return
+    if (!card.run_id || actionBusyRef.current) return
+    actionBusyRef.current = true
     setActionBusy(true)
     try {
       const res = await authFetch(`/api/agents/${card.run_id}/approve`, { method: 'POST' })
-      if (!res.ok) throw new Error(await res.text())
+      if (!res.ok) throw new Error(await parseApiError(res, 'Approve failed'))
       const data = await res.json()
-      updateCard(card.agent, { status: data.status, summary: data.summary })
+      updateCard(card.agent, {
+        status: data.status,
+        summary: data.summary,
+        grounding: data.grounding ?? card.grounding,
+        evidence: data.evidence ?? card.evidence,
+        policy: data.policy ?? card.policy,
+      })
       toast.success('Agent run approved')
     } catch (e) {
-      toast.error(e.message || 'Approve failed')
+      toast.error(e.message === 'undefined' ? 'Approve failed' : (e.message || 'Approve failed'))
     } finally {
+      actionBusyRef.current = false
       setActionBusy(false)
     }
   }
 
   const handleReject = async (card) => {
-    if (!card.run_id) return
+    if (!card.run_id || actionBusyRef.current) return
+    actionBusyRef.current = true
     setActionBusy(true)
     try {
       const res = await authFetch(`/api/agents/${card.run_id}/reject`, { method: 'POST' })
-      if (!res.ok) throw new Error(await res.text())
+      if (!res.ok) throw new Error(await parseApiError(res, 'Reject failed'))
       const data = await res.json()
-      updateCard(card.agent, { status: data.status, summary: data.summary })
+      updateCard(card.agent, { status: data.status || 'rejected', summary: data.summary })
       toast.success('Agent run rejected')
     } catch (e) {
-      toast.error(e.message || 'Reject failed')
+      toast.error(e.message === 'undefined' ? 'Reject failed' : (e.message || 'Reject failed'))
     } finally {
+      actionBusyRef.current = false
       setActionBusy(false)
     }
   }
@@ -523,10 +538,16 @@ export default function AgentRunnerPanel() {
               </div>
             </div>
 
+            {missingWorkspace && (
+              <p className="text-[11px] text-amber-300/90">
+                Select a workspace in the header before running agents.
+              </p>
+            )}
+
             <div className="flex items-center gap-3 pt-1">
               <button
                 type="button"
-                disabled={submitting || (cards.length > 0 && !allTerminal)}
+                disabled={!canRun}
                 onClick={() => void handleRun()}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold disabled:opacity-50 transition-colors"
               >
@@ -538,7 +559,7 @@ export default function AgentRunnerPanel() {
                 Run Agent
               </button>
 
-              {allTerminal && cards.length > 0 && (
+              {cards.length > 0 && (
                 <button
                   type="button"
                   onClick={handleReset}

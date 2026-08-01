@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { getPortalContextHeaders } from '../utils/portalContextHeaders'
 import { API_BASE } from '../config/apiBase'
 import { getGlobalToast } from '../components/ToastNotification'
+import { safeLoginError } from '../utils/parseApiError'
 
 // ── PRIVATE HELPERS (not exported) ────────────────────────────────────────────
 function parseJWT(token) {
@@ -139,19 +140,24 @@ export function AuthProvider({ children }) {
       if (!res.ok) {
         const detail = data?.detail
         const code = typeof detail === 'object' && detail ? detail.code : null
-        const message =
+        let message =
           typeof detail === 'string'
             ? detail
             : detail?.message || (Array.isArray(detail) ? detail.map((d) => d.msg || d).join(', ') : null) || 'Login failed'
 
-        if (code === 'mfa_enrollment_required' || res.status === 403) {
+        // Production: avoid dumping HTML/tracebacks / opaque internals
+        message = safeLoginError(message, {
+          isProd: import.meta.env.PROD || import.meta.env.MODE === 'production',
+        })
+
+        if (code === 'mfa_enrollment_required') {
           setError(message)
           return { success: false, error: message, mfaEnrollmentRequired: true }
         }
-        if (res.status === 401 && message === 'MFA code required') {
+        if (res.status === 401 && (message === 'MFA code required' || /mfa code required/i.test(message))) {
           return { success: false, error: 'MFA required — enter your authenticator code below', mfaRequired: true }
         }
-        // Do not treat generic 401 (bad password) as MFA required
+        // Do not treat generic 401/403 as MFA enrollment
         setError(message)
         return { success: false, error: message }
       }
@@ -176,20 +182,21 @@ export function AuthProvider({ children }) {
 
   const authFetch = useCallback(
     async (url, options = {}) => {
+      const { silentToast, ...fetchOptions } = options
       const fullUrl = /^https?:\/\//i.test(url) ? url : `${API_BASE}${url}`
-      const headers = new Headers(options.headers || {})
+      const headers = new Headers(fetchOptions.headers || {})
       if (token) headers.set('Authorization', `Bearer ${token}`)
       const portalHeaders = getPortalContextHeaders()
       Object.entries(portalHeaders).forEach(([k, v]) => {
         if (v != null && v !== '') headers.set(k, String(v))
       })
 
-      const method = (options.method || 'GET').toUpperCase()
+      const method = (fetchOptions.method || 'GET').toUpperCase()
       const isAgentsRun =
         method === 'POST' &&
         /\/api\/agents\/run\/?$/.test(new URL(fullUrl, window.location.origin).pathname)
 
-      const res = await fetch(fullUrl, { ...options, headers })
+      const res = await fetch(fullUrl, { ...fetchOptions, headers })
 
       if (res.status === 401) {
         getGlobalToast()?.error?.('Session expired. Please log in again.')
@@ -197,7 +204,8 @@ export function AuthProvider({ children }) {
         throw new Error('Session expired')
       }
 
-      if (isAgentsRun) {
+      // Opt-out: dashboard widgets / panels that toast themselves (silentToast: true)
+      if (isAgentsRun && !silentToast) {
         const api = getGlobalToast()
         if (api) {
           try {
@@ -217,7 +225,7 @@ export function AuthProvider({ children }) {
                   : Array.isArray(data?.detail)
                     ? data.detail.map((d) => d.msg || d).join(', ')
                     : 'Agent run failed'
-              api.error(detail)
+              api.error(detail || 'Agent run failed')
             }
           } catch {
             if (!res.ok) api.error('Agent run failed')

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Bot, Loader2, ShieldCheck, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
+import { safeLoginError } from '../utils/parseApiError'
 
 export default function LoginPage() {
   const auth = useAuth()
@@ -56,7 +57,10 @@ export default function LoginPage() {
     }
   }
 
-  const errText = localError || auth.error
+  const errText = safeLoginError(localError || auth.error, {
+    isProd: import.meta.env.PROD || import.meta.env.MODE === 'production',
+  })
+  const displayError = (localError || auth.error) ? errText : null
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface px-4">
@@ -71,11 +75,11 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {errText && (
+        {displayError && (
           <div className="flex items-start gap-3 p-3.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 mb-5">
             <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="text-sm leading-relaxed">
-              {typeof errText === 'string' ? errText : JSON.stringify(errText)}
+              {displayError}
             </div>
           </div>
         )}

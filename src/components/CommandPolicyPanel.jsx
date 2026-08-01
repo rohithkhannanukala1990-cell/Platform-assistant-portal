@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ShieldCheck, AlertTriangle, Play, Loader2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { parseApiError } from '../utils/parseApiError'
 
 const EFFECT_STYLES = {
   allow: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
@@ -45,13 +46,14 @@ export default function CommandPolicyPanel() {
     if (!testCmd.trim()) return
     setTesting(true)
     setDecision(null)
+    setError(null)
     try {
       const res = await authFetch('/api/policies/commands/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: testCmd, environment: testEnv, tool: 'shell' }),
       })
-      if (!res.ok) throw new Error('Evaluation failed')
+      if (!res.ok) throw new Error(await parseApiError(res, 'Evaluation failed'))
       setDecision(await res.json())
     } catch (e2) {
       setError(e2.message || 'Evaluation failed')

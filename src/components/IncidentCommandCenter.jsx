@@ -20,6 +20,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { formatErrorDetail } from '../utils/parseApiError'
 import { useToast } from './ToastNotification'
 
 const SEVERITY_CFG = {
@@ -193,6 +194,7 @@ export default function IncidentCommandCenter() {
   }, [loadPostmortem])
 
   async function runAction(key, path, options = {}) {
+    if (busy) return
     setBusy(key)
     try {
       const res = await authFetch(`/api/incidents/${id}${path}`, {
@@ -202,11 +204,9 @@ export default function IncidentCommandCenter() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const detail =
-          typeof data.detail === 'string'
-            ? data.detail
-            : data.detail?.message || JSON.stringify(data.detail || data)
-        throw new Error(detail || `Request failed (${res.status})`)
+        throw new Error(
+          formatErrorDetail(data.detail ?? data, `Request failed (${res.status})`)
+        )
       }
       if (data.incident) {
         setIncident(data.incident)
@@ -237,13 +237,20 @@ export default function IncidentCommandCenter() {
   }
 
   function copyCmd(cmd, idx) {
-    navigator.clipboard?.writeText(cmd).then(() => {
+    if (!navigator.clipboard?.writeText) {
+      showToast('Clipboard not available', 'error')
+      return
+    }
+    navigator.clipboard.writeText(cmd).then(() => {
       setCopiedIdx(idx)
       setTimeout(() => setCopiedIdx(null), 1500)
+    }).catch(() => {
+      showToast('Could not copy command', 'error')
     })
   }
 
   async function generatePostmortem() {
+    if (busy) return
     setBusy('postmortem-generate')
     try {
       const res = await authFetch(`/api/incidents/${id}/postmortem/generate`, {
@@ -252,7 +259,9 @@ export default function IncidentCommandCenter() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || `Generate failed (${res.status})`)
+        throw new Error(
+          formatErrorDetail(data.detail ?? data, `Generate failed (${res.status})`)
+        )
       }
       setPostmortem(data)
       setPostmortemDraft(data.markdown || '')
@@ -266,6 +275,7 @@ export default function IncidentCommandCenter() {
   }
 
   async function savePostmortemEdit() {
+    if (busy) return
     setBusy('postmortem-save')
     try {
       const res = await authFetch(`/api/incidents/${id}/postmortem`, {
@@ -275,7 +285,9 @@ export default function IncidentCommandCenter() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || `Save failed (${res.status})`)
+        throw new Error(
+          formatErrorDetail(data.detail ?? data, `Save failed (${res.status})`)
+        )
       }
       setPostmortem(data)
       setPostmortemEditing(false)
@@ -288,12 +300,15 @@ export default function IncidentCommandCenter() {
   }
 
   async function downloadPostmortem() {
+    if (busy) return
     setBusy('postmortem-download')
     try {
       const res = await authFetch(`/api/incidents/${id}/postmortem/download`)
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.detail || `Download failed (${res.status})`)
+        throw new Error(
+          formatErrorDetail(data.detail ?? data, `Download failed (${res.status})`)
+        )
       }
       const blob = await res.blob()
       const version = postmortem?.version || 1
@@ -314,11 +329,16 @@ export default function IncidentCommandCenter() {
   }
 
   async function copyPostmortemMarkdown() {
+    if (busy) return
     setBusy('postmortem-copy')
     try {
       const res = await authFetch(`/api/incidents/${id}/postmortem/markdown`)
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.detail || `Copy failed (${res.status})`)
+      if (!res.ok) {
+        throw new Error(
+          formatErrorDetail(data.detail ?? data, `Copy failed (${res.status})`)
+        )
+      }
       await navigator.clipboard.writeText(data.markdown || '')
       showToast('Postmortem markdown copied', 'success')
     } catch (e) {
