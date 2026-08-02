@@ -153,16 +153,6 @@ export default function CatalogPage() {
     [authFetch]
   )
 
-  useEffect(() => {
-    if (!selectedEntity?.id) {
-      setScorecard(null)
-      setApplicablePaths([])
-      return
-    }
-    void loadScorecard(selectedEntity.id)
-    void loadApplicablePaths(selectedEntity.id)
-  }, [selectedEntity?.id, loadScorecard, loadApplicablePaths])
-
   const loadEntities = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -268,6 +258,16 @@ export default function CatalogPage() {
     },
     [authFetch]
   )
+
+  useEffect(() => {
+    if (!selectedEntity?.id) {
+      setScorecard(null)
+      setApplicablePaths([])
+      return
+    }
+    void loadScorecard(selectedEntity.id)
+    void loadApplicablePaths(selectedEntity.id)
+  }, [selectedEntity?.id, loadScorecard, loadApplicablePaths])
 
   const startGoldenPath = useCallback(
     async (path) => {
