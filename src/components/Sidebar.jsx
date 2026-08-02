@@ -30,7 +30,6 @@ import {
   HardDrive,
   Activity,
   Share2,
-  LogOut,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -173,7 +172,7 @@ function isActivePath(pathname, itemPath) {
   return pathname === itemPath
 }
 
-export default function Sidebar({ user, onLogout, open = false, onClose }) {
+export default function Sidebar({ user, open = false, onClose }) {
   const location = useLocation()
   const { role, authFetch } = useAuth()
   const isAdmin = role === 'Admin'
@@ -366,42 +365,20 @@ export default function Sidebar({ user, onLogout, open = false, onClose }) {
 
       <div
         className={`border-t border-neutral-800 p-3 flex items-center gap-2 ${
-          hiddenOnNarrow ? 'invisible h-0 p-0 border-0 overflow-hidden' : collapsed ? 'justify-center flex-col' : ''
+          hiddenOnNarrow ? 'invisible h-0 p-0 border-0 overflow-hidden' : collapsed ? 'justify-center' : ''
         }`}
+        title={user?.username || 'User'}
       >
-        <div
-          className="w-8 h-8 rounded-full bg-indigo-700 flex items-center justify-center text-sm font-bold text-white shrink-0"
-          title={user?.username}
-        >
+        <div className="w-8 h-8 rounded-full bg-indigo-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
           {userInitial(user)}
         </div>
         {!collapsed && !hiddenOnNarrow && (
-          <>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm text-white truncate">{user?.username || 'User'}</p>
-              <span className="text-xs bg-neutral-800 text-neutral-300 px-1.5 rounded inline-block mt-0.5">
-                {role || user?.role || '—'}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={onLogout}
-              className="p-2 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 shrink-0"
-              title="Log out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </>
-        )}
-        {collapsed && !hiddenOnNarrow && (
-          <button
-            type="button"
-            onClick={onLogout}
-            className="p-2 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800"
-            title="Log out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm text-white truncate">{user?.username || 'User'}</p>
+            <span className="text-xs bg-neutral-800 text-neutral-300 px-1.5 rounded inline-block mt-0.5">
+              {role || user?.role || '—'}
+            </span>
+          </div>
         )}
       </div>
     </aside>

@@ -25,7 +25,7 @@ function buildPortalWsUrl() {
   }
 }
 
-export default function Layout({ user, onLogout }) {
+export default function Layout({ user }) {
   const { role } = useAuth()
   const navigate = useNavigate()
   const [criticalHealthBanner, setCriticalHealthBanner] = useState(null)
@@ -85,11 +85,11 @@ export default function Layout({ user, onLogout }) {
 
   return (
     <div className="flex h-screen bg-neutral-950 text-white overflow-hidden">
-      <Sidebar user={user} onLogout={onLogout} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar user={user} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-col flex-1 overflow-hidden">
         {criticalHealthBanner && (role === 'Admin' || role === 'User') && (
           <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-red-950/80 border-b border-red-700/50 text-red-100 text-sm">
-            <span>🚨 Critical system alert: {criticalHealthBanner}</span>
+            <span>Critical system alert: {criticalHealthBanner}</span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -111,16 +111,14 @@ export default function Layout({ user, onLogout }) {
         )}
         {healthWsToast && (role === 'Admin' || role === 'User') && (
           <div className="fixed bottom-6 left-6 z-[60] max-w-sm px-4 py-3 rounded-lg border border-amber-500/40 bg-amber-950/90 text-amber-100 text-sm shadow-xl">
-            ⚠️ {healthWsToast}
+            {healthWsToast}
           </div>
         )}
         <TopBar
           user={user}
-          onLogout={onLogout}
           onOpenCommandPalette={() => setPaletteOpen(true)}
           onMenuOpen={() => setSidebarOpen(true)}
-        />
-        <main className="flex-1 overflow-auto p-6">
+        />        <main className="flex-1 overflow-auto p-6">
           <Outlet />
         </main>
       </div>

@@ -271,13 +271,12 @@ function EnvironmentBreadcrumb() {
   )
 }
 
-export default function TopBar({ user, onLogout, onOpenCommandPalette, onMenuOpen }) {
+export default function TopBar({ user, onOpenCommandPalette, onMenuOpen }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { authFetch } = useAuth()
   const { pendingApprovalCount } = usePortalContext()
   const [llmLabel, setLlmLabel] = useState('LLM')
-  const [unreadCount, setUnreadCount] = useState(0)
 
   const headerToolId = useMemo(
     () => headerToolIdFromPath(location.pathname),
@@ -321,28 +320,6 @@ export default function TopBar({ user, onLogout, onOpenCommandPalette, onMenuOpe
     }
   }, [authFetch])
 
-  useEffect(() => {
-    let cancelled = false
-    async function loadNotifications() {
-      try {
-        const res = await authFetch('/api/notifications')
-        if (!res.ok) return
-        const data = await res.json()
-        if (cancelled) return
-        const list = Array.isArray(data) ? data : []
-        setUnreadCount(list.filter((n) => !n.is_read).length)
-      } catch {
-        if (!cancelled) setUnreadCount(0)
-      }
-    }
-    void loadNotifications()
-    const id = window.setInterval(loadNotifications, 60000)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
-    }
-  }, [authFetch])
-
   const openPalette = () => {
     if (onOpenCommandPalette) onOpenCommandPalette()
     else window.dispatchEvent(new CustomEvent('open-command-palette'))
@@ -352,98 +329,94 @@ export default function TopBar({ user, onLogout, onOpenCommandPalette, onMenuOpe
 
   return (
     <header className="shrink-0 flex flex-col border-b border-neutral-800 bg-neutral-900">
-      <div className="flex items-center gap-3 px-6 py-3">
-      <button
-        type="button"
-        className="md:hidden p-2 text-slate-400 hover:text-white transition-colors"
-        onClick={onMenuOpen}
-      >
-        ☰
-      </button>
-      <div className="flex items-center gap-2 min-w-0 shrink-0">
-        <span className="hidden lg:inline text-xs font-semibold text-neutral-500 uppercase tracking-wider shrink-0">
-          Platform
-        </span>
-        <nav className="flex items-center gap-1 min-w-0 text-sm" aria-label="Breadcrumb">
-          <button
-            type="button"
-            onClick={() => navigate('/dashboard')}
-            className="text-neutral-400 hover:text-white shrink-0"
-          >
-            Home
-          </button>
-          {breadcrumbs.map((crumb) => (
-            <span key={crumb.path} className="flex items-center gap-1 min-w-0">
-              <ChevronRight className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-              <button
-                type="button"
-                onClick={() => navigate(crumb.path)}
-                className="text-neutral-300 hover:text-white truncate capitalize"
-              >
-                {crumb.label}
-              </button>
-            </span>
-          ))}
-        </nav>
-        <EnvironmentSwitcher />
-        <WorkspaceSwitcher />
-      </div>
+      <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 min-w-0">
+        <button
+          type="button"
+          className="md:hidden p-2 text-slate-400 hover:text-white transition-colors shrink-0"
+          onClick={onMenuOpen}
+        >
+          ☰
+        </button>
 
-      <div className="flex-1 min-w-2" aria-hidden />
+        <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+          <span className="hidden xl:inline text-xs font-semibold text-neutral-500 uppercase tracking-wider shrink-0">
+            Platform
+          </span>
+          <nav className="hidden md:flex items-center gap-1 min-w-0 text-sm overflow-hidden" aria-label="Breadcrumb">
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard')}
+              className="text-neutral-400 hover:text-white shrink-0"
+            >
+              Home
+            </button>
+            {breadcrumbs.map((crumb) => (
+              <span key={crumb.path} className="flex items-center gap-1 min-w-0">
+                <ChevronRight className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => navigate(crumb.path)}
+                  className="text-neutral-300 hover:text-white truncate capitalize max-w-[10rem]"
+                >
+                  {crumb.label}
+                </button>
+              </span>
+            ))}
+          </nav>
+          <div className="hidden lg:flex items-center gap-2 shrink min-w-0">
+            <EnvironmentSwitcher />
+            <WorkspaceSwitcher />
+          </div>
+        </div>
 
-      <button
-        type="button"
-        onClick={openPalette}
-        className="hidden sm:flex items-center gap-2 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-neutral-400 text-sm w-56 lg:w-64 hover:border-neutral-600 hover:text-neutral-300 transition-colors shrink-0"
-      >
-        <Search className="w-4 h-4 shrink-0" />
-        <span className="flex-1 text-left">Search</span>
-        <kbd className="px-1 py-0.5 rounded bg-neutral-700 text-[10px] font-mono text-neutral-400">
-          {shortcutLabel}
-        </kbd>
-      </button>
+        <button
+          type="button"
+          onClick={openPalette}
+          className="hidden md:flex items-center gap-2 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-neutral-400 text-sm w-40 lg:w-52 hover:border-neutral-600 hover:text-neutral-300 transition-colors shrink-0"
+        >
+          <Search className="w-4 h-4 shrink-0" />
+          <span className="flex-1 text-left truncate">Search</span>
+          <kbd className="px-1 py-0.5 rounded bg-neutral-700 text-[10px] font-mono text-neutral-400">
+            {shortcutLabel}
+          </kbd>
+        </button>
 
-      <div className="flex items-center gap-2 shrink-0">
-        <AccountSwitcher toolId={headerToolId} onAccountChanged={() => {}} />
+        {/* Account + alerts stay fully visible (never clipped off the right edge) */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-1">
+          <div className="hidden lg:block max-w-[11rem]">
+            <AccountSwitcher toolId={headerToolId} onAccountChanged={() => {}} />
+          </div>
 
-        {pendingApprovalCount > 0 && (
-          <button
-            type="button"
-            onClick={() => navigate('/ai-assistant')}
-            title={`${pendingApprovalCount} awaiting approval`}
-            className="relative flex items-center justify-center w-9 h-9 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-neutral-300"
-          >
-            <Shield className="w-4 h-4" />
-            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-0.5 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold">
-              {pendingApprovalCount > 99 ? '99+' : pendingApprovalCount}
-            </span>
-          </button>
-        )}
+          {pendingApprovalCount > 0 && (
+            <button
+              type="button"
+              onClick={() => navigate('/ai-assistant')}
+              title={`${pendingApprovalCount} awaiting approval`}
+              className="relative flex items-center justify-center w-9 h-9 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-neutral-300"
+            >
+              <Shield className="w-4 h-4" />
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-0.5 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold">
+                {pendingApprovalCount > 99 ? '99+' : pendingApprovalCount}
+              </span>
+            </button>
+          )}
 
-        <span className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-300">
-          <Zap className="w-3.5 h-3.5" />
-          {llmLabel}
-        </span>
+          <span className="hidden 2xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-300">
+            <Zap className="w-3.5 h-3.5" />
+            {llmLabel}
+          </span>
 
-        <WsIndicator connected={wsConnected} />
+          <div className="hidden sm:block">
+            <WsIndicator connected={wsConnected} />
+          </div>
 
-        <div className="relative">
+          <UserMenu onOpenSettings={() => navigate('/settings')} />
+
           <NotificationDropdown
             onSelectIncident={() => navigate('/incidents')}
             onOpenHealthDashboard={() => navigate('/health')}
           />
-          {unreadCount > 0 && (
-            <span className="pointer-events-none absolute top-0 right-0 z-10 w-4 h-4 flex items-center justify-center bg-rose-500 text-white text-[10px] rounded-full font-bold">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
-          )}
         </div>
-
-        <UserMenu
-          onLogout={onLogout}
-          onOpenSettings={() => navigate('/settings')}
-        />
-      </div>
       </div>
 
       {/* Context Breadcrumb Row */}

@@ -140,7 +140,7 @@ function DeveloperPortalRoute() {
 }
 
 function AuthenticatedRoutes() {
-  const { user, logout, isAuthenticated, loading } = useAuth()
+  const { user, isAuthenticated, loading } = useAuth()
 
   if (loading) {
     return (
@@ -171,7 +171,7 @@ function AuthenticatedRoutes() {
         <Route
           element={
             isAuthenticated ? (
-              <Layout user={user} onLogout={logout} />
+              <Layout user={user} />
             ) : (
               <Navigate to="/login" replace />
             )
