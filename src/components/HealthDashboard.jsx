@@ -20,6 +20,7 @@ import {
 import { usePortalContext } from '../contexts/PortalContext'
 import useHealthDashboard, { canMutateHealth } from '../hooks/useHealthDashboard'
 import { useAuth } from '../contexts/AuthContext'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 function healthRowStatus(apiStatus) {
   if (apiStatus === 'critical') return 'down'
@@ -589,6 +590,8 @@ export default function HealthDashboard() {
           ))}
         </nav>
       </header>
+
+      <RelatedAgentsBar surface="health" className="mb-6" />
 
       {fetchError && !isLoading && (
         <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-200">

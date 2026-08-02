@@ -12,6 +12,7 @@ import IncidentReportCard from './IncidentReportCard'
 import IncidentHistory from './IncidentHistory'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 const TRIAGE_TABS = [
   { id: 'logs', label: 'Log Triage' },
@@ -288,6 +289,8 @@ export default function TriageView({
               <span className="w-1.5 h-1.5 rounded-full bg-accent inline-block" />
             </div>
           </div>
+
+          <RelatedAgentsBar surface="incidents" />
 
           <div className="flex gap-1 mt-2">
             {TRIAGE_TABS.map((tab) => (

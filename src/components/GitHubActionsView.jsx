@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from './ToastNotification'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 function EmptyConnected({ title, subtitle }) {
   return (
@@ -214,6 +215,8 @@ export default function GitHubActionsView() {
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
         </button>
       </div>
+
+      <RelatedAgentsBar surface="github_actions" />
 
       {error && (
         <div className="flex items-center gap-2 text-xs text-rose-400">

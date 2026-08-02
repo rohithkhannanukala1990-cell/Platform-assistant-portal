@@ -4,6 +4,7 @@ import {
   GitBranch, GitCommit, User, ChevronDown, AlertTriangle,
   RotateCcw, FileText, Filter, Loader2, Terminal,
 } from 'lucide-react'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 const ENVIRONMENTS = ['All', 'production', 'staging', 'dev']
 
@@ -85,6 +86,8 @@ export default function DeploymentsView() {
           <p className="text-sm text-slate-500 mt-0.5">Deployment history and rollback controls for all services</p>
         </div>
       </div>
+
+      <RelatedAgentsBar surface="deployments" />
 
       {/* New deploy panel */}
       <div className="p-5 rounded-2xl border border-blue-500/20 bg-blue-500/5 flex flex-col gap-4">

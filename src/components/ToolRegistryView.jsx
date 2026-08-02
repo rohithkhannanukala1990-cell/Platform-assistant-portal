@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { mapConnectionError, parseApiError } from '../utils/parseApiError'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 const CATEGORIES = [
   { id: 'cloud', label: 'Cloud Providers', icon: '☁️' },
@@ -538,6 +539,8 @@ export default function ToolRegistryView() {
           {matrixView ? 'Tree view' : 'Matrix view'}
         </button>
       </div>
+
+      <RelatedAgentsBar surface="tools" className="mb-6" />
 
       {matrixView ? (
         <div className="flex-1 overflow-auto rounded-xl border border-border bg-card/30">

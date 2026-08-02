@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 const CATALOG_API = `${API_BASE}/api/catalog`
 const CATEGORIES = ['Documentation', 'Reliability', 'Security', 'Ownership']
@@ -420,6 +421,8 @@ export default function ScorecardsPage() {
           </button>
         </div>
       </div>
+
+      <RelatedAgentsBar surface="scorecards" />
 
       {error && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">

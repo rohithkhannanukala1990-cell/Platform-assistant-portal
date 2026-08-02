@@ -21,6 +21,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { RunActionModal, LogsDrawer } from './entityActionsShared'
 import CatalogCopilotPanel from './CatalogCopilotPanel'
+import RelatedAgentsBar from './RelatedAgentsBar'
 import useCatalogSearch from '../hooks/useCatalogSearch'
 import { useToast } from './ToastNotification'
 
@@ -447,6 +448,17 @@ export default function CatalogPage() {
         <h1 className="text-2xl font-bold text-white tracking-tight">Software Catalog</h1>
         <p className="text-sm text-slate-400 mt-1">Services, APIs, libraries, and websites across the platform</p>
       </div>
+
+      <RelatedAgentsBar
+        surface="catalog"
+        entityId={selectedEntity?.id}
+        entityName={selectedEntity?.name}
+        task={
+          selectedEntity?.name
+            ? `Assess and improve catalog quality for ${selectedEntity.name}`
+            : undefined
+        }
+      />
 
       <div className="flex flex-col lg:flex-row lg:items-center gap-3 flex-wrap">
         <div className="flex flex-wrap gap-2">

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Bell, Loader2, RefreshCw, Users, Wrench } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import OncallWidget from './OncallWidget'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 function EmptyConnected({ title, subtitle }) {
   return (
@@ -96,6 +97,8 @@ export default function PagerDutyView() {
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
+
+      <RelatedAgentsBar surface="pagerduty" />
 
       {error && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 const CATEGORIES = ['All', 'Application', 'Database', 'Network', 'Security']
 
@@ -244,6 +245,8 @@ export default function RunbooksView() {
           {filtered.length} runbooks
         </span>
       </div>
+
+      <RelatedAgentsBar surface="runbooks" />
 
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">

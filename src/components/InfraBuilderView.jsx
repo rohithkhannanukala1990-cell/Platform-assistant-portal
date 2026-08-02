@@ -13,6 +13,7 @@ import {
   Cloud,
 } from 'lucide-react'
 import { API_BASE } from '../config/apiBase'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 const API_URL = `${API_BASE}/api/infra/generate`
 
@@ -170,6 +171,8 @@ export default function InfraBuilderView({ selectedRecord, onClearRecord, onGene
           <div className="w-1.5 h-1.5 rounded-full bg-accent" />
         </div>
       </div>
+
+      <RelatedAgentsBar surface="infra" />
 
       {/* ── Viewing history banner ───────────────────────────────────────── */}
       {selectedRecord && (

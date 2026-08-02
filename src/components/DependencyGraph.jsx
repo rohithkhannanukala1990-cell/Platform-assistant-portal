@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, RotateCcw, X, Loader2, Share2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 const WIDTH = 800
 const HEIGHT = 600
@@ -338,6 +339,8 @@ export default function DependencyGraph() {
           Data Lineage
         </button>
       </div>
+
+      <RelatedAgentsBar surface="dependencies" />
 
       {error && (
         <div className="px-4 py-2 rounded-lg border border-red-800 bg-red-950/40 text-red-200 text-sm">

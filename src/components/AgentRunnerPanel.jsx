@@ -245,8 +245,27 @@ export default function AgentRunnerPanel() {
       location.pathname === '/agent-history'
     ) {
       setActiveTab('history')
+      return
+    }
+    if (location.state?.focusRun || location.state?.preselectAgents || location.state?.prefillTask) {
+      setActiveTab('run')
     }
   }, [location.state, location.pathname])
+
+  // Deep-link from catalog / infra / tools: preselect agents + task
+  useEffect(() => {
+    const st = location.state
+    if (!st) return
+    if (Array.isArray(st.preselectAgents) && st.preselectAgents.length) {
+      setSelectedAgents(st.preselectAgents.filter((n) => AGENT_NAMES.includes(n)))
+    }
+    if (typeof st.prefillTask === 'string' && st.prefillTask.trim()) {
+      let taskText = st.prefillTask.trim()
+      if (st.entityName) taskText = `${taskText} (entity: ${st.entityName})`
+      else if (st.entityId) taskText = `${taskText} (entity_id: ${st.entityId})`
+      setTask(taskText)
+    }
+  }, [location.state])
 
   const envLabel = isProduction() ? '🔴 PRODUCTION' : '🟡 STAGING'
 

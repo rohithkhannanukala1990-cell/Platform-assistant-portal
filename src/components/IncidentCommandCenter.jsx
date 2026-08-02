@@ -22,6 +22,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { formatErrorDetail } from '../utils/parseApiError'
 import { useToast } from './ToastNotification'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 const SEVERITY_CFG = {
   Critical: { cls: 'bg-red-500/15 border-red-500/40 text-red-400', icon: AlertTriangle },
@@ -481,6 +482,12 @@ export default function IncidentCommandCenter() {
           </div>
         )}
       </header>
+
+      <RelatedAgentsBar
+        surface="incidents"
+        entityId={id}
+        task={id ? `Triage the open incident with available evidence` : undefined}
+      />
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2">

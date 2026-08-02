@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
+import RelatedAgentsBar from './RelatedAgentsBar'
 
 const API_URL = `${API_BASE}/api/cicd/generate`
 
@@ -186,6 +187,8 @@ export default function CICDView({ selectedRecord, onClearRecord, onGenerateComp
           <div className="w-1.5 h-1.5 rounded-full bg-accent" />
         </div>
       </div>
+
+      <RelatedAgentsBar surface="cicd" />
 
       {/* ── History banner ───────────────────────────────────────────────── */}
       {selectedRecord && (
