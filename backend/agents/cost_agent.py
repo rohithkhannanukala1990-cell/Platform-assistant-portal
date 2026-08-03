@@ -9,6 +9,7 @@ from sqlmodel import Session
 
 from ..connectors.aws_connector import AWSConnector
 from ..context import PlatformContext
+from ..services.aws_access import try_aws_connector_from_context
 from .base import AgentResult, BaseAgent
 
 _ACCOUNT: dict = {}
@@ -45,7 +46,7 @@ class CostAgent(BaseAgent):
             )
 
         try:
-            services = await AWSConnector(_ACCOUNT).get_cost_explorer(start, end)
+            services = await (try_aws_connector_from_context(context, db=db) or AWSConnector(_ACCOUNT)).get_cost_explorer(start, end)
         except Exception as exc:
             return self._no_data_result(
                 context,

@@ -9,6 +9,7 @@ from sqlmodel import Session
 
 from ..connectors.aws_connector import AWSConnector
 from ..context import PlatformContext
+from ..services.aws_access import try_aws_connector_from_context
 from .base import AgentResult, BaseAgent
 
 SECURITY_SYSTEM_PROMPT = """
@@ -65,7 +66,7 @@ class SecurityAgent(BaseAgent):
                     missing_tools=["GuardDuty", "AWS"],
                 )
             try:
-                findings = await AWSConnector(_ACCOUNT).list_security_findings()
+                findings = await (try_aws_connector_from_context(context, db=db) or AWSConnector(_ACCOUNT)).list_security_findings()
                 source = "aws_security_hub"
             except Exception as exc:
                 return self._no_data_result(

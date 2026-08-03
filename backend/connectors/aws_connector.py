@@ -13,10 +13,32 @@ from .registry import AWSConnector as _BaseAws
 
 class AWSConnector(_BaseAws):
     def _session(self, region: str | None = None):
+        a = self.account or {}
+        key_id = a.get("aws_access_key_id") or a.get("access_key_id")
+        secret = a.get("aws_secret_access_key") or a.get("secret_access_key")
+        raw = str(a.get("credentials_vault_ref") or a.get("api_key") or a.get("token") or "").strip()
+        if raw.startswith("{"):
+            try:
+                import json
+
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    key_id = key_id or parsed.get("aws_access_key_id") or parsed.get("access_key_id")
+                    secret = (
+                        secret
+                        or parsed.get("aws_secret_access_key")
+                        or parsed.get("secret_access_key")
+                    )
+            except Exception:
+                pass
+        elif raw and not secret:
+            secret = raw
         return boto3.Session(
-            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-            region_name=region or os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+            aws_access_key_id=key_id or os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=secret or os.getenv("AWS_SECRET_ACCESS_KEY"),
+            region_name=region
+            or (a.get("region") or "").strip()
+            or os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
         )
 
     async def list_instances(self, region: str | None = None) -> list[dict[str, Any]]:
