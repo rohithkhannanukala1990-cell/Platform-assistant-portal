@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, ChevronRight, Zap, Shield } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
-import { usePlatformContext } from '../contexts/PlatformContext'
 import EnvironmentSwitcher from './EnvironmentSwitcher'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
 import AccountSwitcher from './AccountSwitcher'
@@ -19,12 +18,17 @@ const EXTRA_ROUTE_TOOLS = {
   database: 'postgres',
   deployments: 'github',
   integrations: 'github',
+  github: 'github',
+  prs: 'github',
+  actions: 'github',
+  pagerduty: 'pagerduty',
+  kubernetes: 'kubernetes',
 }
 
 function headerToolIdFromPath(pathname) {
   const seg = pathname.split('/').filter(Boolean)[0]
-  if (!seg) return 'github'
-  return OPS_HEADER_TOOL_BY_VIEW[seg] ?? EXTRA_ROUTE_TOOLS[seg] ?? 'github'
+  if (!seg || seg === 'dashboard') return null
+  return OPS_HEADER_TOOL_BY_VIEW[seg] ?? EXTRA_ROUTE_TOOLS[seg] ?? null
 }
 
 function WsIndicator({ connected }) {
@@ -89,188 +93,6 @@ function isMacPlatform() {
   return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent)
 }
 
-function formatToolLabel(toolId) {
-  if (!toolId) return 'Tool'
-  return toolId
-    .split(/[-_]/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ')
-}
-
-function WorkspaceBreadcrumb() {
-  const { activeWorkspace } = usePortalContext()
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef(null)
-
-  useEffect(() => {
-    if (!open) return undefined
-    function onDoc(ev) {
-      if (rootRef.current && !rootRef.current.contains(ev.target)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
-
-  return (
-    <div className="relative" ref={rootRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs"
-      >
-        <span>🗂</span>
-        <span className="max-w-[120px] truncate">{activeWorkspace?.name || 'Select Workspace'}</span>
-        <span>▾</span>
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 z-50">
-          <WorkspaceSwitcher
-            isOpen
-            onOpenChange={setOpen}
-            onClose={() => setOpen(false)}
-            renderTrigger={false}
-          />
-        </div>
-      )}
-    </div>
-  )
-}
-
-function AccountBreadcrumb({ toolId }) {
-  const { authFetch } = useAuth()
-  const [open, setOpen] = useState(false)
-  const [accountLabel, setAccountLabel] = useState(null)
-  const rootRef = useRef(null)
-
-  useEffect(() => {
-    if (!toolId) {
-      setAccountLabel(null)
-      return undefined
-    }
-    let cancelled = false
-    async function load() {
-      try {
-        const res = await authFetch('/api/context')
-        if (!res.ok || cancelled) return
-        const ctx = await res.json()
-        const row = (ctx.active_accounts || {})[toolId]
-        if (cancelled) return
-        if (row?.account_name) {
-          setAccountLabel(`${formatToolLabel(toolId)}: ${row.account_name}`)
-        } else {
-          setAccountLabel(null)
-        }
-      } catch {
-        if (!cancelled) setAccountLabel(null)
-      }
-    }
-    void load()
-    const onCtx = () => void load()
-    window.addEventListener('context-changed', onCtx)
-    return () => {
-      cancelled = true
-      window.removeEventListener('context-changed', onCtx)
-    }
-  }, [authFetch, toolId])
-
-  useEffect(() => {
-    if (!open) return undefined
-    function onDoc(ev) {
-      if (rootRef.current && !rootRef.current.contains(ev.target)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
-
-  const label = accountLabel || (toolId ? 'No Account Selected' : 'No Tool Selected')
-
-  return (
-    <div className="relative" ref={rootRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs"
-      >
-        <span>🔧</span>
-        <span className="max-w-[140px] truncate">{label}</span>
-        <span>▾</span>
-      </button>
-      {open && toolId && (
-        <div className="absolute top-full left-0 mt-1 z-50">
-          <AccountSwitcher toolId={toolId} onClose={() => setOpen(false)} />
-        </div>
-      )}
-    </div>
-  )
-}
-
-function EnvironmentBreadcrumb() {
-  const { environment } = usePlatformContext()
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef(null)
-
-  const envConfig = {
-    production: {
-      label: 'production',
-      bg: 'bg-red-900/50',
-      text: 'text-red-300',
-      border: 'border-red-700',
-    },
-    staging: {
-      label: 'staging',
-      bg: 'bg-yellow-900/50',
-      text: 'text-yellow-300',
-      border: 'border-yellow-700',
-    },
-    dev: {
-      label: 'dev',
-      bg: 'bg-green-900/50',
-      text: 'text-green-300',
-      border: 'border-green-700',
-    },
-    development: {
-      label: 'development',
-      bg: 'bg-green-900/50',
-      text: 'text-green-300',
-      border: 'border-green-700',
-    },
-  }
-
-  const cfg = envConfig[environment] || {
-    label: environment || 'dev',
-    bg: 'bg-gray-800',
-    text: 'text-gray-300',
-    border: 'border-gray-600',
-  }
-
-  useEffect(() => {
-    if (!open) return undefined
-    function onDoc(ev) {
-      if (rootRef.current && !rootRef.current.contains(ev.target)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
-
-  return (
-    <div className="relative" ref={rootRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className={`flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-medium ${cfg.bg} ${cfg.text} ${cfg.border} hover:brightness-110`}
-      >
-        <span>{cfg.label}</span>
-        <span>▾</span>
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 z-50">
-          <EnvironmentSwitcher onClose={() => setOpen(false)} />
-        </div>
-      )}
-    </div>
-  )
-}
-
 export default function TopBar({ user, onOpenCommandPalette, onMenuOpen }) {
   const location = useLocation()
   const navigate = useNavigate()
@@ -328,8 +150,8 @@ export default function TopBar({ user, onOpenCommandPalette, onMenuOpen }) {
   const shortcutLabel = isMacPlatform() ? '⌘K' : 'Ctrl+K'
 
   return (
-    <header className="shrink-0 flex flex-col border-b border-neutral-800 bg-neutral-900">
-      <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 min-w-0">
+    <header className="shrink-0 border-b border-neutral-800 bg-neutral-900">
+      <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 min-w-0">
         <button
           type="button"
           className="md:hidden p-2 text-slate-400 hover:text-white transition-colors shrink-0"
@@ -338,54 +160,53 @@ export default function TopBar({ user, onOpenCommandPalette, onMenuOpen }) {
           ☰
         </button>
 
-        <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-          <span className="hidden xl:inline text-xs font-semibold text-neutral-500 uppercase tracking-wider shrink-0">
-            Platform
-          </span>
-          <nav className="hidden md:flex items-center gap-1 min-w-0 text-sm overflow-hidden" aria-label="Breadcrumb">
-            <button
-              type="button"
-              onClick={() => navigate('/dashboard')}
-              className="text-neutral-400 hover:text-white shrink-0"
-            >
-              Home
-            </button>
-            {breadcrumbs.map((crumb) => (
-              <span key={crumb.path} className="flex items-center gap-1 min-w-0">
-                <ChevronRight className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-                <button
-                  type="button"
-                  onClick={() => navigate(crumb.path)}
-                  className="text-neutral-300 hover:text-white truncate capitalize max-w-[10rem]"
-                >
-                  {crumb.label}
-                </button>
-              </span>
-            ))}
-          </nav>
-          <div className="hidden lg:flex items-center gap-2 shrink min-w-0">
+        <nav
+          className="hidden md:flex items-center gap-1 min-w-0 flex-1 text-sm overflow-hidden"
+          aria-label="Breadcrumb"
+        >
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard')}
+            className="text-neutral-400 hover:text-white shrink-0"
+          >
+            Home
+          </button>
+          {breadcrumbs.map((crumb) => (
+            <span key={crumb.path} className="flex items-center gap-1 min-w-0">
+              <ChevronRight className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+              <button
+                type="button"
+                onClick={() => navigate(crumb.path)}
+                className="text-neutral-300 hover:text-white truncate capitalize max-w-[10rem]"
+              >
+                {crumb.label}
+              </button>
+            </span>
+          ))}
+        </nav>
+
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
+          <div className="hidden sm:flex items-center gap-1.5 shrink-0">
             <EnvironmentSwitcher />
             <WorkspaceSwitcher />
+            {headerToolId ? (
+              <div className="max-w-[11rem]">
+                <AccountSwitcher toolId={headerToolId} onAccountChanged={() => {}} />
+              </div>
+            ) : null}
           </div>
-        </div>
 
-        <button
-          type="button"
-          onClick={openPalette}
-          className="hidden md:flex items-center gap-2 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-neutral-400 text-sm w-40 lg:w-52 hover:border-neutral-600 hover:text-neutral-300 transition-colors shrink-0"
-        >
-          <Search className="w-4 h-4 shrink-0" />
-          <span className="flex-1 text-left truncate">Search</span>
-          <kbd className="px-1 py-0.5 rounded bg-neutral-700 text-[10px] font-mono text-neutral-400">
-            {shortcutLabel}
-          </kbd>
-        </button>
-
-        {/* Account + alerts stay fully visible (never clipped off the right edge) */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-1">
-          <div className="hidden lg:block max-w-[11rem]">
-            <AccountSwitcher toolId={headerToolId} onAccountChanged={() => {}} />
-          </div>
+          <button
+            type="button"
+            onClick={openPalette}
+            className="hidden md:flex items-center gap-2 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-neutral-400 text-sm w-36 lg:w-44 hover:border-neutral-600 hover:text-neutral-300 transition-colors shrink-0"
+          >
+            <Search className="w-4 h-4 shrink-0" />
+            <span className="flex-1 text-left truncate">Search</span>
+            <kbd className="px-1 py-0.5 rounded bg-neutral-700 text-[10px] font-mono text-neutral-400">
+              {shortcutLabel}
+            </kbd>
+          </button>
 
           {pendingApprovalCount > 0 && (
             <button
@@ -417,15 +238,6 @@ export default function TopBar({ user, onOpenCommandPalette, onMenuOpen }) {
             onOpenHealthDashboard={() => navigate('/health')}
           />
         </div>
-      </div>
-
-      {/* Context Breadcrumb Row */}
-      <div className="flex items-center gap-1 px-4 py-1.5 bg-gray-900 border-b border-gray-700 text-sm overflow-x-auto">
-        <WorkspaceBreadcrumb />
-        <span className="text-gray-600 mx-1">›</span>
-        <AccountBreadcrumb toolId={headerToolId} />
-        <span className="text-gray-600 mx-1">›</span>
-        <EnvironmentBreadcrumb />
       </div>
     </header>
   )
