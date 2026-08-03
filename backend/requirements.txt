@@ -1,9 +1,10 @@
 # ── Core API ──────────────────────────────────────────────
 # Phase 16 pin review: prefer == for direct app deps; >= floors for SDKs
 # that publish frequent security patches. Re-run `pip-audit` before GA.
-fastapi==0.115.5
+fastapi==0.135.0
 uvicorn[standard]==0.32.1
-python-multipart==0.0.9
+python-multipart>=0.0.31
+starlette>=1.1.0
 python-dotenv==1.0.1
 pydantic-settings>=2.0.0,<3
 
@@ -14,10 +15,10 @@ psycopg2-binary>=2.9.9,<3
 # ── Auth & Security ───────────────────────────────────────
 python3-saml>=1.16.0,<2
 lxml>=5.0.0,<6
-python-jose[cryptography]==3.3.0
+python-jose[cryptography]>=3.4.0
 passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
-cryptography>=42.0.0,<45
+cryptography>=48.0.1,<49
 pyotp>=2.9.0,<3
 
 # ── AI / LLM ─────────────────────────────────────────────
