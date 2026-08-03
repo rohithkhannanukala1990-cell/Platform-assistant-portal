@@ -21,6 +21,7 @@ import { usePortalContext } from '../contexts/PortalContext'
 import useHealthDashboard, { canMutateHealth } from '../hooks/useHealthDashboard'
 import { useAuth } from '../contexts/AuthContext'
 import RelatedAgentsBar from './RelatedAgentsBar'
+import { PageHeader, Badge } from './ui'
 
 function healthRowStatus(apiStatus) {
   if (apiStatus === 'critical') return 'down'
@@ -133,7 +134,7 @@ function ProbeCard({
 }) {
   const st = status || 'healthy'
   return (
-    <div className={`bg-gray-800 rounded-xl p-6 border ${cardBorder(st)} border-gray-700`}>
+    <div className={`bg-card rounded-xl p-6 border ${cardBorder(st)} border-border`}>
       <div className="flex items-start justify-between gap-3">
         <Icon className={`w-8 h-8 shrink-0 ${iconClass || 'text-slate-300'}`} />
         <div className="flex flex-col items-end gap-2">
@@ -177,7 +178,7 @@ function SkeletonGrid() {
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
-          className="bg-gray-800 rounded-xl p-6 border border-gray-700 animate-pulse h-40"
+          className="bg-card rounded-xl p-6 border border-border animate-pulse h-40"
         />
       ))}
     </div>
@@ -191,7 +192,7 @@ function SlowQueriesPanel({ performance }) {
 
   if (!available) {
     return (
-      <div className="rounded-xl border border-gray-700 bg-gray-800/60 p-6 text-sm text-slate-400">
+      <div className="rounded-xl border border-border bg-card/60 p-6 text-sm text-slate-400">
         <p className="font-medium text-slate-200 mb-1">Slow query probe unavailable</p>
         <p>{message || 'pg_stat_statements is not available (common on non-Postgres / SQLite demos).'}</p>
       </div>
@@ -200,7 +201,7 @@ function SlowQueriesPanel({ performance }) {
 
   if (!rows.length) {
     return (
-      <div className="rounded-xl border border-gray-700 bg-gray-800/60 p-6 text-sm text-slate-400 flex items-center gap-3">
+      <div className="rounded-xl border border-border bg-card/60 p-6 text-sm text-slate-400 flex items-center gap-3">
         <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
         <span>{message || 'No slow queries above the 500ms mean threshold.'}</span>
       </div>
@@ -208,10 +209,10 @@ function SlowQueriesPanel({ performance }) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-700 bg-gray-800/50">
+    <div className="overflow-x-auto rounded-xl border border-border bg-card/50">
       <table className="w-full text-sm text-left">
         <thead>
-          <tr className="text-slate-500 border-b border-gray-700">
+          <tr className="text-slate-500 border-b border-border">
             <th className="p-4 font-medium">Query</th>
             <th className="p-4 font-medium whitespace-nowrap">Mean time</th>
             <th className="p-4 font-medium whitespace-nowrap">Calls</th>
@@ -220,7 +221,7 @@ function SlowQueriesPanel({ performance }) {
         </thead>
         <tbody>
           {rows.map((row, idx) => (
-            <tr key={idx} className="border-b border-gray-700/80 align-top">
+            <tr key={idx} className="border-b border-border/80 align-top">
               <td className="p-4 text-slate-200 font-mono text-xs max-w-xl whitespace-pre-wrap break-all">
                 {row.query || '—'}
               </td>
@@ -246,7 +247,7 @@ function DependenciesPanel({ dependencies }) {
 
   if (!available && !rows.length) {
     return (
-      <div className="rounded-xl border border-gray-700 bg-gray-800/60 p-6 text-sm text-slate-400">
+      <div className="rounded-xl border border-border bg-card/60 p-6 text-sm text-slate-400">
         <p className="font-medium text-slate-200 mb-1">Dependency audit unavailable</p>
         <p>{message || 'pip-audit did not return results for this environment.'}</p>
       </div>
@@ -255,7 +256,7 @@ function DependenciesPanel({ dependencies }) {
 
   if (!rows.length) {
     return (
-      <div className="rounded-xl border border-gray-700 bg-gray-800/60 p-6 text-sm text-slate-400 flex items-center gap-3">
+      <div className="rounded-xl border border-border bg-card/60 p-6 text-sm text-slate-400 flex items-center gap-3">
         <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
         <span>{message || 'No known vulnerabilities reported by pip-audit.'}</span>
       </div>
@@ -263,10 +264,10 @@ function DependenciesPanel({ dependencies }) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-700 bg-gray-800/50">
+    <div className="overflow-x-auto rounded-xl border border-border bg-card/50">
       <table className="w-full text-sm text-left">
         <thead>
-          <tr className="text-slate-500 border-b border-gray-700">
+          <tr className="text-slate-500 border-b border-border">
             <th className="p-4 font-medium">Package</th>
             <th className="p-4 font-medium">Version</th>
             <th className="p-4 font-medium">Vulnerability</th>
@@ -275,7 +276,7 @@ function DependenciesPanel({ dependencies }) {
         </thead>
         <tbody>
           {rows.map((row, idx) => (
-            <tr key={`${row.package}-${row.vulnerability_id}-${idx}`} className="border-b border-gray-700/80">
+            <tr key={`${row.package}-${row.vulnerability_id}-${idx}`} className="border-b border-border/80">
               <td className="p-4 text-white font-medium">{row.package || '—'}</td>
               <td className="p-4 text-slate-300 font-mono text-xs">{row.version || '—'}</td>
               <td className="p-4">
@@ -312,7 +313,7 @@ function RecommendationsPanel({ recommendations }) {
         {rows.map((rec) => (
           <li
             key={rec.id || rec.title}
-            className="rounded-xl border border-gray-700 bg-gray-800/70 p-4"
+            className="rounded-xl border border-border bg-card/70 p-4"
           >
             <div className="flex flex-wrap items-center gap-2 mb-1">
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${severityBadge(rec.severity)}`}>
@@ -495,45 +496,46 @@ export default function HealthDashboard() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto pb-16 px-4 sm:px-6 lg:px-8">
+    <div className="flex flex-col gap-6 pb-16 animate-fade-in">
       {toast && (
-        <div className="fixed top-20 right-6 z-50 px-4 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white shadow-lg">
+        <div className="fixed top-20 right-6 z-50 px-4 py-2 rounded-lg bg-card border border-border text-sm text-white shadow-lg">
           {toast}
         </div>
       )}
 
-      <header className="py-8 border-b border-gray-700 mb-6">
-        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
-          <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">System Health</h1>
-            <p className="mt-2 text-sm text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1">
-              <Clock className="w-4 h-4 inline shrink-0 text-slate-500" aria-hidden />
-              <span>
-                Workspace: <span className="text-slate-200">{workspaceName}</span>
-              </span>
-              <span aria-hidden>·</span>
-              <span>
-                Last checked: {lastChecked || '—'} | Auto-refresh in {autoRefreshTimer}s
-              </span>
-            </p>
+      <PageHeader
+        title="System Health"
+        subtitle={(
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Clock className="w-4 h-4 inline shrink-0 text-slate-500" aria-hidden />
+            <span>
+              Workspace: <span className="text-slate-200">{workspaceName}</span>
+            </span>
+            <span aria-hidden>·</span>
+            <span>
+              Last checked: {lastChecked || '—'} | Auto-refresh in {autoRefreshTimer}s
+            </span>
             {!isLoading && healthData && (
-              <div className="mt-3 inline-flex items-center gap-2">
-                <span className="text-xs text-slate-500 uppercase tracking-wide">Overall</span>
-                <span
-                  className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClasses(overallStatus)}`}
-                >
-                  {statusBadgeLabel(overallStatus)}
-                </span>
-              </div>
+              <Badge
+                tone={
+                  overallStatus === 'critical' ? 'danger'
+                    : overallStatus === 'warning' ? 'warning'
+                      : 'success'
+                }
+              >
+                {statusBadgeLabel(overallStatus)}
+              </Badge>
             )}
-          </div>
+          </span>
+        )}
+        actions={(
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => void refresh()}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 border border-gray-600
-                text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-card border border-border
+                text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50 transition-colors"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh Now
@@ -562,8 +564,8 @@ export default function HealthDashboard() {
                 <button
                   type="button"
                   onClick={emailTeam}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 border border-gray-600
-                    text-sm font-medium text-white hover:bg-gray-700 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-card border border-border
+                    text-sm font-medium text-white hover:bg-neutral-800 transition-colors"
                 >
                   <Mail className="w-4 h-4" />
                   Email Team
@@ -571,27 +573,27 @@ export default function HealthDashboard() {
               </>
             )}
           </div>
-        </div>
+        )}
+      />
 
-        <nav className="mt-6 flex flex-wrap gap-2" aria-label="Health views">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                tab === t.id
-                  ? 'bg-slate-700 border-slate-500 text-white'
-                  : 'bg-transparent border-gray-700 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-      </header>
+      <nav className="flex flex-wrap gap-2" aria-label="Health views">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              tab === t.id
+                ? 'bg-accent border-accent text-white'
+                : 'bg-transparent border-border text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
 
-      <RelatedAgentsBar surface="health" className="mb-6" />
+      <RelatedAgentsBar surface="health" />
 
       {fetchError && !isLoading && (
         <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-200">
@@ -730,7 +732,7 @@ export default function HealthDashboard() {
                     {connectorCards.map((c) => (
                       <div
                         key={c.name}
-                        className={`rounded-lg border bg-gray-800/80 p-4 ${cardBorder(c.status)} border-gray-700`}
+                        className={`rounded-lg border bg-card/80 p-4 ${cardBorder(c.status)} border-border`}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-sm font-semibold text-white capitalize">{c.name}</p>
@@ -761,7 +763,7 @@ export default function HealthDashboard() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                       <thead>
-                        <tr className="text-slate-500 border-b border-gray-700">
+                        <tr className="text-slate-500 border-b border-border">
                           <th className="pb-2 pr-4 font-medium">Account Name</th>
                           <th className="pb-2 pr-4 font-medium">Tool</th>
                           <th className="pb-2 pr-4 font-medium">Expires In</th>
@@ -775,7 +777,7 @@ export default function HealthDashboard() {
                           return (
                             <tr
                               key={row.account_id ?? row.account_name}
-                              className="border-b border-gray-700/80"
+                              className="border-b border-border/80"
                             >
                               <td className="py-3 pr-4 text-white font-medium">
                                 {row.account_name || '—'}
@@ -817,15 +819,15 @@ export default function HealthDashboard() {
                   Active Alerts ({alerts.length})
                 </h2>
                 {alerts.length === 0 ? (
-                  <div className="flex items-center gap-3 p-6 rounded-xl bg-gray-800/80 border border-gray-700 text-slate-400">
+                  <div className="flex items-center gap-3 p-6 rounded-xl bg-card/80 border border-border text-slate-400">
                     <CheckCircle className="w-6 h-6 text-green-500 shrink-0" />
                     <span>No active alerts — system healthy</span>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-xl border border-gray-700 bg-gray-800/50">
+                  <div className="overflow-x-auto rounded-xl border border-border bg-card/50">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="text-left text-slate-500 border-b border-gray-700">
+                        <tr className="text-left text-slate-500 border-b border-border">
                           <th className="p-4 font-medium">Message</th>
                           <th className="p-4 font-medium">Severity</th>
                           <th className="p-4 font-medium">Time Since</th>
@@ -842,7 +844,7 @@ export default function HealthDashboard() {
                           return (
                             <tr
                               key={alert.id}
-                              className={`border-b border-gray-700/80 transition-opacity duration-300 ${fading ? 'opacity-0' : 'opacity-100'}`}
+                              className={`border-b border-border/80 transition-opacity duration-300 ${fading ? 'opacity-0' : 'opacity-100'}`}
                             >
                               <td className="p-4 text-slate-200 max-w-md">{msg}</td>
                               <td className="p-4">

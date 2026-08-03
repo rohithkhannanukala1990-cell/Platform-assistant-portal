@@ -1,18 +1,19 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  ScanSearch,
   Sparkles,
   ClipboardPaste,
   ChevronDown,
   Terminal,
   AlertOctagon,
   ArrowLeft,
+  CheckCircle2,
 } from 'lucide-react'
 import IncidentReportCard from './IncidentReportCard'
 import IncidentHistory from './IncidentHistory'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import RelatedAgentsBar from './RelatedAgentsBar'
+import { PageHeader, EmptyState } from './ui'
 
 const TRIAGE_TABS = [
   { id: 'logs', label: 'Log Triage' },
@@ -20,15 +21,6 @@ const TRIAGE_TABS = [
 ]
 
 const ACTIVE_STATUSES = new Set(['OPEN', 'AWAITING_APPROVAL', 'open', 'awaiting_approval'])
-
-function EmptyState({ icon, title }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-      <span className="text-5xl mb-4">{icon}</span>
-      <p className="text-base font-medium text-gray-300">{title}</p>
-    </div>
-  )
-}
 
 function agentRunPayload(task, workspaceId) {
   return {
@@ -62,7 +54,7 @@ function NoiseAnalysisTab({ workspaceId, authFetch }) {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-5">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-white font-semibold text-lg">Rules-based correlation</h3>
@@ -74,7 +66,7 @@ function NoiseAnalysisTab({ workspaceId, authFetch }) {
           type="button"
           onClick={() => void runAnalysis()}
           disabled={loading}
-          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm px-4 py-2 rounded-lg flex items-center gap-2"
+          className="bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-sm px-4 py-2 rounded-lg flex items-center gap-2"
         >
           {loading ? (
             <>
@@ -269,30 +261,23 @@ export default function TriageView({
   const displayResult = selectedIncident ?? result
 
   return (
-    <div className="flex flex-1 min-h-0 -m-6 overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="flex flex-col gap-6 max-w-4xl w-full mx-auto">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <ScanSearch className="w-5 h-5 text-accent" strokeWidth={2} />
-                <h1 className="text-xl font-bold text-white tracking-tight">Triage Mode</h1>
+    <div className="flex gap-6">
+      <div className="flex-1 min-w-0 flex flex-col gap-6">
+          <PageHeader
+            title="Triage Mode"
+            subtitle="Paste raw logs and let AI surface the root cause and a step-by-step fix."
+            actions={(
+              <div className="flex items-center gap-2 text-xs text-slate-500 border border-border rounded-lg px-3 py-2 bg-card">
+                <Sparkles className="w-3.5 h-3.5 text-accent" />
+                <span>{displayResult?.model_used ?? 'LLM'}</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-accent inline-block" />
               </div>
-              <p className="text-sm text-slate-400">
-                Paste raw logs and let AI surface the root cause and a step-by-step fix.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 text-xs text-slate-500 border border-border rounded-lg px-3 py-2 bg-card">
-              <Sparkles className="w-3.5 h-3.5 text-accent" />
-              <span>{displayResult?.model_used ?? 'LLM'}</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-accent inline-block" />
-            </div>
-          </div>
+            )}
+          />
 
           <RelatedAgentsBar surface="incidents" />
 
-          <div className="flex gap-1 mt-2">
+          <div className="flex gap-1">
             {TRIAGE_TABS.map((tab) => (
               <button
                 key={tab.id}
@@ -300,7 +285,7 @@ export default function TriageView({
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   activeTab === tab.id
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-accent text-white'
                     : 'text-gray-400 hover:text-white hover:bg-white/5'
                 }`}
               >
@@ -340,7 +325,7 @@ export default function TriageView({
             !logs.trim() &&
             !incidentsLoading &&
             !hasActiveIncidents && (
-              <EmptyState icon="✅" title="All clear. No active incidents." />
+              <EmptyState icon={CheckCircle2} title="All clear. No active incidents." />
             )}
 
           {!selectedIncident && (
@@ -461,7 +446,6 @@ export default function TriageView({
           )}
             </>
           )}
-        </div>
       </div>
 
       <IncidentHistory

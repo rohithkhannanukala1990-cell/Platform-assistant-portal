@@ -56,6 +56,8 @@ const OutboundWebhookView = lazy(() => import('./components/OutboundWebhookView'
 const SchemaBrowserView = lazy(() => import('./components/SchemaBrowserView'))
 const DataLineageView = lazy(() => import('./components/DataLineageView'))
 const NotificationsPage = lazy(() => import('./components/NotificationsPage'))
+const ConnectorsHubPage = lazy(() => import('./components/ConnectorsHubPage'))
+const DataToolsHubPage = lazy(() => import('./components/DataToolsHubPage'))
 
 const OPS_URL_VIEWS = new Set([
   'dashboard',
@@ -222,6 +224,8 @@ function AuthenticatedRoutes() {
             )}
           />
           <Route path="/workspaces" element={<PrivateRoute><WorkspaceBuilder /></PrivateRoute>} />
+          <Route path="/connectors" element={<PrivateRoute><ConnectorsHubPage /></PrivateRoute>} />
+          <Route path="/data-tools" element={<PrivateRoute><DataToolsHubPage /></PrivateRoute>} />
           <Route path="/cicd" element={<PrivateRoute><CICDView /></PrivateRoute>} />
           <Route path="/github/prs" element={<PrivateRoute><GitHubPRsView /></PrivateRoute>} />
           <Route path="/github/actions" element={<PrivateRoute><GitHubActionsView /></PrivateRoute>} />

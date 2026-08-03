@@ -9,12 +9,13 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { PageHeader, Card, StatCard, SectionHeader, EmptyState } from './ui'
 
 const KPI_CARDS = [
-  { key: 'total', label: 'Total Entities', field: 'total_entities', icon: BarChart2, iconClass: 'text-blue-400' },
-  { key: 'owner', label: 'Missing Owner', field: 'missing_owner', icon: AlertTriangle, iconClass: 'text-amber-400' },
-  { key: 'health', label: 'Unknown Health', field: 'unknown_health', icon: XCircle, iconClass: 'text-red-400' },
-  { key: 'types', label: 'Entity Types', field: 'kind_count', icon: PieChart, iconClass: 'text-purple-400' },
+  { key: 'total', label: 'Total Entities', field: 'total_entities', icon: BarChart2, iconClass: 'bg-blue-500/15 text-blue-400' },
+  { key: 'owner', label: 'Missing Owner', field: 'missing_owner', icon: AlertTriangle, iconClass: 'bg-amber-500/15 text-amber-400' },
+  { key: 'health', label: 'Unknown Health', field: 'unknown_health', icon: XCircle, iconClass: 'bg-red-500/15 text-red-400' },
+  { key: 'types', label: 'Entity Types', field: 'kind_count', icon: PieChart, iconClass: 'bg-purple-500/15 text-purple-400' },
 ]
 
 function scoreColor(score) {
@@ -32,7 +33,7 @@ function barColor(score) {
 }
 
 function SectionSkeleton() {
-  return <div className="h-40 bg-white/5 rounded-xl animate-pulse border border-white/5 mb-8" />
+  return <div className="h-40 bg-card rounded-xl animate-pulse border border-border" />
 }
 
 export default function ReportsPage() {
@@ -125,314 +126,288 @@ export default function ReportsPage() {
   const kindCount = Object.keys(catalogData?.by_kind || {}).length
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
-      <div className="bg-[#0f0f1a] border-b border-white/5 px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-white flex items-center gap-2">
-            <BarChart2 className="w-6 h-6 text-blue-400" />
-            Engineering Reports
-          </h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            Aggregated catalog, scorecard, standards, and team metrics
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={handleRefresh}
-          className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm text-gray-300"
-        >
-          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-          Refresh
-        </button>
-      </div>
-
-      <div className="p-6 max-w-6xl mx-auto">
-        {error && (
-          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300">
-            {error}
-          </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Engineering Reports"
+        subtitle="Aggregated catalog, scorecard, standards, and team metrics"
+        actions={(
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border rounded-lg hover:bg-card transition-colors text-slate-400 hover:text-white"
+          >
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            Refresh
+          </button>
         )}
+      />
 
-        {loading ? (
-          <>
-            <SectionSkeleton />
-            <SectionSkeleton />
-            <SectionSkeleton />
-            <SectionSkeleton />
-          </>
-        ) : (
-          <>
-            <section className="mb-8">
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-                Catalog Health
-              </h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                {KPI_CARDS.map(({ key, label, field, icon: Icon, iconClass }) => {
-                  let value = catalogData?.[field]
-                  if (field === 'kind_count') value = kindCount
-                  return (
-                    <div
-                      key={key}
-                      className="bg-[#0f0f1a] border border-white/10 rounded-xl p-4"
+      {error && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex flex-col gap-6">
+          <SectionSkeleton />
+          <SectionSkeleton />
+          <SectionSkeleton />
+          <SectionSkeleton />
+        </div>
+      ) : (
+        <>
+          <section className="flex flex-col gap-4">
+            <SectionHeader title="Catalog Health" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {KPI_CARDS.map(({ key, label, field, icon: Icon, iconClass }) => {
+                let value = catalogData?.[field]
+                if (field === 'kind_count') value = kindCount
+                return (
+                  <StatCard
+                    key={key}
+                    icon={Icon}
+                    iconClass={iconClass}
+                    label={label}
+                    value={value != null ? value : '—'}
+                  />
+                )
+              })}
+            </div>
+            <Card title="Entities by Kind" padding="p-4">
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(catalogData?.by_kind || {}).length === 0 ? (
+                  <EmptyState title="No catalog entities yet" className="py-6 w-full" />
+                ) : (
+                  Object.entries(catalogData.by_kind).map(([kind, count]) => (
+                    <span
+                      key={kind}
+                      className="px-3 py-1 bg-white/5 border border-border rounded-full text-sm text-white"
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs text-gray-500">{label}</p>
-                        <Icon size={14} className={iconClass} />
-                      </div>
-                      <p className="text-2xl font-bold text-white">
-                        {value != null ? (
-                          value
-                        ) : (
-                          <span className="text-gray-600 text-sm">—</span>
-                        )}
-                      </p>
-                    </div>
-                  )
-                })}
+                      {kind}
+                      <span className="ml-1.5 text-gray-400">{count}</span>
+                    </span>
+                  ))
+                )}
               </div>
-              <div className="bg-[#0f0f1a] border border-white/10 rounded-xl p-4">
-                <p className="text-xs text-gray-500 mb-3">Entities by Kind</p>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(catalogData?.by_kind || {}).length === 0 ? (
-                    <p className="text-gray-600 text-sm">No catalog entities yet</p>
-                  ) : (
-                    Object.entries(catalogData.by_kind).map(([kind, count]) => (
-                      <span
-                        key={kind}
-                        className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-sm text-white"
-                      >
-                        {kind}
-                        <span className="ml-1.5 text-gray-400">{count}</span>
-                      </span>
-                    ))
+            </Card>
+          </section>
+
+          <section className="flex flex-col gap-4">
+            <SectionHeader title="Scorecard Performance" />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Card
+                title="Team Avg Score"
+                actions={
+                  <span className="text-xs text-slate-500">
+                    Overall: {scorecardsData?.avg_score ?? '—'}
+                  </span>
+                }
+              >
+                <div className="space-y-3">
+                  {(scorecardsData?.by_team || []).map((t) => (
+                    <div key={t.team}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="text-gray-400 truncate max-w-[160px]">{t.team}</span>
+                        <span className="text-white font-medium ml-2">{t.avg_score}</span>
+                      </div>
+                      <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-700"
+                          style={{
+                            width: `${Math.min(t.avg_score, 100)}%`,
+                            backgroundColor: barColor(t.avg_score),
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  {(scorecardsData?.by_team || []).length === 0 && (
+                    <EmptyState title="No scorecard data yet" className="py-6" />
                   )}
                 </div>
-              </div>
-            </section>
+              </Card>
 
-            <section className="mb-8">
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-                Scorecard Performance
-              </h2>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="bg-[#0f0f1a] border border-white/10 rounded-xl p-5">
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-sm font-medium text-white">Team Avg Score</p>
-                    <p className="text-xs text-gray-500">
-                      Overall: {scorecardsData?.avg_score ?? '—'}
-                    </p>
-                  </div>
-                  <div className="space-y-3 mt-4">
-                    {(scorecardsData?.by_team || []).map((t) => (
-                      <div key={t.team}>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span className="text-gray-400 truncate max-w-[160px]">{t.team}</span>
-                          <span className="text-white font-medium ml-2">{t.avg_score}</span>
-                        </div>
-                        <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-700"
-                            style={{
-                              width: `${Math.min(t.avg_score, 100)}%`,
-                              backgroundColor: barColor(t.avg_score),
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                    {(scorecardsData?.by_team || []).length === 0 && (
-                      <p className="text-gray-600 text-sm text-center py-4">No scorecard data yet</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-[#0f0f1a] border border-white/10 rounded-xl p-5">
-                  <p className="text-sm font-medium text-white mb-4">Lowest Scoring Services</p>
-                  <div className="space-y-2">
-                    {(scorecardsData?.lowest_scoring_services || []).length === 0 ? (
-                      <p className="text-gray-600 text-sm text-center py-4">No scorecard data yet</p>
-                    ) : (
-                      scorecardsData.lowest_scoring_services.map((svc, i) => (
-                        <div
-                          key={svc.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() =>
+              <Card title="Lowest Scoring Services">
+                <div className="space-y-2">
+                  {(scorecardsData?.lowest_scoring_services || []).length === 0 ? (
+                    <EmptyState title="No scorecard data yet" className="py-6" />
+                  ) : (
+                    scorecardsData.lowest_scoring_services.map((svc, i) => (
+                      <div
+                        key={svc.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() =>
+                          navigate(
+                            svc.id
+                              ? `/catalog?entity=${encodeURIComponent(svc.id)}`
+                              : '/catalog'
+                          )
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
                             navigate(
                               svc.id
                                 ? `/catalog?entity=${encodeURIComponent(svc.id)}`
                                 : '/catalog'
                             )
                           }
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              navigate(
-                                svc.id
-                                  ? `/catalog?entity=${encodeURIComponent(svc.id)}`
-                                  : '/catalog'
-                              )
-                            }
-                          }}
-                          className="flex items-center justify-between py-2 px-1 -mx-1 rounded border-b border-white/5 last:border-0 cursor-pointer hover:bg-neutral-800 transition-colors"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-xs text-gray-600 w-4">{i + 1}</span>
-                            <span className="text-sm text-white truncate">{svc.name}</span>
-                          </div>
-                          <span className={`text-sm font-medium shrink-0 ${scoreColor(svc.score)}`}>
-                            {svc.score}
-                          </span>
+                        }}
+                        className="flex items-center justify-between py-2 px-1 -mx-1 rounded border-b border-border last:border-0 cursor-pointer hover:bg-card/80 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs text-gray-600 w-4">{i + 1}</span>
+                          <span className="text-sm text-white truncate">{svc.name}</span>
                         </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="mb-8">
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-                Standards Compliance
-              </h2>
-              {standardsData && (
-                <p className="text-sm text-gray-400 mb-4">
-                  <span className="text-white font-semibold">{standardsData.pass_rate_pct}%</span> of
-                  evaluated entities meet production readiness standards ({standardsData.passed}{' '}
-                  passed, {standardsData.failed} failed, {standardsData.warnings} warnings)
-                </p>
-              )}
-              <div className="h-3 bg-white/5 rounded-full overflow-hidden flex mb-6">
-                <div
-                  style={{ width: `${standardsData?.pass_rate_pct || 0}%` }}
-                  className="bg-green-500 transition-all duration-700"
-                />
-                <div style={{ width: `${warnPct}%` }} className="bg-yellow-500" />
-                <div style={{ width: `${failPct}%` }} className="bg-red-500" />
-              </div>
-              <div className="bg-[#0f0f1a] border border-white/10 rounded-xl p-5">
-                <p className="text-sm font-medium text-white mb-4">Compliance by Team</p>
-                <div className="space-y-3">
-                  {(standardsData?.by_team || []).length === 0 ? (
-                    <p className="text-gray-600 text-sm text-center py-4">No evaluations yet</p>
-                  ) : (
-                    standardsData.by_team.map((t) => {
-                      const total = t.passed + t.failed + t.warnings
-                      const passW = total > 0 ? (t.passed / total) * 100 : 0
-                      const warnW = total > 0 ? (t.warnings / total) * 100 : 0
-                      const failW = total > 0 ? (t.failed / total) * 100 : 0
-                      return (
-                        <div key={t.team}>
-                          <div className="flex items-center justify-between text-xs mb-1">
-                            <span className="text-gray-400">{t.team}</span>
-                            <span className="text-white">{Math.round(t.pass_rate * 100)}%</span>
-                          </div>
-                          <div className="h-2 rounded-full overflow-hidden flex">
-                            <div style={{ width: `${passW}%` }} className="bg-green-500" />
-                            <div style={{ width: `${warnW}%` }} className="bg-yellow-500" />
-                            <div style={{ width: `${failW}%` }} className="bg-red-500" />
-                          </div>
-                        </div>
-                      )
-                    })
+                        <span className={`text-sm font-medium shrink-0 ${scoreColor(svc.score)}`}>
+                          {svc.score}
+                        </span>
+                      </div>
+                    ))
                   )}
                 </div>
-                <div className="flex items-center gap-4 mt-4">
-                  {[
-                    ['bg-green-500', 'Passed'],
-                    ['bg-yellow-500', 'Warning'],
-                    ['bg-red-500', 'Failed'],
-                  ].map(([cls, label]) => (
-                    <div key={label} className="flex items-center gap-1.5 text-xs text-gray-400">
-                      <div className={`w-2 h-2 rounded-full ${cls}`} />
-                      {label}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
+              </Card>
+            </div>
+          </section>
 
-            <section>
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <Users size={16} /> Team Overview
-              </h2>
-              <div className="bg-[#0f0f1a] border border-white/10 rounded-xl overflow-hidden">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-white/5">
-                      {[
-                        { key: 'name', label: 'Team' },
-                        { key: 'services_owned', label: 'Services Owned' },
-                        { key: 'avg_score', label: 'Avg Score' },
-                        { key: 'readiness_pct', label: 'Readiness %' },
-                        { key: 'open_actions', label: 'Open Actions' },
-                      ].map((col) => (
-                        <th
-                          key={col.key}
-                          onClick={() => handleSort(col.key)}
-                          className="text-left text-xs text-gray-500 font-medium px-4 py-3 uppercase tracking-wider cursor-pointer hover:text-gray-300"
-                        >
-                          {col.label}
-                          {sortTeamBy === col.key && (sortDir === 'desc' ? ' ↓' : ' ↑')}
-                        </th>
-                      ))}
+          <section className="flex flex-col gap-4">
+            <SectionHeader title="Standards Compliance" />
+            {standardsData && (
+              <p className="text-sm text-gray-400">
+                <span className="text-white font-semibold">{standardsData.pass_rate_pct}%</span> of
+                evaluated entities meet production readiness standards ({standardsData.passed}{' '}
+                passed, {standardsData.failed} failed, {standardsData.warnings} warnings)
+              </p>
+            )}
+            <div className="h-3 bg-white/5 rounded-full overflow-hidden flex">
+              <div
+                style={{ width: `${standardsData?.pass_rate_pct || 0}%` }}
+                className="bg-green-500 transition-all duration-700"
+              />
+              <div style={{ width: `${warnPct}%` }} className="bg-yellow-500" />
+              <div style={{ width: `${failPct}%` }} className="bg-red-500" />
+            </div>
+            <Card title="Compliance by Team">
+              <div className="space-y-3">
+                {(standardsData?.by_team || []).length === 0 ? (
+                  <EmptyState title="No evaluations yet" className="py-6" />
+                ) : (
+                  standardsData.by_team.map((t) => {
+                    const total = t.passed + t.failed + t.warnings
+                    const passW = total > 0 ? (t.passed / total) * 100 : 0
+                    const warnW = total > 0 ? (t.warnings / total) * 100 : 0
+                    const failW = total > 0 ? (t.failed / total) * 100 : 0
+                    return (
+                      <div key={t.team}>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="text-gray-400">{t.team}</span>
+                          <span className="text-white">{Math.round(t.pass_rate * 100)}%</span>
+                        </div>
+                        <div className="h-2 rounded-full overflow-hidden flex">
+                          <div style={{ width: `${passW}%` }} className="bg-green-500" />
+                          <div style={{ width: `${warnW}%` }} className="bg-yellow-500" />
+                          <div style={{ width: `${failW}%` }} className="bg-red-500" />
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+              <div className="flex items-center gap-4 mt-4">
+                {[
+                  ['bg-green-500', 'Passed'],
+                  ['bg-yellow-500', 'Warning'],
+                  ['bg-red-500', 'Failed'],
+                ].map(([cls, label]) => (
+                  <div key={label} className="flex items-center gap-1.5 text-xs text-gray-400">
+                    <div className={`w-2 h-2 rounded-full ${cls}`} />
+                    {label}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </section>
+
+          <section className="flex flex-col gap-4">
+            <SectionHeader title="Team Overview" icon={Users} />
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border">
+                    {[
+                      { key: 'name', label: 'Team' },
+                      { key: 'services_owned', label: 'Services Owned' },
+                      { key: 'avg_score', label: 'Avg Score' },
+                      { key: 'readiness_pct', label: 'Readiness %' },
+                      { key: 'open_actions', label: 'Open Actions' },
+                    ].map((col) => (
+                      <th
+                        key={col.key}
+                        onClick={() => handleSort(col.key)}
+                        className="text-left text-xs text-gray-500 font-medium px-4 py-3 uppercase tracking-wider cursor-pointer hover:text-gray-300"
+                      >
+                        {col.label}
+                        {sortTeamBy === col.key && (sortDir === 'desc' ? ' ↓' : ' ↑')}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedTeams.length === 0 ? (
+                    <tr>
+                      <td colSpan={5}>
+                        <EmptyState title="No team data yet" className="py-8" />
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {sortedTeams.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-gray-500 text-sm">
-                          No team data yet
+                  ) : (
+                    sortedTeams.map((t) => (
+                      <tr
+                        key={t.name}
+                        onClick={() => navigate('/catalog')}
+                        className="border-b border-border cursor-pointer hover:bg-card/80 transition-colors"
+                      >
+                        <td className="px-4 py-3 text-sm font-medium text-white">{t.name}</td>
+                        <td className="px-4 py-3 text-sm text-gray-300">{t.services_owned}</td>
+                        <td className={`px-4 py-3 text-sm font-medium ${scoreColor(t.avg_score)}`}>
+                          {t.avg_score}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  t.readiness_pct >= 70
+                                    ? 'bg-green-500'
+                                    : t.readiness_pct >= 40
+                                      ? 'bg-yellow-500'
+                                      : 'bg-red-500'
+                                }`}
+                                style={{ width: `${t.readiness_pct}%` }}
+                              />
+                            </div>
+                            <span className="text-sm text-gray-300">{t.readiness_pct}%</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {t.open_actions > 0 ? (
+                            <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs rounded-full border border-yellow-500/30">
+                              {t.open_actions}
+                            </span>
+                          ) : (
+                            <span className="text-gray-600 text-sm">—</span>
+                          )}
                         </td>
                       </tr>
-                    ) : (
-                      sortedTeams.map((t) => (
-                        <tr
-                          key={t.name}
-                          onClick={() => navigate('/catalog')}
-                          className="border-b border-white/5 cursor-pointer hover:bg-neutral-800 transition-colors"
-                        >
-                          <td className="px-4 py-3 text-sm font-medium text-white">{t.name}</td>
-                          <td className="px-4 py-3 text-sm text-gray-300">{t.services_owned}</td>
-                          <td className={`px-4 py-3 text-sm font-medium ${scoreColor(t.avg_score)}`}>
-                            {t.avg_score}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${
-                                    t.readiness_pct >= 70
-                                      ? 'bg-green-500'
-                                      : t.readiness_pct >= 40
-                                        ? 'bg-yellow-500'
-                                        : 'bg-red-500'
-                                  }`}
-                                  style={{ width: `${t.readiness_pct}%` }}
-                                />
-                              </div>
-                              <span className="text-sm text-gray-300">{t.readiness_pct}%</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            {t.open_actions > 0 ? (
-                              <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs rounded-full border border-yellow-500/30">
-                                {t.open_actions}
-                              </span>
-                            ) : (
-                              <span className="text-gray-600 text-sm">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </>
-        )}
-      </div>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
     </div>
   )
 }

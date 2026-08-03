@@ -9,6 +9,8 @@ import {
   Info,
   Zap,
   Heart as HeartIcon,
+  ShieldCheck,
+  ChevronRight,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
@@ -33,7 +35,12 @@ function timeAgo(iso) {
   return `${Math.floor(h / 24)}d ago`
 }
 
-export default function NotificationDropdown({ onSelectIncident, onOpenHealthDashboard }) {
+export default function NotificationDropdown({
+  onSelectIncident,
+  onOpenHealthDashboard,
+  pendingApprovalCount = 0,
+  onOpenApprovals,
+}) {
   const { authFetch } = useAuth()
   const [open, setOpen] = useState(false)
   const [notifications, setNots] = useState([])
@@ -95,7 +102,7 @@ export default function NotificationDropdown({ onSelectIncident, onOpenHealthDas
 
   const healthUnread = healthAlerts.filter((h) => !h.is_read).length
   const notifUnread = notifications.filter((n) => !n.is_read).length
-  const unread = healthUnread + notifUnread
+  const unread = healthUnread + notifUnread + pendingApprovalCount
 
   async function markRead(id) {
     try {
@@ -168,6 +175,27 @@ export default function NotificationDropdown({ onSelectIncident, onOpenHealthDas
           </div>
 
           <div className="overflow-y-auto max-h-96">
+            {pendingApprovalCount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenApprovals?.()
+                  setOpen(false)
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 border-b border-border bg-amber-500/5 hover:bg-amber-500/10 transition-colors text-left"
+              >
+                <div className="flex items-center justify-center w-7 h-7 rounded-lg border shrink-0 bg-amber-500/10 border-amber-500/30">
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" strokeWidth={2.5} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-amber-300">
+                    {pendingApprovalCount} agent {pendingApprovalCount === 1 ? 'run' : 'runs'} awaiting approval
+                  </p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Review in the AI Assistant</p>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+              </button>
+            )}
             {healthAlerts.length > 0 && (
               <div className="border-b border-border bg-sidebar/80">
                 <div className="flex items-center justify-between px-4 py-2">
@@ -215,7 +243,7 @@ export default function NotificationDropdown({ onSelectIncident, onOpenHealthDas
               </div>
             )}
 
-            {notifications.length === 0 && healthAlerts.length === 0 ? (
+            {notifications.length === 0 && healthAlerts.length === 0 && pendingApprovalCount === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-600">
                 <Inbox className="w-8 h-8 opacity-30" />
                 <p className="text-xs">No notifications yet</p>

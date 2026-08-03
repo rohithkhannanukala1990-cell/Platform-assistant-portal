@@ -12,7 +12,14 @@ export default {
         surface: '#16181f',
         card: '#1c1f2a',
         border: '#2a2d3a',
-        accent: '#22c55e',
+        // Single interactive accent (indigo). Green/amber/red are status-only.
+        accent: {
+          DEFAULT: '#6366f1',
+          hover: '#818cf8',
+        },
+        success: '#22c55e',
+        warning: '#f59e0b',
+        danger: '#ef4444',
         muted: '#3f4257',
       },
       fontFamily: {

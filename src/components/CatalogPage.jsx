@@ -24,6 +24,7 @@ import CatalogCopilotPanel from './CatalogCopilotPanel'
 import RelatedAgentsBar from './RelatedAgentsBar'
 import useCatalogSearch from '../hooks/useCatalogSearch'
 import { useToast } from './ToastNotification'
+import { PageHeader, EmptyState } from './ui'
 
 const KIND_TABS = ['All', 'Service', 'API', 'Library', 'Website']
 
@@ -443,11 +444,20 @@ export default function CatalogPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto w-full space-y-6 pb-16">
-      <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Software Catalog</h1>
-        <p className="text-sm text-slate-400 mt-1">Services, APIs, libraries, and websites across the platform</p>
-      </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Software Catalog"
+        subtitle="Services, APIs, libraries, and websites across the platform"
+        actions={(
+          <button
+            type="button"
+            onClick={openCreate}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent/90 text-white text-sm font-semibold shrink-0"
+          >
+            <Plus className="w-4 h-4" /> Add
+          </button>
+        )}
+      />
 
       <RelatedAgentsBar
         surface="catalog"
@@ -469,7 +479,7 @@ export default function CatalogPage() {
               onClick={() => setFilterKind(k)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                 filterKind === k
-                  ? 'bg-blue-600 border-blue-500 text-white'
+                  ? 'bg-accent border-accent text-white'
                   : 'border-border text-slate-400 hover:bg-slate-800 hover:text-white'
               }`}
             >
@@ -487,13 +497,6 @@ export default function CatalogPage() {
               className="w-full pl-10 pr-3 py-2 rounded-lg bg-slate-900 border border-border text-sm text-white"
             />
           </div>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold shrink-0"
-          >
-            <Plus className="w-4 h-4" /> Add
-          </button>
         </div>
       </div>
 
@@ -511,9 +514,11 @@ export default function CatalogPage() {
           ))}
         </div>
       ) : results.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border py-16 text-center text-slate-500">
-          No catalog entries match your filters.
-        </div>
+        <EmptyState
+          icon={Search}
+          title="No catalog entries match your filters."
+          hint="Try a different kind filter or search term"
+        />
       ) : (
         <>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -902,7 +907,7 @@ export default function CatalogPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex-1 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold disabled:opacity-50"
+                  className="flex-1 py-2.5 rounded-lg bg-accent hover:bg-accent/90 text-white text-sm font-semibold disabled:opacity-50"
                 >
                   {saving ? 'Saving…' : editingId ? 'Save' : 'Create'}
                 </button>
@@ -1186,7 +1191,7 @@ function ActionsTab({
                 <button
                   type="button"
                   onClick={() => onRun(action)}
-                  className="mt-auto w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+                  className="mt-auto w-full py-1.5 rounded-lg bg-accent hover:bg-accent/90 text-white text-xs font-semibold"
                 >
                   Run
                 </button>

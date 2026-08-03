@@ -11,6 +11,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalWebSocket } from '../hooks/usePortalWebSocket'
 import { parseConfigSchema, STATUS_COLORS } from './entityActionsShared'
+import { PageHeader, EmptyState } from './ui'
 
 const CATEGORIES = ['All', 'Onboarding', 'Operations', 'Quality', 'DevOps', 'Platform']
 
@@ -92,7 +93,7 @@ function GoldenPathFormFields({ schema, formValues, onChange }) {
             <select
               value={formValues[field.name] ?? ''}
               onChange={(e) => onChange(field.name, 'select', e.target.value)}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white w-full focus:outline-none focus:border-blue-500/50"
+              className="bg-card border border-border rounded-lg px-3 py-2 text-white w-full focus:outline-none focus:border-accent/50"
             >
               <option value="">Select…</option>
               {(field.options || []).map((opt) => (
@@ -107,7 +108,7 @@ function GoldenPathFormFields({ schema, formValues, onChange }) {
               value={formValues[field.name] ?? ''}
               onChange={(e) => onChange(field.name, 'number', e.target.value)}
               placeholder={field.placeholder || ''}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white placeholder-gray-500 w-full focus:outline-none focus:border-blue-500/50"
+              className="bg-card border border-border rounded-lg px-3 py-2 text-white placeholder-gray-500 w-full focus:outline-none focus:border-accent/50"
             />
           ) : (
             <input
@@ -115,7 +116,7 @@ function GoldenPathFormFields({ schema, formValues, onChange }) {
               value={formValues[field.name] ?? ''}
               onChange={(e) => onChange(field.name, 'string', e.target.value)}
               placeholder={field.placeholder || ''}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white placeholder-gray-500 w-full focus:outline-none focus:border-blue-500/50"
+              className="bg-card border border-border rounded-lg px-3 py-2 text-white placeholder-gray-500 w-full focus:outline-none focus:border-accent/50"
             />
           )}
         </label>
@@ -199,7 +200,7 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch, onRunCompl
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#1a1a2e] border border-white/10 rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface border border-border rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h2 className="text-lg font-semibold text-white">{template.name}</h2>
@@ -217,13 +218,13 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch, onRunCompl
         <div className="flex items-center gap-2 mb-6">
           {steps.map((stepLabel, i) => (
             <Fragment key={i}>
-              <div className={`flex items-center gap-2 ${i <= step ? 'text-blue-400' : 'text-gray-600'}`}>
+              <div className={`flex items-center gap-2 ${i <= step ? 'text-accent' : 'text-gray-600'}`}>
                 <div
                   className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
                     i < step
                       ? 'bg-green-600 text-white'
                       : i === step
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-accent text-white'
                         : 'bg-white/10 text-gray-500'
                   }`}
                 >
@@ -232,7 +233,7 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch, onRunCompl
                 <span className="text-xs hidden sm:block">{stepLabel}</span>
               </div>
               {i < steps.length - 1 && (
-                <div className={`flex-1 h-px ${i < step ? 'bg-blue-500' : 'bg-white/10'}`} />
+                <div className={`flex-1 h-px ${i < step ? 'bg-accent' : 'bg-white/10'}`} />
               )}
             </Fragment>
           ))}
@@ -253,7 +254,7 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch, onRunCompl
                   setError(null)
                   setStep(1)
                 }}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold"
+                className="px-4 py-2 bg-accent hover:bg-accent/90 text-white rounded-lg text-sm font-semibold"
               >
                 Next →
               </button>
@@ -263,11 +264,11 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch, onRunCompl
 
         {step === 1 && (
           <>
-            <div className="rounded-lg border border-white/10 overflow-hidden mb-4">
+            <div className="rounded-lg border border-border overflow-hidden mb-4">
               <table className="w-full text-sm">
                 <tbody>
                   {Object.entries(formValues).map(([key, val]) => (
-                    <tr key={key} className="border-b border-white/5">
+                    <tr key={key} className="border-b border-border">
                       <td className="px-3 py-2 text-gray-500 capitalize">{key.replace(/_/g, ' ')}</td>
                       <td className="px-3 py-2 text-white">{String(val)}</td>
                     </tr>
@@ -280,7 +281,7 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch, onRunCompl
               <button
                 type="button"
                 onClick={() => setStep(0)}
-                className="flex-1 py-2 rounded-lg border border-white/10 text-gray-300 text-sm"
+                className="flex-1 py-2 rounded-lg border border-border text-gray-300 text-sm"
               >
                 ← Back
               </button>
@@ -288,7 +289,7 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch, onRunCompl
                 type="button"
                 disabled={launching}
                 onClick={() => void handleLaunch()}
-                className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold disabled:opacity-50"
+                className="flex-1 py-2 rounded-lg bg-accent hover:bg-accent/90 text-white text-sm font-semibold disabled:opacity-50"
               >
                 Launch →
               </button>
@@ -298,7 +299,7 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch, onRunCompl
 
         {step === 2 && (
           <div className="flex flex-col items-center py-12">
-            <Loader2 size={40} className="text-blue-400 animate-spin mb-4" />
+            <Loader2 size={40} className="text-accent animate-spin mb-4" />
             <p className="text-white font-medium">Executing Golden Path...</p>
             <p className="text-gray-400 text-sm mt-1">This may take a moment</p>
             {error && !launching && (
@@ -314,7 +315,7 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch, onRunCompl
             <p className="text-gray-400 text-sm text-center max-w-sm">
               {result?.outputs?.message || 'Golden path executed successfully.'}
             </p>
-            <div className="mt-4 bg-black/30 rounded-lg p-4 w-full text-left">
+            <div className="mt-4 bg-card border border-border rounded-lg p-4 w-full text-left">
               <p className="text-xs text-gray-500 mb-2 font-mono">Run Summary</p>
               <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap overflow-x-auto">
                 {JSON.stringify(result, null, 2)}
@@ -323,7 +324,7 @@ function LaunchWizardModal({ template, onClose, onSuccess, authFetch, onRunCompl
             <button
               type="button"
               onClick={onSuccess}
-              className="mt-6 px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+              className="mt-6 px-6 py-2 bg-accent hover:bg-accent/90 text-white rounded-lg transition-colors"
             >
               Done
             </button>
@@ -339,7 +340,7 @@ function RunLogsModal({ run, onClose }) {
   return (
     <>
       <button type="button" aria-label="Close" className="fixed inset-0 z-40 bg-black/50" onClick={onClose} />
-      <aside className="fixed right-0 top-0 h-full w-full max-w-[480px] z-50 bg-[#0f0f1a] border-l border-white/10 p-6 overflow-y-auto">
+      <aside className="fixed right-0 top-0 h-full w-full max-w-[480px] z-50 bg-surface border-l border-border p-6 overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-white">Run Logs</h2>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-white">
@@ -354,7 +355,7 @@ function RunLogsModal({ run, onClose }) {
           {run?.created_at ? new Date(run.created_at).toLocaleString() : '—'}
         </p>
         {run?.run_logs ? (
-          <pre className="text-xs text-green-300 font-mono bg-black/40 p-4 rounded-lg whitespace-pre-wrap border border-white/5">
+          <pre className="text-xs text-green-300 font-mono bg-card border border-border p-4 rounded-lg whitespace-pre-wrap">
             {run.run_logs}
           </pre>
         ) : (
@@ -432,7 +433,7 @@ function NewTemplateModal({ onClose, onCreated, authFetch }) {
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <form
         onSubmit={(e) => void submit(e)}
-        className="bg-[#1a1a2e] border border-white/10 rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        className="bg-surface border border-border rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-white">New Golden Path Template</h2>
@@ -446,7 +447,7 @@ function NewTemplateModal({ onClose, onCreated, authFetch }) {
             <input
               value={form.name}
               onChange={(e) => handleName(e.target.value)}
-              className="mt-1 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+              className="mt-1 w-full bg-card border border-border rounded-lg px-3 py-2 text-white text-sm"
             />
           </label>
           <label className="block">
@@ -454,7 +455,7 @@ function NewTemplateModal({ onClose, onCreated, authFetch }) {
             <input
               value={form.slug}
               onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
-              className="mt-1 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono"
+              className="mt-1 w-full bg-card border border-border rounded-lg px-3 py-2 text-white text-sm font-mono"
             />
           </label>
           <label className="block">
@@ -463,7 +464,7 @@ function NewTemplateModal({ onClose, onCreated, authFetch }) {
               rows={2}
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              className="mt-1 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm resize-none"
+              className="mt-1 w-full bg-card border border-border rounded-lg px-3 py-2 text-white text-sm resize-none"
             />
           </label>
           <div className="grid grid-cols-2 gap-3">
@@ -472,7 +473,7 @@ function NewTemplateModal({ onClose, onCreated, authFetch }) {
               <select
                 value={form.category}
                 onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                className="mt-1 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                className="mt-1 w-full bg-card border border-border rounded-lg px-3 py-2 text-white text-sm"
               >
                 {CATEGORIES.filter((c) => c !== 'All').map((c) => (
                   <option key={c} value={c}>
@@ -486,7 +487,7 @@ function NewTemplateModal({ onClose, onCreated, authFetch }) {
               <select
                 value={form.entity_kind}
                 onChange={(e) => setForm((f) => ({ ...f, entity_kind: e.target.value }))}
-                className="mt-1 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                className="mt-1 w-full bg-card border border-border rounded-lg px-3 py-2 text-white text-sm"
               >
                 {['Service', 'API', 'Component', 'Library', 'Database'].map((k) => (
                   <option key={k} value={k}>
@@ -511,7 +512,7 @@ function NewTemplateModal({ onClose, onCreated, authFetch }) {
               value={form.config_schema_json}
               onChange={(e) => setForm((f) => ({ ...f, config_schema_json: e.target.value }))}
               placeholder='{"fields":[{"name":"field","label":"Label","type":"string","required":true}]}'
-              className="mt-1 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs font-mono resize-none"
+              className="mt-1 w-full bg-card border border-border rounded-lg px-3 py-2 text-white text-xs font-mono resize-none"
             />
           </label>
           <label className="block">
@@ -521,7 +522,7 @@ function NewTemplateModal({ onClose, onCreated, authFetch }) {
               value={form.steps_json}
               onChange={(e) => setForm((f) => ({ ...f, steps_json: e.target.value }))}
               placeholder='[{"type":"form","label":"Configure"},...]'
-              className="mt-1 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs font-mono resize-none"
+              className="mt-1 w-full bg-card border border-border rounded-lg px-3 py-2 text-white text-xs font-mono resize-none"
             />
           </label>
         </div>
@@ -530,14 +531,14 @@ function NewTemplateModal({ onClose, onCreated, authFetch }) {
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 py-2 rounded-lg border border-white/10 text-gray-300 text-sm"
+            className="flex-1 py-2 rounded-lg border border-border text-gray-300 text-sm"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={saving}
-            className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold disabled:opacity-50"
+            className="flex-1 py-2 rounded-lg bg-accent hover:bg-accent/90 text-white text-sm font-semibold disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Create Template'}
           </button>
@@ -552,14 +553,14 @@ function TemplateCard({ template, onLaunch }) {
   const n = stepCount(template)
 
   return (
-    <div className="bg-[#0f0f1a] border border-white/10 rounded-xl p-5 hover:border-white/20 transition-all flex flex-col min-h-[200px]">
+    <div className="bg-card border border-border rounded-xl p-5 hover:border-white/20 transition-all flex flex-col min-h-[200px]">
       <span className={`inline-flex w-fit px-2 py-0.5 rounded text-[10px] font-semibold border ${badge}`}>
         {template.category}
       </span>
       <h3 className="font-semibold text-white text-base mt-2">{template.name}</h3>
       <p className="text-gray-400 text-sm mt-1 line-clamp-2 flex-1">{template.description || '—'}</p>
       {template.entity_kind && (
-        <span className="inline-block mt-2 text-[10px] text-gray-500 bg-white/5 border border-white/10 px-2 py-0.5 rounded w-fit">
+        <span className="inline-block mt-2 text-[10px] text-gray-500 bg-white/5 border border-border px-2 py-0.5 rounded w-fit">
           {template.entity_kind}
         </span>
       )}
@@ -568,7 +569,7 @@ function TemplateCard({ template, onLaunch }) {
         <button
           type="button"
           onClick={onLaunch}
-          className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-1.5 rounded-lg font-semibold transition-colors"
+          className="bg-accent hover:bg-accent/90 text-white text-sm px-4 py-1.5 rounded-lg font-semibold transition-colors"
         >
           Launch
         </button>
@@ -677,24 +678,17 @@ export default function GoldenPathsPage() {
   }, [templates, activeCategory, searchTerm])
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
-      <div className="bg-[#0f0f1a] border-b border-white/5 px-6 py-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-xl font-semibold text-white flex items-center gap-2">
-              <Workflow className="w-6 h-6 text-blue-400" />
-              Golden Paths
-            </h1>
-            <p className="text-sm text-gray-400 mt-0.5">
-              Guided workflows to scaffold services, pipelines, and platform setup
-            </p>
-          </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Golden Paths"
+        subtitle="Guided workflows to scaffold services, pipelines, and platform setup"
+        actions={(
           <div className="flex items-center gap-2">
             {isAdmin && (
               <button
                 type="button"
                 onClick={() => setShowNewModal(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-semibold"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/90 rounded-lg text-sm font-semibold text-white"
               >
                 <Plus size={16} /> New Template
               </button>
@@ -702,80 +696,81 @@ export default function GoldenPathsPage() {
             <button
               type="button"
               onClick={() => void handleRefresh()}
-              className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm text-gray-300"
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border rounded-lg hover:bg-card transition-colors text-slate-400 hover:text-white"
             >
               <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
               Refresh
             </button>
           </div>
-        </div>
+        )}
+      />
 
-        <div className="flex gap-1 mt-4">
-          {['templates', 'history'].map((tab) => (
+      <div className="flex gap-1">
+        {['templates', 'history'].map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === tab
+                ? 'bg-accent text-white'
+                : 'text-gray-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            {tab === 'templates'
+              ? `Templates (${templates.length})`
+              : `Run History (${runs.length})`}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'templates' && (
+        <div className="flex gap-2 flex-wrap">
+          {CATEGORIES.map((cat) => (
             <button
-              key={tab}
+              key={cat}
               type="button"
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === tab
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              onClick={() => setActiveCategory(cat)}
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                activeCategory === cat
+                  ? 'bg-accent text-white'
+                  : 'text-gray-400 hover:text-white bg-card border border-border'
               }`}
             >
-              {tab === 'templates'
-                ? `Templates (${templates.length})`
-                : `Run History (${runs.length})`}
+              {cat}
             </button>
           ))}
         </div>
-
-        {activeTab === 'templates' && (
-          <div className="flex gap-2 mt-4 flex-wrap">
-            {CATEGORIES.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setActiveCategory(cat)}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                  activeCategory === cat
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-400 hover:text-white bg-white/5'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      )}
 
       {error && (
-        <div className="mx-6 mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300">
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300">
           {error}
         </div>
       )}
 
       {activeTab === 'templates' && loading && (
-        <div className="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-48 bg-white/5 rounded-xl animate-pulse border border-white/5" />
+            <div key={i} className="h-48 bg-card rounded-xl animate-pulse border border-border" />
           ))}
         </div>
       )}
 
       {activeTab === 'templates' && !loading && (
-        <div className="p-6">
+        <div className="flex flex-col gap-6">
           <input
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search golden paths..."
-            className="mb-6 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 w-64 focus:outline-none focus:border-blue-500/50"
+            className="bg-card border border-border rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 w-64 focus:outline-none focus:border-accent/50"
           />
           {filteredTemplates.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24">
-              <Workflow size={40} className="text-gray-700 mb-4" />
-              <p className="text-gray-500 font-medium">No golden path templates found</p>
-            </div>
+            <EmptyState
+              icon={Workflow}
+              title="No golden path templates found"
+              className="py-24"
+            />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredTemplates.map((t) => (
@@ -787,16 +782,18 @@ export default function GoldenPathsPage() {
       )}
 
       {activeTab === 'history' && (
-        <div className="p-6">
+        <div>
           {runsLoading ? (
             <div className="flex justify-center py-16 text-gray-400 gap-2">
               <Loader2 className="w-6 h-6 animate-spin" /> Loading run history…
             </div>
+          ) : runs.length === 0 ? (
+            <EmptyState title="No runs yet." className="py-12" />
           ) : (
-            <div className="bg-[#0f0f1a] border border-white/10 rounded-xl overflow-hidden">
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-white/5">
+                  <tr className="border-b border-border">
                     <th className="text-left text-xs text-gray-500 font-medium px-4 py-3 uppercase">
                       Template
                     </th>
@@ -816,7 +813,7 @@ export default function GoldenPathsPage() {
                 </thead>
                 <tbody>
                   {runs.map((run) => (
-                    <tr key={run.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                    <tr key={run.id} className="border-b border-border hover:bg-white/[0.02]">
                       <td className="px-4 py-3 text-sm text-white">
                         {run.template_name || `Template #${run.template_id}`}
                       </td>
@@ -837,7 +834,7 @@ export default function GoldenPathsPage() {
                         <button
                           type="button"
                           onClick={() => setSelectedRun(run)}
-                          className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 text-sm"
+                          className="inline-flex items-center gap-1 text-accent hover:text-accent/80 text-sm"
                         >
                           <Eye size={14} /> View Logs
                         </button>
@@ -846,9 +843,6 @@ export default function GoldenPathsPage() {
                   ))}
                 </tbody>
               </table>
-              {runs.length === 0 && (
-                <p className="text-center text-gray-500 py-12 text-sm">No runs yet.</p>
-              )}
             </div>
           )}
         </div>

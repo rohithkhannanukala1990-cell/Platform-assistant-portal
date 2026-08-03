@@ -118,8 +118,11 @@ export default function Layout({ user }) {
           user={user}
           onOpenCommandPalette={() => setPaletteOpen(true)}
           onMenuOpen={() => setSidebarOpen(true)}
-        />        <main className="flex-1 overflow-auto p-6">
-          <Outlet />
+        />
+        <main className="flex-1 overflow-auto">
+          <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-6">
+            <Outlet />
+          </div>
         </main>
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

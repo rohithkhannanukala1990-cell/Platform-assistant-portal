@@ -12,6 +12,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
 import RelatedAgentsBar from './RelatedAgentsBar'
+import { PageHeader, EmptyState } from './ui'
 
 const CATALOG_API = `${API_BASE}/api/catalog`
 const CATEGORIES = ['Documentation', 'Reliability', 'Security', 'Ownership']
@@ -31,25 +32,6 @@ const FILTER_OPTIONS = [
   { value: 'failing', label: 'Failing (<50)' },
   { value: 'unevaluated', label: 'Not Evaluated' },
 ]
-
-function EmptyState({ icon, title, subtitle, action }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-      <span className="text-5xl mb-4">{icon}</span>
-      <p className="text-base font-medium text-gray-300">{title}</p>
-      {subtitle && <p className="text-sm mt-1">{subtitle}</p>}
-      {action && (
-        <button
-          type="button"
-          onClick={action.onClick}
-          className="mt-4 text-sm bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-lg"
-        >
-          {action.label}
-        </button>
-      )}
-    </div>
-  )
-}
 
 function hasEvaluation(scorecard) {
   if (scorecard == null) return false
@@ -370,57 +352,54 @@ export default function ScorecardsPage() {
   }, [drawerScorecard])
 
   return (
-    <div className="flex flex-col gap-6 max-w-6xl mx-auto pb-16 animate-fade-in">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-            <ClipboardCheck className="w-5 h-5 text-indigo-400" />
-            Scorecards
-          </h1>
-          <p className="text-sm text-slate-500 mt-0.5">Entity quality scores across the catalog</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {platformHealth?.status && (
-            <Link
-              to="/health"
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-700 bg-gray-800/80 text-xs font-medium text-slate-300 hover:text-white hover:border-gray-500"
-              title="Open system health dashboard"
-            >
-              <HeartPulse className="w-3.5 h-3.5 text-rose-400" />
-              Platform health
-              <span
-                className={`rounded-full px-2 py-0.5 capitalize ${
-                  platformHealth.status === 'critical'
-                    ? 'bg-red-500/20 text-red-300'
-                    : platformHealth.status === 'warning'
-                      ? 'bg-yellow-500/20 text-yellow-300'
-                      : 'bg-green-500/20 text-green-300'
-                }`}
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Scorecards"
+        subtitle="Entity quality scores across the catalog"
+        actions={(
+          <div className="flex flex-wrap items-center gap-2">
+            {platformHealth?.status && (
+              <Link
+                to="/health"
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-700 bg-gray-800/80 text-xs font-medium text-slate-300 hover:text-white hover:border-gray-500"
+                title="Open system health dashboard"
               >
-                {platformHealth.status}
-              </span>
-            </Link>
-          )}
-          <button
-            type="button"
-            onClick={() => void evaluateAll()}
-            disabled={loading || !!evaluateAllProgress || entities.length === 0}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold disabled:opacity-50"
-          >
-            {evaluateAllProgress ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Evaluating {evaluateAllProgress.done} of {evaluateAllProgress.total}...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4" />
-                Evaluate All
-              </>
+                <HeartPulse className="w-3.5 h-3.5 text-rose-400" />
+                Platform health
+                <span
+                  className={`rounded-full px-2 py-0.5 capitalize ${
+                    platformHealth.status === 'critical'
+                      ? 'bg-red-500/20 text-red-300'
+                      : platformHealth.status === 'warning'
+                        ? 'bg-yellow-500/20 text-yellow-300'
+                        : 'bg-green-500/20 text-green-300'
+                  }`}
+                >
+                  {platformHealth.status}
+                </span>
+              </Link>
             )}
-          </button>
-        </div>
-      </div>
+            <button
+              type="button"
+              onClick={() => void evaluateAll()}
+              disabled={loading || !!evaluateAllProgress || entities.length === 0}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent/90 text-white text-sm font-semibold disabled:opacity-50"
+            >
+              {evaluateAllProgress ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Evaluating {evaluateAllProgress.done} of {evaluateAllProgress.total}...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4" />
+                  Evaluate All
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      />
 
       <RelatedAgentsBar surface="scorecards" />
 
@@ -516,12 +495,17 @@ export default function ScorecardsPage() {
 
       {!loading && entities.length === 0 && (
         <EmptyState
-          icon="📋"
+          icon={ClipboardCheck}
           title="No scorecards configured."
-          action={{
-            label: 'Create Scorecard',
-            onClick: () => navigate('/catalog'),
-          }}
+          action={(
+            <button
+              type="button"
+              onClick={() => navigate('/catalog')}
+              className="mt-2 text-sm bg-accent hover:bg-accent/90 text-white px-5 py-2 rounded-lg"
+            >
+              Create Scorecard
+            </button>
+          )}
         />
       )}
 
@@ -583,7 +567,7 @@ export default function ScorecardsPage() {
                     type="button"
                     disabled={busy}
                     onClick={() => void evaluateEntity(entity)}
-                    className="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-1"
+                    className="flex-1 py-2 rounded-lg bg-accent hover:bg-accent/90 text-white text-xs font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-1"
                   >
                     {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                     Re-evaluate
@@ -711,7 +695,7 @@ export default function ScorecardsPage() {
                 type="button"
                 disabled={evaluatingId === drawerEntity.id}
                 onClick={() => void evaluateEntity(drawerEntity)}
-                className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-lg bg-accent hover:bg-accent/90 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
               >
                 {evaluatingId === drawerEntity.id ? (
                   <Loader2 className="w-4 h-4 animate-spin" />

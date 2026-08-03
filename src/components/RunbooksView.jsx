@@ -8,27 +8,9 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
 import RelatedAgentsBar from './RelatedAgentsBar'
+import { PageHeader, EmptyState } from './ui'
 
 const CATEGORIES = ['All', 'Application', 'Database', 'Network', 'Security']
-
-function EmptyState({ icon, title, subtitle, action }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-      <span className="text-5xl mb-4">{icon}</span>
-      <p className="text-base font-medium text-gray-300">{title}</p>
-      {subtitle && <p className="text-sm mt-1">{subtitle}</p>}
-      {action && (
-        <button
-          type="button"
-          onClick={action.onClick}
-          className="mt-4 text-sm bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-lg"
-        >
-          {action.label}
-        </button>
-      )}
-    </div>
-  )
-}
 
 function mapCategory(cat) {
   const c = (cat || 'General').trim()
@@ -230,21 +212,16 @@ export default function RunbooksView() {
   })
 
   return (
-    <div className="flex flex-col gap-6 max-w-5xl mx-auto pb-16 animate-fade-in">
-
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-blue-400" />
-            Runbooks
-          </h1>
-          <p className="text-sm text-slate-500 mt-0.5">Executable step-by-step remediation playbooks</p>
-        </div>
-        <span className="text-[10px] text-slate-600 border border-slate-700 rounded-lg px-2.5 py-1 font-semibold">
-          {filtered.length} runbooks
-        </span>
-      </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Runbooks"
+        subtitle="Executable step-by-step remediation playbooks"
+        actions={(
+          <span className="text-[10px] text-slate-600 border border-slate-700 rounded-lg px-2.5 py-1 font-semibold">
+            {filtered.length} runbooks
+          </span>
+        )}
+      />
 
       <RelatedAgentsBar surface="runbooks" />
 
@@ -293,21 +270,26 @@ export default function RunbooksView() {
             <button
               type="button"
               onClick={() => void fetchRunbooks()}
-              className="mt-3 text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded"
+              className="mt-3 text-xs bg-accent hover:bg-accent/90 text-white px-4 py-2 rounded"
             >
               Retry
             </button>
           </div>
         ) : runbooks.length === 0 ? (
           <EmptyState
-            icon="📖"
+            icon={BookOpen}
             title="No runbooks found."
-            action={{
-              label: 'Create Runbook',
-              onClick: () => {
-                window.location.href = '/golden-paths'
-              },
-            }}
+            action={(
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = '/golden-paths'
+                }}
+                className="mt-2 text-sm bg-accent hover:bg-accent/90 text-white px-5 py-2 rounded-lg"
+              >
+                Create Runbook
+              </button>
+            )}
           />
         ) : filtered.length === 0 ? (
           <p className="text-center py-12 text-slate-600 text-sm">No runbooks match your filter.</p>

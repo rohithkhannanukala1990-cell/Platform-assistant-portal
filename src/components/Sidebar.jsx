@@ -9,6 +9,7 @@ import {
   BookOpen,
   GitFork,
   ClipboardCheck,
+  BadgeCheck,
   ShieldCheck,
   Zap,
   Route,
@@ -19,25 +20,23 @@ import {
   Rocket,
   BookMarked,
   Server,
+  Hammer,
   Users,
   Wrench,
   Download,
   Grid,
   Plug,
+  Webhook,
   Settings,
   Sparkles,
   Database,
-  HardDrive,
   Activity,
-  Share2,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
   Bot,
   Code2,
   TerminalSquare,
-  Search,
-  GitPullRequest,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -50,6 +49,7 @@ const ICON_MAP = {
   BookOpen,
   GitFork,
   ClipboardCheck,
+  BadgeCheck,
   ShieldCheck,
   Zap,
   Route,
@@ -60,21 +60,20 @@ const ICON_MAP = {
   Rocket,
   BookMarked,
   Server,
+  Hammer,
   Users,
   Wrench,
   Download,
   Grid,
   Plug,
+  Webhook,
   Settings,
   Sparkles,
   Database,
-  HardDrive,
   Activity,
   Bot,
   Code2,
   TerminalSquare,
-  Search,
-  GitPullRequest,
 }
 
 const NAV_GROUPS = [
@@ -86,17 +85,17 @@ const NAV_GROUPS = [
       { label: 'Alert Triage', path: '/alerts', icon: 'Bell' },
       { label: 'Incidents', path: '/incidents', icon: 'AlertTriangle' },
       { label: 'Health', path: '/health', icon: 'HeartPulse' },
-      { label: 'Approvals', path: '/approvals', icon: 'ShieldCheck' },
+      { label: 'Approvals', path: '/approvals', icon: 'CheckSquare' },
     ],
   },
   {
     name: 'IDP Platform',
-    defaultOpen: true,
+    defaultOpen: false,
     items: [
       { label: 'Catalog', path: '/catalog', icon: 'BookOpen' },
       { label: 'Dependency Graph', path: '/dependency-graph', icon: 'GitFork' },
       { label: 'Scorecards', path: '/scorecards', icon: 'ClipboardCheck' },
-      { label: 'Standards', path: '/standards', icon: 'ShieldCheck' },
+      { label: 'Standards', path: '/standards', icon: 'BadgeCheck' },
       { label: 'Entity Actions', path: '/entity-actions', icon: 'Zap' },
       { label: 'Golden Paths', path: '/golden-paths', icon: 'Route' },
       { label: 'Template Gallery', path: '/template-gallery', icon: 'Layout' },
@@ -115,23 +114,12 @@ const NAV_GROUPS = [
     defaultOpen: false,
     items: [
       { label: 'CI/CD Pipelines', path: '/cicd', icon: 'GitBranch' },
-      { label: 'GitHub PRs', path: '/github/prs', icon: 'GitPullRequest' },
-      { label: 'GitHub Actions', path: '/github/actions', icon: 'Activity' },
-      { label: 'Kubernetes', path: '/k8s', icon: 'Server' },
-      { label: 'PagerDuty', path: '/pagerduty', icon: 'Bell' },
-      { label: 'Slack', path: '/slack', icon: 'Plug' },
-      { label: 'Prometheus', path: '/prometheus', icon: 'Activity' },
-      { label: 'Argo CD', path: '/argocd', icon: 'GitBranch' },
-      { label: 'Outbound Webhook', path: '/outbound-webhook', icon: 'Zap' },
       { label: 'Deployments', path: '/deployments', icon: 'Rocket' },
-      { label: 'Live Pipelines', path: '/live-pipelines', icon: 'Activity' },
-      { label: 'Schema Browser', path: '/schema-browser', icon: 'Database' },
-      { label: 'Data Lineage', path: '/data-lineage', icon: 'Share2' },
+      { label: 'Kubernetes', path: '/k8s', icon: 'Server' },
+      { label: 'Infra Builder', path: '/infra', icon: 'Hammer' },
       { label: 'Runbooks', path: '/runbooks', icon: 'BookMarked' },
-      { label: 'Infra Builder', path: '/infra', icon: 'Server' },
-      { label: 'DB Analyzer', path: '/db-analyzer', icon: 'Database' },
-      { label: 'Query Analyzer', path: '/query-analyzer', icon: 'Search' },
-      { label: 'Storage', path: '/storage', icon: 'HardDrive' },
+      { label: 'Data Tools', path: '/data-tools', icon: 'Database' },
+      { label: 'Connectors', path: '/connectors', icon: 'Plug' },
     ],
   },
   {
@@ -143,7 +131,7 @@ const NAV_GROUPS = [
       { label: 'Tool Registry', path: '/tool-registry', icon: 'Wrench' },
       { label: 'Account Import', path: '/account-import', icon: 'Download' },
       { label: 'Workspaces', path: '/workspaces', icon: 'Grid' },
-      { label: 'Integrations', path: '/integrations', icon: 'Plug' },
+      { label: 'Integrations', path: '/integrations', icon: 'Webhook' },
       { label: 'Settings', path: '/settings', icon: 'Settings' },
     ],
   },
@@ -159,6 +147,20 @@ const NAV_GROUPS = [
     ],
   },
 ]
+
+const OPEN_GROUPS_STORAGE_KEY = 'sidebar_open_groups'
+
+function readStoredOpenGroups() {
+  const defaults = Object.fromEntries(NAV_GROUPS.map((g) => [g.name, g.defaultOpen]))
+  try {
+    const raw = localStorage.getItem(OPEN_GROUPS_STORAGE_KEY)
+    if (!raw) return defaults
+    const stored = JSON.parse(raw)
+    return { ...defaults, ...stored }
+  } catch {
+    return defaults
+  }
+}
 
 function userInitial(user) {
   const name = user?.username || user?.name || '?'
@@ -184,12 +186,18 @@ export default function Sidebar({ user, open = false, onClose }) {
   const [narrow, setNarrow] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   )
-  const [openGroups, setOpenGroups] = useState(() =>
-    Object.fromEntries(NAV_GROUPS.map((g) => [g.name, g.defaultOpen]))
-  )
+  const [openGroups, setOpenGroups] = useState(readStoredOpenGroups)
 
   const toggleGroup = (name) =>
-    setOpenGroups((prev) => ({ ...prev, [name]: !prev[name] }))
+    setOpenGroups((prev) => {
+      const next = { ...prev, [name]: !prev[name] }
+      try {
+        localStorage.setItem(OPEN_GROUPS_STORAGE_KEY, JSON.stringify(next))
+      } catch {
+        /* persistence is best-effort */
+      }
+      return next
+    })
 
   useEffect(() => {
     const onResize = () => {
@@ -244,7 +252,7 @@ export default function Sidebar({ user, open = false, onClose }) {
             path === '/dashboard' ? isActive || location.pathname === '/' : isActive
           return `flex items-center gap-3 py-2 rounded-lg mx-2 text-sm transition-colors ${layoutClasses} ${
             active
-              ? 'bg-indigo-600 text-white font-medium'
+              ? 'bg-accent text-white font-medium'
               : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
           }`
         }}
@@ -314,8 +322,8 @@ export default function Sidebar({ user, open = false, onClose }) {
                   collapsed && !narrow ? 'justify-center px-2' : 'px-3'
                 } ${
                   isActive
-                    ? 'bg-violet-600 text-white font-medium'
-                    : 'text-violet-300 hover:bg-neutral-800 hover:text-white border border-violet-500/30'
+                    ? 'bg-accent text-white font-medium'
+                    : 'text-accent-hover hover:bg-neutral-800 hover:text-white border border-accent/30'
                 }`
               }
             >
@@ -369,7 +377,7 @@ export default function Sidebar({ user, open = false, onClose }) {
         }`}
         title={user?.username || 'User'}
       >
-        <div className="w-8 h-8 rounded-full bg-indigo-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
+        <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-sm font-bold text-white shrink-0">
           {userInitial(user)}
         </div>
         {!collapsed && !hiddenOnNarrow && (

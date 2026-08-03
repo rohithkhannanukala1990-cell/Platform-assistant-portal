@@ -23,6 +23,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { formatErrorDetail } from '../utils/parseApiError'
 import { useToast } from './ToastNotification'
 import RelatedAgentsBar from './RelatedAgentsBar'
+import { EmptyState } from './ui'
 
 const SEVERITY_CFG = {
   Critical: { cls: 'bg-red-500/15 border-red-500/40 text-red-400', icon: AlertTriangle },
@@ -83,7 +84,7 @@ function formatTime(iso) {
 
 function Skeleton() {
   return (
-    <div className="flex flex-col gap-4 animate-pulse p-4 md:p-6 max-w-6xl mx-auto w-full">
+    <div className="flex flex-col gap-4 animate-pulse w-full">
       <div className="h-8 w-48 bg-card rounded-lg" />
       <div className="h-24 bg-card rounded-xl border border-border" />
       <div className="grid md:grid-cols-2 gap-4">
@@ -358,16 +359,18 @@ export default function IncidentCommandCenter() {
 
   if (error || !incident) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 p-10 text-center max-w-lg mx-auto">
-        <AlertCircle className="w-8 h-8 text-slate-500" />
-        <p className="text-sm text-slate-300">{error || 'Incident not found'}</p>
-        <Link
-          to="/incidents"
-          className="text-xs font-semibold text-accent hover:underline"
-        >
-          Back to incidents
-        </Link>
-      </div>
+      <EmptyState
+        icon={AlertCircle}
+        title={error || 'Incident not found'}
+        action={(
+          <Link
+            to="/incidents"
+            className="mt-2 text-xs font-semibold text-accent hover:underline"
+          >
+            Back to incidents
+          </Link>
+        )}
+      />
     )
   }
 
@@ -387,7 +390,7 @@ export default function IncidentCommandCenter() {
   const execLog = incident.execution_log || incident.agent_execution_logs || incident.execution_logs
 
   return (
-    <div className="flex flex-col gap-4 p-4 md:p-6 max-w-6xl mx-auto w-full pb-16 animate-fade-in">
+    <div className="flex flex-col gap-4 w-full animate-fade-in">
       {/* Back + refresh */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <button

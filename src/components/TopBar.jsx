@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Search, ChevronRight, Zap, Shield } from 'lucide-react'
+import { Search, ChevronRight } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
-import EnvironmentSwitcher from './EnvironmentSwitcher'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
-import AccountSwitcher from './AccountSwitcher'
+import ContextSwitcher from './ContextSwitcher'
 import NotificationDropdown from './NotificationDropdown'
 import UserMenu from './UserMenu'
 import { usePortalWebSocket } from '../hooks/usePortalWebSocket'
@@ -29,21 +28,6 @@ function headerToolIdFromPath(pathname) {
   const seg = pathname.split('/').filter(Boolean)[0]
   if (!seg || seg === 'dashboard') return null
   return OPS_HEADER_TOOL_BY_VIEW[seg] ?? EXTRA_ROUTE_TOOLS[seg] ?? null
-}
-
-function WsIndicator({ connected }) {
-  return (
-    <div className="relative group cursor-default flex items-center">
-      <span
-        className={`w-2 h-2 rounded-full transition-colors ${
-          connected ? 'bg-green-400' : 'bg-yellow-400 animate-pulse'
-        }`}
-      />
-      <span className="absolute right-0 top-5 hidden group-hover:block bg-neutral-800 text-xs text-white px-2 py-1 rounded whitespace-nowrap z-50 border border-neutral-700 shadow-xl">
-        {connected ? 'Live updates active' : 'Reconnecting…'}
-      </span>
-    </div>
-  )
 }
 
 const SEGMENT_LABELS = {
@@ -86,6 +70,8 @@ const SEGMENT_LABELS = {
   workspaces: 'Workspaces',
   templates: 'Templates',
   import: 'Import',
+  connectors: 'Connectors',
+  'data-tools': 'Data Tools',
 }
 
 function isMacPlatform() {
@@ -187,13 +173,8 @@ export default function TopBar({ user, onOpenCommandPalette, onMenuOpen }) {
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
           <div className="hidden sm:flex items-center gap-1.5 shrink-0">
-            <EnvironmentSwitcher />
             <WorkspaceSwitcher />
-            {headerToolId ? (
-              <div className="max-w-[11rem]">
-                <AccountSwitcher toolId={headerToolId} onAccountChanged={() => {}} />
-              </div>
-            ) : null}
+            <ContextSwitcher toolId={headerToolId} />
           </div>
 
           <button
@@ -208,34 +189,17 @@ export default function TopBar({ user, onOpenCommandPalette, onMenuOpen }) {
             </kbd>
           </button>
 
-          {pendingApprovalCount > 0 && (
-            <button
-              type="button"
-              onClick={() => navigate('/ai-assistant')}
-              title={`${pendingApprovalCount} awaiting approval`}
-              className="relative flex items-center justify-center w-9 h-9 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-neutral-300"
-            >
-              <Shield className="w-4 h-4" />
-              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-0.5 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold">
-                {pendingApprovalCount > 99 ? '99+' : pendingApprovalCount}
-              </span>
-            </button>
-          )}
-
-          <span className="hidden 2xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-300">
-            <Zap className="w-3.5 h-3.5" />
-            {llmLabel}
-          </span>
-
-          <div className="hidden sm:block">
-            <WsIndicator connected={wsConnected} />
-          </div>
-
-          <UserMenu onOpenSettings={() => navigate('/settings')} />
-
           <NotificationDropdown
             onSelectIncident={() => navigate('/incidents')}
             onOpenHealthDashboard={() => navigate('/health')}
+            pendingApprovalCount={pendingApprovalCount}
+            onOpenApprovals={() => navigate('/ai-assistant')}
+          />
+
+          <UserMenu
+            onOpenSettings={() => navigate('/settings')}
+            llmLabel={llmLabel}
+            wsConnected={wsConnected}
           />
         </div>
       </div>

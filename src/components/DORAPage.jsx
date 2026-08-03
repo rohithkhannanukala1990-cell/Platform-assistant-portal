@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
+import { PageHeader, EmptyState, SectionHeader } from './ui'
 
 const DORA_API = `${API_BASE}/api/cicd/dora-metrics`
 const REPORTS_API = `${API_BASE}/api/reports`
@@ -263,7 +264,11 @@ export default function DORAPage() {
 
   if (error) {
     return (
-      <div className="max-w-3xl mx-auto p-6">
+      <div className="flex flex-col gap-6">
+        <PageHeader
+          title="DORA Metrics"
+          subtitle="Engineering delivery performance — deployment velocity, stability, and recovery"
+        />
         <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300 flex flex-wrap items-center justify-between gap-3">
           <span>{error}</span>
           <button
@@ -281,18 +286,15 @@ export default function DORAPage() {
   const showEmptyMetrics = !loading && !hasDoraMetrics(dora)
 
   return (
-    <div className="flex flex-col gap-8 max-w-6xl mx-auto pb-16 animate-fade-in px-1">
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <Gauge className="w-5 h-5 text-violet-400" />
-          <h1 className="text-xl font-bold text-white tracking-tight">DORA Metrics</h1>
-        </div>
-        <p className="text-sm text-slate-500">Engineering delivery performance — deployment velocity, stability, and recovery</p>
-      </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="DORA Metrics"
+        subtitle="Engineering delivery performance — deployment velocity, stability, and recovery"
+      />
 
       {/* Section A — KPI cards */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold text-slate-300">Current performance</h2>
+        <SectionHeader title="Current performance" />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {loading ? (
             <>
@@ -302,18 +304,23 @@ export default function DORAPage() {
               <MetricSkeleton />
             </>
           ) : showEmptyMetrics ? (
-            <div className="col-span-full rounded-xl border border-dashed border-border bg-card/30 px-6 py-10 text-center space-y-3">
-              <p className="text-sm text-slate-400">
-                {dora?.status === 'no_data' && dora?.message
-                  ? dora.message
-                  : 'DORA metrics not yet available — connect your CI/CD pipeline'}
-              </p>
-              <a
-                href="/tool-registry"
-                className="inline-flex text-sm font-medium text-indigo-400 hover:text-indigo-300"
-              >
-                Connect GitHub in Tool Registry
-              </a>
+            <div className="col-span-full">
+              <EmptyState
+                icon={Gauge}
+                title={
+                  dora?.status === 'no_data' && dora?.message
+                    ? dora.message
+                    : 'DORA metrics not yet available — connect your CI/CD pipeline'
+                }
+                action={(
+                  <a
+                    href="/tool-registry"
+                    className="mt-2 inline-flex text-sm font-medium text-accent hover:text-accent/80"
+                  >
+                    Connect GitHub in Tool Registry
+                  </a>
+                )}
+              />
             </div>
           ) : (
             <>

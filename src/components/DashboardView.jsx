@@ -1,5 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import {
   ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, Tooltip, Cell,
@@ -7,44 +6,39 @@ import {
   LineChart, Line, CartesianGrid,
 } from 'recharts'
 import {
-  AlertTriangle, ShieldAlert, Activity, Layers,
-  Construction, Rocket, RefreshCw, TrendingUp,
-  Clock, Wifi, ScanEye, Loader2, CheckCircle2, X,
-  Gauge, ArrowUpRight, ArrowDownRight, Minus,
-  Package, ShieldCheck, Workflow, Play, BarChart2,
-  BookOpen, Zap,
+  AlertTriangle, Activity, Layers, RefreshCw, Clock, Wifi,
+  Package, ShieldCheck, Zap, BookOpen,
 } from 'lucide-react'
 import AgentApprovalsWidget from './AgentApprovalsWidget'
 import OncallWidget from './OncallWidget'
+import DoraStrip from './dashboard/DoraStrip'
+import AwsCostCard from './dashboard/AwsCostCard'
+import LogScannerCard from './dashboard/LogScannerCard'
+import { Card, StatCard, PageHeader, EmptyState } from './ui'
 import { useAuth } from '../contexts/AuthContext'
-import { usePortalContext } from '../contexts/PortalContext'
 import { API_BASE } from '../config/apiBase'
 import useDashboardData from '../hooks/useDashboardData'
 
-const API        = `${API_BASE}/api/analytics`
-const SCAN_API   = `${API_BASE}/api/logs/scan-anomalies`
-const DORA_API   = `${API_BASE}/api/cicd/dora-metrics`
+const API = `${API_BASE}/api/analytics`
+const DORA_API = `${API_BASE}/api/cicd/dora-metrics`
 const REPORTS_API = `${API_BASE}/api/reports`
 
 const SEVERITY_COLORS = {
   Critical: '#ef4444',
-  High:     '#f97316',
-  Medium:   '#eab308',
-  Warning:  '#f59e0b',
-  Low:      '#3b82f6',
-  Unknown:  '#6b7280',
+  High: '#f97316',
+  Medium: '#eab308',
+  Warning: '#f59e0b',
+  Low: '#3b82f6',
+  Unknown: '#6b7280',
 }
 
-const MODULE_COLORS = ['#22c55e', '#3b82f6', '#a855f7']
-
-// ── Custom tooltip ─────────────────────────────────────────────────────────────
 function DarkTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-sidebar border border-border rounded-xl px-3 py-2.5 shadow-xl text-xs">
       {label && <p className="text-slate-400 mb-1 font-semibold">{label}</p>}
       {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color ?? p.fill ?? '#22c55e' }}>
+        <p key={i} style={{ color: p.color ?? p.fill ?? '#6366f1' }}>
           {p.name}: <span className="font-bold text-white">{p.value}</span>
         </p>
       ))}
@@ -52,7 +46,6 @@ function DarkTooltip({ active, payload, label }) {
   )
 }
 
-// ── Donut label ────────────────────────────────────────────────────────────────
 function DonutLabel({ cx, cy, total }) {
   return (
     <>
@@ -66,148 +59,16 @@ function DonutLabel({ cx, cy, total }) {
   )
 }
 
-// ── Summary card ───────────────────────────────────────────────────────────────
-function NavStatCard({ to, icon: Icon, iconBg, label, value, sub, border }) {
-  const navigate = useNavigate()
-  return (
-    <button
-      type="button"
-      onClick={() => navigate(to)}
-      className={`flex items-center gap-4 px-5 py-4 rounded-2xl border text-left w-full transition-colors hover:border-indigo-500/40 hover:bg-card/80 ${border ?? 'border-border'} bg-card`}
-    >
-      <div className={`flex items-center justify-center w-11 h-11 rounded-xl ${iconBg} shrink-0`}>
-        <Icon className="w-5 h-5" />
-      </div>
-      <div>
-        <p className="text-2xl font-bold text-white leading-none">{value ?? '—'}</p>
-        <p className="text-xs text-slate-400 mt-1">{label}</p>
-        {sub && <p className="text-[10px] text-slate-600 mt-0.5">{sub}</p>}
-      </div>
-    </button>
-  )
-}
-
-function StatCard({ icon: Icon, iconBg, label, value, sub, border }) {
-  return (
-    <div className={`flex items-center gap-4 px-5 py-4 rounded-2xl border ${border ?? 'border-border'} bg-card`}>
-      <div className={`flex items-center justify-center w-11 h-11 rounded-xl ${iconBg} shrink-0`}>
-        <Icon className="w-5 h-5" />
-      </div>
-      <div>
-        <p className="text-2xl font-bold text-white leading-none">{value ?? '—'}</p>
-        <p className="text-xs text-slate-400 mt-1">{label}</p>
-        {sub && <p className="text-[10px] text-slate-600 mt-0.5">{sub}</p>}
-      </div>
-    </div>
-  )
-}
-
-// ── DORA Metrics row ───────────────────────────────────────────────────────────
-const DORA_LEVEL_COLORS = {
-  Elite:  { text: 'text-emerald-400', bg: 'bg-emerald-500/15', border: 'border-emerald-500/30' },
-  High:   { text: 'text-blue-400',    bg: 'bg-blue-500/15',    border: 'border-blue-500/30'    },
-  Medium: { text: 'text-amber-400',   bg: 'bg-amber-500/15',   border: 'border-amber-500/30'   },
-  Low:    { text: 'text-red-400',     bg: 'bg-red-500/15',     border: 'border-red-500/30'     },
-}
-
-function DoraCard({ metricKey, label, icon: Icon, iconColor, metric }) {
-  if (!metric) return null
-  const lvl = DORA_LEVEL_COLORS[metric.level] ?? DORA_LEVEL_COLORS.High
-  const TrendIcon =
-    metric.trend_dir === 'up'       ? ArrowUpRight :
-    metric.trend_dir === 'down_good'? ArrowDownRight : Minus
-
-  return (
-    <div className={`flex flex-col gap-2 p-4 rounded-2xl border ${lvl.border} ${lvl.bg}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Icon size={14} className={iconColor} />
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</span>
-        </div>
-        <span className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${lvl.bg} ${lvl.text} border ${lvl.border}`}>
-          {metric.level}
-        </span>
-      </div>
-      <p className={`text-2xl font-extrabold ${lvl.text} leading-none`}>{metric.value}</p>
-      <div className="flex items-center gap-1 text-[10px] text-slate-500">
-        <TrendIcon size={11} className={
-          metric.trend_dir === 'down_good' ? 'text-emerald-400' :
-          metric.trend_dir === 'up'        ? 'text-emerald-400' : 'text-slate-500'
-        } />
-        {metric.trend}
-      </div>
-    </div>
-  )
-}
-
-// ── Chart card wrapper ─────────────────────────────────────────────────────────
-function ChartCard({ title, icon: Icon, iconColor, children, className = '' }) {
-  return (
-    <div className={`flex flex-col gap-4 p-5 rounded-2xl border border-border bg-card ${className}`}>
-      <div className="flex items-center gap-2">
-        <Icon className={`w-4 h-4 ${iconColor}`} />
-        <h3 className="text-sm font-bold text-white">{title}</h3>
-      </div>
-      {children}
-    </div>
-  )
-}
-
 export default function DashboardView() {
   const { authFetch } = useAuth()
-  const { activeWorkspace } = usePortalContext()
-  const workspaceId = activeWorkspace?.id ?? ''
-  const navigate = useNavigate()
   const { data, isLoading, error, refetch } = useDashboardData()
   const [analyticsData, setAnalyticsData] = useState(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(true)
-  const [analyticsError, setAnalyticsError] = useState(null)
   const [lastFetch, setLastFetch] = useState(null)
   const [platform, setPlatform] = useState(null)
-  const [catalogStats, setCatalogStats] = useState(null)
   const [standardsStats, setStandardsStats] = useState(null)
   const [openActionsCount, setOpenActionsCount] = useState(0)
-
-  // DORA metrics state
   const [dora, setDora] = useState(null)
-
-  // Anomaly scan state
-  const [scanning, setScanning]         = useState(false)
-  const [scanResult, setScanResult]     = useState(null)
-  const [scanDismissed, setScanDismissed] = useState(false)
-
-  const [costData, setCostData] = useState(null)
-  const [costLoading, setCostLoading] = useState(true)
-  const [costRefreshKey, setCostRefreshKey] = useState(0)
-
-  const fetchCostData = useCallback(async () => {
-    setCostLoading(true)
-    try {
-      const res = await authFetch('/api/agents/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          task: 'aws cost this month breakdown by service',
-          context: { workspace_id: workspaceId },
-        }),
-        silentToast: true,
-      })
-      if (!res.ok) {
-        setCostData(null)
-        return
-      }
-      const data = await res.json()
-      setCostData(data)
-    } catch {
-      setCostData(null)
-    } finally {
-      setCostLoading(false)
-    }
-  }, [authFetch, workspaceId])
-
-  useEffect(() => {
-    void fetchCostData()
-  }, [fetchCostData, costRefreshKey])
 
   async function fetchPlatformSummary() {
     try {
@@ -232,55 +93,32 @@ export default function DashboardView() {
       }
       setPlatform(next)
     } catch {
-      /* optional summary — dashboard still works without it */
+      /* optional summary */
     }
   }
 
   async function fetchAnalytics() {
     setAnalyticsLoading(true)
-    setAnalyticsError(null)
     try {
       const [res, doraRes] = await Promise.all([authFetch(API), authFetch(DORA_API)])
       if (!res.ok) throw new Error(`Server error ${res.status}`)
-      const json = await res.json()
-      setAnalyticsData(json)
+      setAnalyticsData(await res.json())
       setLastFetch(new Date())
       if (doraRes.ok) setDora(await doraRes.json())
       void fetchPlatformSummary()
-    } catch (e) {
-      setAnalyticsError(e.message)
+    } catch {
+      /* surfaced via analyticsData remaining null */
     } finally {
       setAnalyticsLoading(false)
     }
   }
 
-  async function runScan() {
-    setScanning(true)
-    setScanResult(null)
-    setScanDismissed(false)
-    try {
-      const res  = await authFetch(SCAN_API, { method: 'POST' })
-      if (!res.ok) throw new Error(`Scan failed: ${res.status}`)
-      const incident = await res.json()
-      setScanResult(incident)
-      fetchAnalytics()   // refresh charts so the new incident shows up
-    } catch (e) {
-      setScanResult({ error: e.message })
-    } finally {
-      setScanning(false)
-    }
-  }
-
-  useEffect(() => { fetchAnalytics() }, [])
+  useEffect(() => {
+    void fetchAnalytics()
+  }, [])
 
   useEffect(() => {
     async function loadPortalKpis() {
-      try {
-        const catRes = await authFetch(`${REPORTS_API}/catalog-overview`)
-        if (catRes.ok) setCatalogStats(await catRes.json())
-      } catch {
-        /* optional */
-      }
       try {
         const stdRes = await authFetch(`${REPORTS_API}/standards-overview`)
         if (stdRes.ok) setStandardsStats(await stdRes.json())
@@ -298,7 +136,7 @@ export default function DashboardView() {
         /* optional */
       }
     }
-    loadPortalKpis()
+    void loadPortalKpis()
   }, [authFetch])
 
   if (isLoading) {
@@ -325,11 +163,10 @@ export default function DashboardView() {
     )
   }
 
-  const d        = analyticsData
-  const sev      = d?.incidents_by_severity ?? []
-  const sources  = d?.top_sources ?? []
+  const d = analyticsData
+  const sev = d?.incidents_by_severity ?? []
+  const sources = d?.top_sources ?? []
   const overtime = d?.incidents_over_time ?? []
-  const modules  = d?.module_activity ?? []
   const sevTotal = sev.reduce((s, i) => s + i.value, 0)
 
   const doraFromSummary = data?.dora
@@ -360,469 +197,207 @@ export default function DashboardView() {
         },
       }
     : dora
-  const doraView = doraFromSummary
+
+  const catalogTotal = data?.services?.total ?? platform?.catalog?.total_entities ?? '—'
+  const standardsPct = platform?.standards?.pass_rate_pct != null
+    ? `${platform.standards.pass_rate_pct}%`
+    : standardsStats?.total_evaluated
+      ? `${Math.round((standardsStats.passed / standardsStats.total_evaluated) * 100)}%`
+      : '—'
 
   return (
-    <div className="flex flex-col gap-6 max-w-6xl mx-auto pb-16 animate-fade-in">
-
+    <div className="flex flex-col gap-6 animate-fade-in">
       {data?.mock === true && (
-        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-2 rounded mb-4 text-sm">
-          ⚠️ Dashboard is showing sample data — connect your data sources to see live metrics
+        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 px-4 py-2 rounded-xl text-sm">
+          Dashboard is showing sample data — connect your data sources to see live metrics
         </div>
       )}
 
-      {/* ── Page header ───────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white tracking-tight">Analytics Dashboard</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Platform-wide health and activity metrics</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {lastFetch && (
-            <span className="text-[10px] text-slate-600">
-              Updated {lastFetch.toLocaleTimeString()}
-            </span>
-          )}
-          <button
-            onClick={() => { fetchAnalytics(); refetch() }}
-            disabled={analyticsLoading || isLoading}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border rounded-lg hover:bg-card transition-colors text-slate-400 hover:text-white disabled:opacity-40"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${analyticsLoading || isLoading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        subtitle="Platform-wide health and activity"
+        actions={(
+          <div className="flex items-center gap-3">
+            {lastFetch && (
+              <span className="text-[10px] text-slate-600">
+                Updated {lastFetch.toLocaleTimeString()}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => { void fetchAnalytics(); refetch() }}
+              disabled={analyticsLoading || isLoading}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border rounded-lg hover:bg-card transition-colors text-slate-400 hover:text-white disabled:opacity-40"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${analyticsLoading || isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        )}
+      />
 
-      {/* ── IDP portal KPIs (Sprint 10) ───────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <NavStatCard
+      {/* Single KPI row — merged catalog / standards / actions / incidents / critical */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <StatCard
           to="/catalog"
           icon={BookOpen}
-          iconBg="bg-indigo-500/15 text-indigo-400"
+          iconClass="bg-accent/15 text-accent"
           label="Catalog Entities"
-          value={data?.services?.total ?? catalogStats?.total_entities ?? '—'}
-          sub={`${data?.services?.healthy ?? catalogStats?.missing_owner ?? 0} healthy · ${data?.services?.degraded ?? 0} degraded · ${data?.services?.down ?? 0} down`}
-          border="border-indigo-500/20"
+          value={catalogTotal}
+          sub={
+            data?.services
+              ? `${data.services.healthy} healthy · ${data.services.degraded} degraded`
+              : platform?.catalog?.missing_owner
+                ? `${platform.catalog.missing_owner} missing owner`
+                : undefined
+          }
         />
-        <NavStatCard
+        <StatCard
           to="/standards"
           icon={ShieldCheck}
-          iconBg="bg-emerald-500/15 text-emerald-400"
+          iconClass="bg-success/15 text-emerald-400"
           label="Standards Compliance"
-          value={
-            standardsStats?.total_evaluated
-              ? `${Math.round((standardsStats.passed / standardsStats.total_evaluated) * 100)}%`
-              : '—'
-          }
-          sub={`${standardsStats?.passed ?? 0} passed / ${standardsStats?.failed ?? 0} failed`}
-          border="border-emerald-500/20"
+          value={standardsPct}
+          sub={`${standardsStats?.passed ?? platform?.standards?.passed ?? 0} passed`}
         />
-        <NavStatCard
+        <StatCard
           to="/entity-actions"
           icon={Zap}
-          iconBg="bg-amber-500/15 text-amber-400"
+          iconClass="bg-warning/15 text-amber-400"
           label="Open Actions"
           value={data?.open_incidents ?? openActionsCount}
           sub="pending runs"
-          border="border-amber-500/20"
         />
-      </div>
-
-      {/* ── Platform engineering (Sprint 9) ───────────────────────────────── */}
-      {platform && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <Layers size={15} className="text-indigo-400" />
-            <h2 className="text-sm font-bold text-white">Platform Engineering</h2>
-            <span className="text-[10px] text-slate-500 ml-1">— Catalog, standards, paths & actions</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-            <NavStatCard
-              to="/catalog"
-              icon={Package}
-              iconBg="bg-indigo-500/15 text-indigo-400"
-              label="Catalog entities"
-              value={data?.services?.total ?? platform.catalog?.total_entities ?? 0}
-              sub={
-                data?.services
-                  ? `${data.services.healthy} healthy · ${data.services.degraded} degraded · ${data.services.down} down`
-                  : platform.catalog?.missing_owner
-                    ? `${platform.catalog.missing_owner} missing owner`
-                    : undefined
-              }
-              border="border-indigo-500/20"
-            />
-            <NavStatCard
-              to="/standards"
-              icon={ShieldCheck}
-              iconBg="bg-emerald-500/15 text-emerald-400"
-              label="Standards pass rate"
-              value={platform.standards?.pass_rate_pct != null ? `${platform.standards.pass_rate_pct}%` : '—'}
-              sub={
-                platform.standards?.failed != null
-                  ? `${platform.standards.failed} failed · ${platform.standards.warnings ?? 0} warnings`
-                  : undefined
-              }
-              border="border-emerald-500/20"
-            />
-            <NavStatCard
-              to="/golden-paths"
-              icon={Workflow}
-              iconBg="bg-violet-500/15 text-violet-400"
-              label="Golden paths"
-              value={platform.goldenPathCount ?? 0}
-              sub="Scaffolding templates"
-              border="border-violet-500/20"
-            />
-            <NavStatCard
-              to="/entity-actions"
-              icon={Play}
-              iconBg="bg-amber-500/15 text-amber-400"
-              label="Entity actions"
-              value={platform.actionCount ?? 0}
-              sub="Registered automations"
-              border="border-amber-500/20"
-            />
-            <NavStatCard
-              to="/reports"
-              icon={BarChart2}
-              iconBg="bg-sky-500/15 text-sky-400"
-              label="Avg scorecard"
-              value={platform.scorecards?.avg_score != null ? platform.scorecards.avg_score : '—'}
-              sub="Engineering reports"
-              border="border-sky-500/20"
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ── DORA Metrics ─────────────────────────────────────────────────── */}
-      {doraView && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <Gauge size={15} className="text-violet-400" />
-            <button
-              type="button"
-              onClick={() => navigate('/dora')}
-              className="text-sm font-bold text-white hover:text-indigo-400 transition-colors flex items-center gap-1"
-            >
-              DORA Metrics
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
-            <span className="text-[10px] text-slate-500 ml-1">— Engineering delivery performance</span>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <DoraCard metricKey="deployment_frequency" label="Deploy Frequency" icon={Rocket}       iconColor="text-emerald-400" metric={doraView.deployment_frequency} />
-            <DoraCard metricKey="lead_time"            label="Lead Time"        icon={Clock}        iconColor="text-blue-400"    metric={doraView.lead_time} />
-            <DoraCard metricKey="change_failure_rate"  label="Change Failure"   icon={AlertTriangle} iconColor="text-amber-400"  metric={doraView.change_failure_rate} />
-            <DoraCard metricKey="mttr"                 label="MTTR"             icon={RefreshCw}    iconColor="text-violet-400"  metric={doraView.mttr} />
-          </div>
-        </div>
-      )}
-
-      {/* ── Agent Pending Approvals ───────────────────────────────────────── */}
-      <AgentApprovalsWidget />
-
-      <OncallWidget />
-
-      {/* ── Predictive Log Scan ───────────────────────────────────────────── */}
-      <div className="flex flex-col gap-3 p-5 rounded-2xl border border-amber-500/20 bg-amber-500/5">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 shrink-0">
-              <ScanEye className="w-5 h-5 text-amber-400" />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-white">Predictive Log Scanner</p>
-              <p className="text-xs text-slate-500">AI-powered anomaly detection across all service logs</p>
-            </div>
-          </div>
-          <button
-            onClick={runScan}
-            disabled={scanning}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all
-              disabled:opacity-50 disabled:cursor-not-allowed
-              bg-amber-500/20 border border-amber-500/40 text-amber-300
-              hover:bg-amber-500/30 hover:border-amber-400/60 hover:text-amber-200"
-          >
-            {scanning
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> Scanning System Logs…</>
-              : <><ScanEye className="w-4 h-4" /> Run Predictive Log Scan</>
-            }
-          </button>
-        </div>
-
-        {/* Scan progress bar */}
-        {scanning && (
-          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-            <div className="h-full bg-amber-400 rounded-full animate-pulse" style={{ width: '60%' }} />
-          </div>
-        )}
-
-        {/* Result callout */}
-        {scanResult && !scanDismissed && (
-          <div className={`relative flex flex-col gap-2 p-4 rounded-xl border text-sm
-            ${scanResult.error
-              ? 'border-red-500/30 bg-red-500/10'
-              : 'border-amber-500/30 bg-amber-500/10'
-            }`}
-          >
-            <button
-              onClick={() => setScanDismissed(true)}
-              className="absolute top-3 right-3 text-slate-600 hover:text-slate-300 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            {scanResult.error ? (
-              <p className="text-red-400 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                {scanResult.error}
-              </p>
-            ) : (
-              <>
-                <div className="flex items-center gap-2 font-semibold text-amber-300">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  Anomaly Detected — Incident #{scanResult.id} Created
-                </div>
-                <p className="text-slate-300 leading-relaxed">{scanResult.summary}</p>
-                <p className="text-slate-500 text-xs">{scanResult.root_cause}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold
-                    bg-amber-500/20 border border-amber-500/40 text-amber-300">
-                    ⚠ WARNING
-                  </span>
-                  <span className="text-xs text-slate-600">via Anomaly Scanner · check Alert Triage for the full report</span>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Summary cards ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-white font-semibold text-sm">☁️ AWS Spend — This Month</h3>
-            <button
-              type="button"
-              onClick={() => {
-                setCostData(null)
-                setCostRefreshKey((k) => k + 1)
-              }}
-              className="text-gray-400 hover:text-white text-xs"
-            >
-              ↺
-            </button>
-          </div>
-
-          {costLoading && (
-            <div className="space-y-2">
-              <div className="h-8 bg-gray-700 rounded animate-pulse" />
-              <div className="h-4 bg-gray-700 rounded w-2/3 animate-pulse" />
-              <div className="h-4 bg-gray-700 rounded w-1/2 animate-pulse" />
-            </div>
-          )}
-
-          {!costLoading && costData && (
-            <>
-              <div className="text-3xl font-bold text-white mb-4">
-                $
-                {(costData.details?.total_usd || 0).toLocaleString(undefined, {
-                  maximumFractionDigits: 2,
-                })}
-              </div>
-              {Array.isArray(costData.details?.top_services) && (
-                <div className="space-y-2">
-                  {costData.details.top_services.slice(0, 5).map((svc, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-gray-400 text-xs w-28 truncate">{svc.service}</span>
-                      <div className="flex-1 bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className="h-full bg-indigo-500 rounded-full"
-                          style={{
-                            width: `${Math.min(
-                              ((svc.usd || 0) / (costData.details.total_usd || 1)) * 100,
-                              100
-                            )}%`,
-                          }}
-                        />
-                      </div>
-                      <span className="text-gray-300 text-xs w-16 text-right">
-                        ${(svc.usd || 0).toFixed(2)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {!costLoading && !costData && (
-            <p className="text-gray-400 text-sm">Cost data unavailable</p>
-          )}
-        </div>
-
-        <div className="lg:col-span-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           icon={Layers}
-          iconBg="bg-accent/15 text-accent"
+          iconClass="bg-accent/15 text-accent"
           label="Total Incidents"
           value={data?.open_incidents ?? d?.total_incidents}
           sub="Open / all time"
-          border="border-accent/20"
         />
         <StatCard
           icon={AlertTriangle}
-          iconBg="bg-red-500/15 text-red-400"
+          iconClass="bg-danger/15 text-red-400"
           label="Critical Alerts"
           value={d?.critical_alerts}
-          sub={`${d?.total_incidents ? Math.round((d.critical_alerts / d.total_incidents) * 100) : 0}% of total`}
-          border="border-red-500/20"
+          sub={
+            d?.total_incidents
+              ? `${Math.round((d.critical_alerts / d.total_incidents) * 100)}% of total`
+              : undefined
+          }
         />
-        <StatCard
-          icon={Clock}
-          iconBg="bg-blue-500/15 text-blue-400"
-          label="Avg Gap (MTTR proxy)"
-          value={data?.dora?.mttr_hours != null ? `${data.dora.mttr_hours}h` : d?.mttr}
-          sub="Between incidents"
-          border="border-blue-500/20"
-        />
-        <StatCard
-          icon={Wifi}
-          iconBg="bg-cyan-500/15 text-cyan-400"
-          label="Unread Notifications"
-          value={d?.unread_notifications}
-          sub="Pending review"
-          border="border-cyan-500/20"
-        />
-        </div>
       </div>
 
-      {/* ── Module totals ──────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: 'Infra Generations', value: d?.total_infra, icon: Construction, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-          { label: 'CI/CD Pipelines',   value: data?.deployments_today ?? d?.total_cicd,  icon: Rocket,       color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' },
-          { label: 'AI Alerts Triaged', value: d?.total_incidents, icon: ShieldAlert, color: 'text-accent', bg: 'bg-accent/10 border-accent/20' },
-        ].map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} className={`flex items-center gap-3 px-4 py-3.5 rounded-xl border ${bg}`}>
-            <Icon className={`w-5 h-5 ${color} shrink-0`} />
-            <div>
-              <p className="text-xl font-bold text-white">{value}</p>
-              <p className="text-[11px] text-slate-500">{label}</p>
+      <DoraStrip dora={doraFromSummary} />
+
+      {/* Two-column body: charts + cost | right rail */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        <div className="xl:col-span-8 flex flex-col gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            <Card title="Incidents by Severity" icon={Activity} iconColor="text-red-400" className="lg:col-span-2">
+              {sev.length === 0 ? (
+                <EmptyState title="No incidents yet" className="py-8" />
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <Pie
+                        data={sev}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={55}
+                        outerRadius={80}
+                        paddingAngle={3}
+                        dataKey="value"
+                        stroke="none"
+                      >
+                        {sev.map((entry) => (
+                          <Cell key={entry.name} fill={SEVERITY_COLORS[entry.name] ?? '#6b7280'} />
+                        ))}
+                      </Pie>
+                      <Tooltip content={<DarkTooltip />} />
+                      <DonutLabel cx="50%" cy="50%" total={sevTotal} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5">
+                    {sev.map((s) => (
+                      <div key={s.name} className="flex items-center gap-1.5 text-xs text-slate-400">
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ background: SEVERITY_COLORS[s.name] }} />
+                        {s.name} <span className="text-white font-semibold">({s.value})</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </Card>
+
+            <Card title="Incidents by Source" icon={Package} iconColor="text-accent" className="lg:col-span-3">
+              {sources.length === 0 ? (
+                <EmptyState title="No data yet" className="py-8" />
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={sources} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip content={<DarkTooltip />} cursor={{ fill: '#1e293b' }} />
+                    <Bar dataKey="value" name="Incidents" radius={[6, 6, 0, 0]} maxBarSize={48}>
+                      {sources.map((_, i) => (
+                        <Cell key={i} fill={i === 0 ? '#6366f1' : i === 1 ? '#3b82f6' : '#a855f7'} fillOpacity={0.85} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </Card>
+          </div>
+
+          <Card title="Incidents — Last 7 Days" icon={Activity} iconColor="text-blue-400">
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={overtime} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip content={<DarkTooltip />} cursor={{ stroke: '#334155' }} />
+                <Line
+                  type="monotone"
+                  dataKey="count"
+                  name="Incidents"
+                  stroke="#6366f1"
+                  strokeWidth={2.5}
+                  dot={{ r: 4, fill: '#6366f1', strokeWidth: 0 }}
+                  activeDot={{ r: 6, fill: '#818cf8' }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </Card>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <StatCard
+              icon={Clock}
+              iconClass="bg-blue-500/15 text-blue-400"
+              label="Avg Gap (MTTR proxy)"
+              value={data?.dora?.mttr_hours != null ? `${data.dora.mttr_hours}h` : d?.mttr}
+              sub="Between incidents"
+            />
+            <StatCard
+              icon={Wifi}
+              iconClass="bg-cyan-500/15 text-cyan-400"
+              label="Unread Notifications"
+              value={d?.unread_notifications}
+              sub="Pending review"
+            />
+            <div className="sm:col-span-1">
+              <AwsCostCard />
             </div>
           </div>
-        ))}
-      </div>
+        </div>
 
-      {/* ── Charts row 1 ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-
-        {/* Donut — severity */}
-        <ChartCard title="Incidents by Severity" icon={Activity} iconColor="text-red-400" className="lg:col-span-2">
-          {sev.length === 0 ? (
-            <p className="text-xs text-slate-600 py-8 text-center">No incidents yet</p>
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={sev}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={65}
-                    outerRadius={95}
-                    paddingAngle={3}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {sev.map((entry) => (
-                      <Cell key={entry.name} fill={SEVERITY_COLORS[entry.name] ?? '#6b7280'} />
-                    ))}
-                  </Pie>
-                  <Tooltip content={<DarkTooltip />} />
-                  <DonutLabel cx="50%" cy="50%" total={sevTotal} />
-                </PieChart>
-              </ResponsiveContainer>
-              {/* Legend */}
-              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5">
-                {sev.map((s) => (
-                  <div key={s.name} className="flex items-center gap-1.5 text-xs text-slate-400">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: SEVERITY_COLORS[s.name] }} />
-                    {s.name} <span className="text-white font-semibold">({s.value})</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </ChartCard>
-
-        {/* Bar — incidents by source */}
-        <ChartCard title="Incidents by Source" icon={TrendingUp} iconColor="text-accent" className="lg:col-span-3">
-          {sources.length === 0 ? (
-            <p className="text-xs text-slate-600 py-8 text-center">No data yet</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={sources} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip content={<DarkTooltip />} cursor={{ fill: '#1e293b' }} />
-                <Bar dataKey="value" name="Incidents" radius={[6, 6, 0, 0]} maxBarSize={48}>
-                  {sources.map((_, i) => (
-                    <Cell key={i} fill={i === 0 ? '#22c55e' : i === 1 ? '#3b82f6' : '#a855f7'} fillOpacity={0.85} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-      </div>
-
-      {/* ── Charts row 2 ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-
-        {/* Line — incidents over time */}
-        <ChartCard title="Incidents — Last 7 Days" icon={Activity} iconColor="text-blue-400" className="lg:col-span-3">
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={overtime} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip content={<DarkTooltip />} cursor={{ stroke: '#334155' }} />
-              <Line
-                type="monotone"
-                dataKey="count"
-                name="Incidents"
-                stroke="#22c55e"
-                strokeWidth={2.5}
-                dot={{ r: 4, fill: '#22c55e', strokeWidth: 0 }}
-                activeDot={{ r: 6, fill: '#4ade80' }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        {/* Bar — module activity */}
-        <ChartCard title="Module Activity" icon={Layers} iconColor="text-purple-400" className="lg:col-span-2">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={modules} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-              <XAxis type="number" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} width={52} />
-              <Tooltip content={<DarkTooltip />} cursor={{ fill: '#1e293b' }} />
-              <Bar dataKey="value" name="Count" radius={[0, 6, 6, 0]} maxBarSize={28}>
-                {modules.map((_, i) => (
-                  <Cell key={i} fill={MODULE_COLORS[i] ?? '#22c55e'} fillOpacity={0.85} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
+        <aside className="xl:col-span-4 flex flex-col gap-4">
+          <AgentApprovalsWidget />
+          <OncallWidget />
+          <LogScannerCard onIncidentCreated={() => { void fetchAnalytics() }} />
+        </aside>
       </div>
     </div>
   )

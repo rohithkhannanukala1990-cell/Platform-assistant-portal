@@ -6,8 +6,10 @@ import {
   CheckCircle2,
   Loader2,
   RefreshCw,
+  Layers,
 } from 'lucide-react'
 import { API_BASE } from '../config/apiBase'
+import { PageHeader, StatCard, EmptyState, SectionHeader } from './ui'
 
 function authHeaders(extra = {}) {
   const token = localStorage.getItem('token') || localStorage.getItem('aiops_access_token')
@@ -190,16 +192,11 @@ export default function StandardsPage() {
     standards.find((s) => s.slug === 'prod-readiness-v1')?.id || standards[0]?.id
 
   return (
-    <div className="max-w-7xl mx-auto w-full space-y-6 pb-16">
-      <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-          <ShieldCheck className="w-7 h-7 text-indigo-400" />
-          Production Readiness Standards
-        </h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Evaluate catalog entities against platform compliance standards
-        </p>
-      </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Production Readiness Standards"
+        subtitle="Evaluate catalog entities against platform compliance standards"
+      />
 
       {error && (
         <div className="rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-200">
@@ -207,33 +204,41 @@ export default function StandardsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total entities', value: summary.total, icon: ShieldCheck, cls: 'text-indigo-400 border-indigo-500/25 bg-indigo-500/5' },
-          { label: 'Passing', value: summary.passing, icon: CheckCircle2, cls: 'text-emerald-400 border-emerald-500/25 bg-emerald-500/5' },
-          { label: 'Needs attention', value: summary.attention, icon: AlertTriangle, cls: 'text-amber-400 border-amber-500/25 bg-amber-500/5' },
-          { label: 'Failing', value: summary.failing, icon: XCircle, cls: 'text-red-400 border-red-500/25 bg-red-500/5' },
-        ].map(({ label, value, icon: Icon, cls }) => (
-          <div key={label} className={`rounded-xl border p-4 ${cls}`}>
-            <div className="flex items-center gap-2 mb-2">
-              <Icon className="w-4 h-4" />
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</span>
-            </div>
-            <p className="text-3xl font-bold text-white">{value}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard
+          icon={Layers}
+          iconClass="bg-accent/15 text-accent"
+          label="Total entities"
+          value={summary.total}
+        />
+        <StatCard
+          icon={CheckCircle2}
+          iconClass="bg-success/15 text-emerald-400"
+          label="Passing"
+          value={summary.passing}
+        />
+        <StatCard
+          icon={AlertTriangle}
+          iconClass="bg-warning/15 text-amber-400"
+          label="Needs attention"
+          value={summary.attention}
+        />
+        <StatCard
+          icon={XCircle}
+          iconClass="bg-danger/15 text-red-400"
+          label="Failing"
+          value={summary.failing}
+        />
       </div>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Standards</h2>
+      <section className="flex flex-col gap-3">
+        <SectionHeader title="Standards" />
         {loading ? (
           <div className="flex items-center justify-center py-12 text-slate-400 gap-2">
             <Loader2 className="w-5 h-5 animate-spin" /> Loading standards…
           </div>
         ) : standards.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border py-12 text-center text-slate-500">
-            No standards defined yet.
-          </div>
+          <EmptyState icon={ShieldCheck} title="No standards defined yet." />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {standards.map((std) => (
@@ -256,7 +261,7 @@ export default function StandardsPage() {
                   type="button"
                   disabled={evaluatingStandardId === std.id || entities.length === 0}
                   onClick={() => void evaluateAllForStandard(std.id)}
-                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-accent hover:bg-accent/90 text-white text-sm font-semibold disabled:opacity-50"
                 >
                   {evaluatingStandardId === std.id ? (
                     <>
@@ -274,16 +279,14 @@ export default function StandardsPage() {
         )}
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Entity compliance</h2>
+      <section className="flex flex-col gap-3">
+        <SectionHeader title="Entity compliance" />
         {tableLoading ? (
           <div className="flex items-center justify-center py-16 text-slate-400 gap-2">
             <Loader2 className="w-5 h-5 animate-spin" /> Loading compliance data…
           </div>
         ) : entities.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border py-16 text-center text-slate-500">
-            No catalog entities found.
-          </div>
+          <EmptyState icon={Layers} title="No catalog entities found." />
         ) : (
           <div className="rounded-xl border border-border overflow-hidden">
             <div className="overflow-x-auto">

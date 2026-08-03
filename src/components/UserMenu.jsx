@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { User, Settings, LogOut, ChevronDown, ShieldCheck } from 'lucide-react'
+import { User, Settings, LogOut, ChevronDown, ShieldCheck, Zap, Wifi } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 function initialsFrom(name) {
@@ -9,7 +9,7 @@ function initialsFrom(name) {
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
 }
 
-export default function UserMenu({ onOpenSettings }) {
+export default function UserMenu({ onOpenSettings, llmLabel, wsConnected = true }) {
   const { isAuthenticated, logout, user, role } = useAuth()
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -36,21 +36,26 @@ export default function UserMenu({ onOpenSettings }) {
         aria-label="Account menu"
         aria-expanded={open}
         title={`${displayName} — account & logout`}
-        className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-lg border border-emerald-500/50
-          bg-emerald-950/40 hover:bg-emerald-900/50 hover:border-emerald-400
+        className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-lg border border-neutral-700
+          bg-neutral-800/60 hover:bg-neutral-800 hover:border-neutral-600
           transition-colors cursor-pointer"
       >
-        <div
-          className="flex items-center justify-center w-8 h-8 rounded-full shrink-0
-            bg-emerald-500 text-neutral-950 shadow-sm shadow-emerald-500/40"
-        >
-          <span className="text-xs font-bold leading-none">{initials}</span>
+        <div className="relative shrink-0">
+          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-accent text-white">
+            <span className="text-xs font-bold leading-none">{initials}</span>
+          </div>
+          {!wsConnected && (
+            <span
+              className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-warning border-2 border-neutral-900 animate-pulse"
+              title="Live updates reconnecting"
+            />
+          )}
         </div>
         <span className="hidden md:inline text-xs font-semibold text-white max-w-[6rem] truncate">
           {displayName}
         </span>
         <ChevronDown
-          className={`w-3.5 h-3.5 text-emerald-200/90 transition-transform duration-200
+          className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200
             ${open ? 'rotate-180' : ''}`}
         />
       </button>
@@ -61,19 +66,29 @@ export default function UserMenu({ onOpenSettings }) {
             bg-neutral-950 shadow-2xl shadow-black/60 overflow-hidden z-50"
         >
           <div className="flex items-center gap-3 px-4 py-3 border-b border-neutral-800 bg-neutral-900/80">
-            <div
-              className="flex items-center justify-center w-9 h-9 rounded-full shrink-0
-                bg-emerald-500 text-neutral-950 border border-emerald-300/80"
-            >
+            <div className="flex items-center justify-center w-9 h-9 rounded-full shrink-0 bg-accent text-white">
               <span className="text-sm font-bold">{initials}</span>
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-white truncate">{displayName}</p>
               <p className="text-[10px] text-neutral-400 flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                <ShieldCheck className="w-3 h-3 text-accent-hover" />
                 {roleLabel}
               </p>
             </div>
+          </div>
+
+          <div className="px-4 py-2 border-b border-neutral-800 flex flex-col gap-1.5">
+            {llmLabel && (
+              <p className="flex items-center gap-2 text-[11px] text-neutral-400">
+                <Zap className="w-3 h-3 text-accent-hover shrink-0" />
+                <span className="truncate">Model: {llmLabel}</span>
+              </p>
+            )}
+            <p className="flex items-center gap-2 text-[11px] text-neutral-400">
+              <Wifi className={`w-3 h-3 shrink-0 ${wsConnected ? 'text-success' : 'text-warning'}`} />
+              {wsConnected ? 'Live updates active' : 'Reconnecting…'}
+            </p>
           </div>
 
           <div className="py-1.5">
