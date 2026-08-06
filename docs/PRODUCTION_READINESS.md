@@ -19,13 +19,23 @@ Not a claim of Port/Backstage/incident.io feature parity.
 
 ## Quality score (honest)
 
-Internal review (Aug 2026): **~8.5 / 10** for a design-partner pilot — not a claim of product perfection.
+Canonical scorecard (Aug 2026). **Primary public number: design-partner pilot 8.2 / 10** — ship to a friendly org with guardrails. Not a claim of GA SaaS or category parity.
 
-What already lifts the score: HITL agents, tenant isolation, backend test depth, docs, LLM cost tracking,
+| Lens | Score | Meaning |
+|------|-------|---------|
+| Design-partner pilot | **8.2 / 10** | Primary rating — ship to a friendly org with guardrails |
+| Feature ambition / architecture | 8.5 / 10 | Agents, HITL, catalog, incidents, MCP, cost tracking |
+| Engineering rigor | 8.5 / 10 | Deep backend tests, Postgres CI, docs, Alembic |
+| Security posture | 7.5 / 10 | Real controls; HITL mostly prod; soft audits; default-cred risk |
+| Frontend polish / product UX | 7.5 / 10 | Much improved; partial TS; thin browser e2e |
+| GA multi-tenant SaaS | 6.5–7 / 10 | Not there yet without P0/P1 hardening |
+| vs category leaders (parity) | 5–6 / 10 | Broad surface, not category depth everywhere |
+
+What already lifts the scores: HITL agents, tenant isolation, backend test depth, docs, LLM cost tracking,
 typed Auth/API helpers, live Deployments (GitHub Actions + optional Argo CD), preview-labeled labs,
-authFetch consistency on dashboard/notifications/infra/query analyzer, Postgres pytest in CI, Playwright login smoke.
+authFetch consistency, Postgres pytest in CI, Playwright login smoke.
 
-What still blocks a higher score:
+What still caps the pilot / FE / security lenses:
 
 | Gap | Why it matters |
 |-----|----------------|
@@ -35,7 +45,7 @@ What still blocks a higher score:
 | God files | Catalog/auth/AI/health modules remain large |
 | Soft dep audits | Full `pip-audit` / moderate `npm audit` stay advisory until baselines are clean |
 
-Path toward **9.5+**: TypeScript across high-traffic pages, expand browser e2e beyond login, split god files, hard-fail remaining audits, replace remaining preview Data Tools.
+Path toward **9.5+ pilot**: TypeScript across high-traffic pages, expand browser e2e beyond login, split god files, hard-fail remaining audits, replace remaining preview Data Tools.
 
 ## What remains (~ vs competitors)
 
