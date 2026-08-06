@@ -35,6 +35,7 @@ from .ai_models import (
     AIMessage,
     AIToolExecution,
     AgentRun,
+    LLMUsageEvent,
     UserAgentPermission,
 )
 from .alerts import AlertGroupBucket, AlertRule
@@ -74,6 +75,7 @@ __all__ = [
     "AIToolExecution",
     "UserAgentPermission",
     "AgentRun",
+    "LLMUsageEvent",
     "AlertRule",
     "AlertGroupBucket",
     "CatalogAction",

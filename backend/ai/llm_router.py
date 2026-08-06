@@ -20,6 +20,11 @@ class LLMRouter:
         system_prompt: str = "",
         stream: bool = False,
         provider: Optional[str] = None,
+        *,
+        user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        source: str = "unknown",
     ) -> str:
         _ = stream  # streaming not implemented in L1
         return await llm_service.chat(
@@ -27,6 +32,10 @@ class LLMRouter:
             model=model,
             provider=provider,
             system_prompt=system_prompt,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            source=source,
         )
 
     def build_system_prompt(self, context: dict) -> str:

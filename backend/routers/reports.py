@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends
-from sqlmodel import Session, select
+from fastapi import APIRouter, Depends, Query
+from sqlmodel import Session, col, select
 
-from ..auth import User, get_current_user, get_session
+from ..auth import LLMProviderConfig, User, get_current_user, get_session
+from ..db.models.ai_models import LLMUsageEvent
+from ..services.isolation import tenant_of
 from .catalog import CatalogEntity
 from .entity_actions import EntityActionRun
 from .scorecards import ScorecardCheck
@@ -245,3 +248,111 @@ def team_overview(
 
     teams.sort(key=lambda t: t["services_owned"], reverse=True)
     return {"teams": teams}
+
+
+@router.get("/llm-usage")
+def llm_usage_overview(
+    days: int = Query(30, ge=1, le=365),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Organization-wide LLM token utilization and estimated API cost."""
+    tenant_id = tenant_of(current_user)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    q = select(LLMUsageEvent).where(LLMUsageEvent.created_at >= since)
+    if tenant_id:
+        q = q.where(LLMUsageEvent.tenant_id == tenant_id)
+    events = list(session.exec(q).all())
+
+    total_prompt = sum(int(e.prompt_tokens or 0) for e in events)
+    total_completion = sum(int(e.completion_tokens or 0) for e in events)
+    total_tokens = sum(int(e.total_tokens or 0) for e in events)
+    total_cost = round(sum(float(e.estimated_cost_usd or 0.0) for e in events), 6)
+
+    by_provider: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"provider": "", "tokens": 0, "calls": 0, "estimated_cost_usd": 0.0}
+    )
+    by_model: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"model": "", "provider": "", "tokens": 0, "calls": 0, "estimated_cost_usd": 0.0}
+    )
+    by_user: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"user_id": "", "tokens": 0, "calls": 0, "estimated_cost_usd": 0.0}
+    )
+    by_source: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"source": "", "tokens": 0, "calls": 0, "estimated_cost_usd": 0.0}
+    )
+    by_day: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"date": "", "tokens": 0, "cost_usd": 0.0, "calls": 0}
+    )
+
+    for e in events:
+        provider = (e.provider or "unknown").strip() or "unknown"
+        model = (e.model or "unknown").strip() or "unknown"
+        user = (e.user_id or "system").strip() or "system"
+        source = (e.source or "unknown").strip() or "unknown"
+        tokens = int(e.total_tokens or 0)
+        cost = float(e.estimated_cost_usd or 0.0)
+        day = e.created_at.date().isoformat() if e.created_at else "unknown"
+
+        bp = by_provider[provider]
+        bp["provider"] = provider
+        bp["tokens"] += tokens
+        bp["calls"] += 1
+        bp["estimated_cost_usd"] = round(bp["estimated_cost_usd"] + cost, 6)
+
+        bm = by_model[model]
+        bm["model"] = model
+        bm["provider"] = provider
+        bm["tokens"] += tokens
+        bm["calls"] += 1
+        bm["estimated_cost_usd"] = round(bm["estimated_cost_usd"] + cost, 6)
+
+        bu = by_user[user]
+        bu["user_id"] = user
+        bu["tokens"] += tokens
+        bu["calls"] += 1
+        bu["estimated_cost_usd"] = round(bu["estimated_cost_usd"] + cost, 6)
+
+        bs = by_source[source]
+        bs["source"] = source
+        bs["tokens"] += tokens
+        bs["calls"] += 1
+        bs["estimated_cost_usd"] = round(bs["estimated_cost_usd"] + cost, 6)
+
+        bd = by_day[day]
+        bd["date"] = day
+        bd["tokens"] += tokens
+        bd["calls"] += 1
+        bd["cost_usd"] = round(bd["cost_usd"] + cost, 6)
+
+    budgets = []
+    for row in session.exec(
+        select(LLMProviderConfig).order_by(col(LLMProviderConfig.priority).desc())
+    ).all():
+        budgets.append(
+            {
+                "config_id": row.id,
+                "provider": row.provider,
+                "model": row.model_name,
+                "monthly_token_budget": int(row.monthly_token_budget or 0),
+                "tokens_used_this_month": int(row.tokens_used_this_month or 0),
+                "is_active": bool(row.is_active),
+            }
+        )
+
+    return {
+        "days": days,
+        "tenant_id": tenant_id,
+        "total_tokens": total_tokens,
+        "prompt_tokens": total_prompt,
+        "completion_tokens": total_completion,
+        "estimated_cost_usd": total_cost,
+        "calls": len(events),
+        "by_provider": sorted(by_provider.values(), key=lambda x: x["tokens"], reverse=True),
+        "by_model": sorted(by_model.values(), key=lambda x: x["tokens"], reverse=True),
+        "by_user": sorted(by_user.values(), key=lambda x: x["tokens"], reverse=True),
+        "by_source": sorted(by_source.values(), key=lambda x: x["tokens"], reverse=True),
+        "by_day": sorted(by_day.values(), key=lambda x: x["date"]),
+        "budget": budgets,
+    }

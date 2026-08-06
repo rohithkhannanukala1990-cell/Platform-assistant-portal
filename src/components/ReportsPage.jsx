@@ -7,6 +7,8 @@ import {
   AlertTriangle,
   XCircle,
   RefreshCw,
+  Coins,
+  Zap,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { PageHeader, Card, StatCard, SectionHeader, EmptyState } from './ui'
@@ -44,6 +46,7 @@ export default function ReportsPage() {
   const [scorecardsData, setScorecardsData] = useState(null)
   const [standardsData, setStandardsData] = useState(null)
   const [teamData, setTeamData] = useState(null)
+  const [llmUsage, setLlmUsage] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -53,11 +56,12 @@ export default function ReportsPage() {
   const loadReports = useCallback(async () => {
     setError(null)
     try {
-      const [cRes, scRes, stRes, tRes] = await Promise.all([
+      const [cRes, scRes, stRes, tRes, llmRes] = await Promise.all([
         authFetch('/api/reports/catalog-overview'),
         authFetch('/api/reports/scorecards-overview'),
         authFetch('/api/reports/standards-overview'),
         authFetch('/api/reports/team-overview'),
+        authFetch('/api/reports/llm-usage?days=30'),
       ])
       if (!cRes.ok) throw new Error(await cRes.text())
       if (!scRes.ok) throw new Error(await scRes.text())
@@ -73,6 +77,11 @@ export default function ReportsPage() {
       setScorecardsData(sc)
       setStandardsData(st)
       setTeamData(t)
+      if (llmRes.ok) {
+        setLlmUsage(await llmRes.json())
+      } else {
+        setLlmUsage(null)
+      }
     } catch (e) {
       setError(e.message || 'Failed to load reports')
     } finally {
@@ -129,7 +138,7 @@ export default function ReportsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Engineering Reports"
-        subtitle="Aggregated catalog, scorecard, standards, and team metrics"
+        subtitle="Catalog, scorecards, standards, team metrics, and org LLM token cost"
         actions={(
           <button
             type="button"
@@ -328,6 +337,139 @@ export default function ReportsPage() {
                 ))}
               </div>
             </Card>
+          </section>
+
+          <section className="flex flex-col gap-4">
+            <SectionHeader title="Token Utilization" icon={Coins} />
+            <p className="text-sm text-gray-400 -mt-2">
+              Organization LLM API usage across all portal users (last {llmUsage?.days ?? 30} days).
+              Cost is an estimate from model list prices, not a provider invoice.
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <StatCard
+                icon={Zap}
+                iconClass="bg-emerald-500/15 text-emerald-400"
+                label="Total Tokens"
+                value={llmUsage ? Number(llmUsage.total_tokens || 0).toLocaleString() : '—'}
+              />
+              <StatCard
+                icon={Coins}
+                iconClass="bg-amber-500/15 text-amber-400"
+                label="Est. Cost (USD)"
+                value={
+                  llmUsage
+                    ? `$${Number(llmUsage.estimated_cost_usd || 0).toFixed(4)}`
+                    : '—'
+                }
+              />
+              <StatCard
+                icon={BarChart2}
+                iconClass="bg-blue-500/15 text-blue-400"
+                label="API Calls"
+                value={llmUsage ? Number(llmUsage.calls || 0).toLocaleString() : '—'}
+              />
+              <StatCard
+                icon={Users}
+                iconClass="bg-violet-500/15 text-violet-400"
+                label="Active Users"
+                value={llmUsage ? (llmUsage.by_user || []).length : '—'}
+              />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Card title="Usage by User">
+                {(llmUsage?.by_user || []).length === 0 ? (
+                  <EmptyState title="No LLM usage recorded yet" className="py-6" />
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left text-xs text-gray-500 font-medium px-2 py-2">User</th>
+                          <th className="text-right text-xs text-gray-500 font-medium px-2 py-2">Tokens</th>
+                          <th className="text-right text-xs text-gray-500 font-medium px-2 py-2">Calls</th>
+                          <th className="text-right text-xs text-gray-500 font-medium px-2 py-2">Est. $</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(llmUsage.by_user || []).slice(0, 12).map((u) => (
+                          <tr key={u.user_id} className="border-b border-border last:border-0">
+                            <td className="px-2 py-2 text-sm text-white truncate max-w-[160px]">{u.user_id}</td>
+                            <td className="px-2 py-2 text-sm text-gray-300 text-right">
+                              {Number(u.tokens || 0).toLocaleString()}
+                            </td>
+                            <td className="px-2 py-2 text-sm text-gray-300 text-right">{u.calls}</td>
+                            <td className="px-2 py-2 text-sm text-amber-300 text-right">
+                              ${Number(u.estimated_cost_usd || 0).toFixed(4)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+              <Card title="Usage by Provider / Model">
+                {(llmUsage?.by_model || []).length === 0 && (llmUsage?.by_provider || []).length === 0 ? (
+                  <EmptyState title="No provider usage yet" className="py-6" />
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      {(llmUsage?.by_provider || []).map((p) => (
+                        <div key={p.provider} className="flex items-center justify-between text-sm">
+                          <span className="text-gray-400">{p.provider}</span>
+                          <span className="text-white">
+                            {Number(p.tokens || 0).toLocaleString()} tok · ${Number(p.estimated_cost_usd || 0).toFixed(4)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="border-t border-border pt-3 space-y-2">
+                      {(llmUsage?.by_model || []).slice(0, 8).map((m) => (
+                        <div key={`${m.provider}-${m.model}`} className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500 truncate max-w-[200px]">
+                            {m.model} <span className="text-gray-600">({m.provider})</span>
+                          </span>
+                          <span className="text-gray-300 shrink-0 ml-2">
+                            {Number(m.tokens || 0).toLocaleString()} · ${Number(m.estimated_cost_usd || 0).toFixed(4)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </div>
+            {(llmUsage?.budget || []).length > 0 && (
+              <Card title="Monthly Token Budgets">
+                <div className="space-y-3">
+                  {llmUsage.budget.map((b) => {
+                    const budget = Number(b.monthly_token_budget || 0)
+                    const used = Number(b.tokens_used_this_month || 0)
+                    const pct = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0
+                    return (
+                      <div key={b.config_id ?? `${b.provider}-${b.model}`}>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="text-gray-400">
+                            {b.model} <span className="text-gray-600">({b.provider})</span>
+                          </span>
+                          <span className="text-white">
+                            {used.toLocaleString()} / {budget.toLocaleString()} ({pct}%)
+                          </span>
+                        </div>
+                        <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </Card>
+            )}
           </section>
 
           <section className="flex flex-col gap-4">

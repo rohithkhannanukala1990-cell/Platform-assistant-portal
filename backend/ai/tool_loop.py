@@ -117,10 +117,22 @@ async def chat_with_tools(
             logger.warning("MCP tool discovery failed", extra={"source": "mcp", "error": str(exc)})
             tools = []
 
+    chat_user = ""
+    if user is not None:
+        chat_user = getattr(user, "username", None) or str(getattr(user, "id", "") or "")
+    llm_attrs = {
+        "user_id": chat_user or None,
+        "tenant_id": tenant_id,
+        "source": source or "chat",
+    }
+
     result["tools_available"] = len(tools)
     if not tools:
         result["reply"] = await llm_service.chat(
-            messages=history, model=model, system_prompt=system_prompt
+            messages=history,
+            model=model,
+            system_prompt=system_prompt,
+            **llm_attrs,
         )
         return result
 
@@ -130,7 +142,12 @@ async def chat_with_tools(
 
     for _round in range(rounds):
         result["rounds"] += 1
-        reply = await llm_service.chat(messages=history, model=model, system_prompt=loop_prompt)
+        reply = await llm_service.chat(
+            messages=history,
+            model=model,
+            system_prompt=loop_prompt,
+            **llm_attrs,
+        )
         requested = _parse_tool_call(reply)
         if requested is None:
             result["reply"] = reply
@@ -172,5 +189,6 @@ async def chat_with_tools(
         messages=history,
         model=model,
         system_prompt=(system_prompt or "") + "\nAnswer now using the tool results above. Do not request more tools.",
+        **llm_attrs,
     )
     return result

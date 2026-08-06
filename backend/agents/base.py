@@ -384,7 +384,15 @@ class BaseAgent(ABC):
             body = f"{GROUNDING_RULES}\n\n{prompt}"
         messages = [{"role": "user", "content": body}]
         model = (os.getenv("LLM_DEFAULT_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
-        return await llm_router.chat(messages, model=model, system_prompt=system)
+        return await llm_router.chat(
+            messages,
+            model=model,
+            system_prompt=system,
+            user_id=getattr(context, "user_id", None),
+            tenant_id=getattr(context, "tenant_id", None),
+            workspace_id=getattr(context, "workspace_id", None),
+            source=f"agent:{getattr(self, 'name', 'agent')}",
+        )
 
     async def _execute(
         self, commands: list[str], context: PlatformContext, incident_id: int = 0

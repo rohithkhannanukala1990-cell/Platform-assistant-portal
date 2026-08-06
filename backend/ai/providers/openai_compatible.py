@@ -7,7 +7,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import LLMNotConfiguredError, LLMProvider
+from .base import LLMChatResult, LLMNotConfiguredError, LLMProvider
+from ..usage_pricing import estimate_tokens_from_text
 
 
 def _mock_enabled() -> bool:
@@ -124,9 +125,22 @@ class OpenAICompatibleProvider(LLMProvider):
         system_prompt: str = "",
         temperature: float = 0.2,
         max_tokens: Optional[int] = None,
-    ) -> str:
+    ) -> LLMChatResult:
         if _mock_enabled():
-            return _mock_response(messages)
+            text = _mock_response(messages)
+            prompt_est = estimate_tokens_from_text(
+                (system_prompt or "")
+                + "\n".join(str(m.get("content") or "") for m in messages)
+            )
+            completion_est = estimate_tokens_from_text(text)
+            return LLMChatResult(
+                text=text,
+                prompt_tokens=prompt_est,
+                completion_tokens=completion_est,
+                total_tokens=prompt_est + completion_est,
+                provider=self.id,
+                model=model,
+            )
         if not self._api_key:
             raise LLMNotConfiguredError(
                 f"{self.id} API key is not configured (set OPENAI_API_KEY or LLM_MOCK=1)."
@@ -154,4 +168,16 @@ class OpenAICompatibleProvider(LLMProvider):
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
-        return data["choices"][0]["message"]["content"]
+        text = data["choices"][0]["message"]["content"]
+        usage = data.get("usage") or {}
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or 0)
+        total_tokens = int(usage.get("total_tokens") or (prompt_tokens + completion_tokens))
+        return LLMChatResult(
+            text=text,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            provider=self.id,
+            model=model,
+        )

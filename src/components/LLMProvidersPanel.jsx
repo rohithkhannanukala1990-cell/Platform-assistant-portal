@@ -221,6 +221,29 @@ export default function LLMProvidersPanel() {
                 </div>
               )}
             </div>
+            {(() => {
+              const budget = Number(row.monthly_token_budget || 0)
+              const used = Number(row.tokens_used_this_month || 0)
+              const pct = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0
+              return (
+                <div className="mt-1">
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
+                    <span>Monthly tokens</span>
+                    <span>
+                      {used.toLocaleString()} / {budget.toLocaleString()} ({pct}%)
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${
+                        pct >= 90 ? 'bg-rose-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         ))}
       </div>
@@ -266,7 +289,14 @@ export default function LLMProvidersPanel() {
               placeholder="priority"
               className="bg-card border border-border rounded-lg px-2 py-2 text-xs text-slate-300"
             />
-            <label className="flex items-center gap-2 text-xs text-slate-400">
+            <input
+              type="number"
+              value={form.monthly_token_budget}
+              onChange={(e) => setField('monthly_token_budget', e.target.value)}
+              placeholder="monthly token budget"
+              className="bg-card border border-border rounded-lg px-2 py-2 text-xs text-slate-300"
+            />
+            <label className="flex items-center gap-2 text-xs text-slate-400 col-span-2">
               <input
                 type="checkbox"
                 checked={form.is_active}

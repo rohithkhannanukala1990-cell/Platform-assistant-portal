@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -10,10 +11,13 @@ from sqlmodel import Session, col, select
 
 from .providers import (
     AnthropicProvider,
+    LLMChatResult,
     LLMNotConfiguredError,
     OpenAICompatibleProvider,
 )
 from .providers.openai_compatible import _mock_enabled
+from .usage_pricing import estimate_cost_usd
+from ..services.llm_usage import record_llm_usage
 
 
 @dataclass
@@ -371,6 +375,12 @@ Be concise, technical, and accurate."""
         temperature: float = 0.2,
         max_tokens: Optional[int] = None,
         config_id: Optional[int] = None,
+        *,
+        user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        source: str = "unknown",
+        request_id: Optional[str] = None,
     ) -> str:
         if messages is None:
             messages = []
@@ -385,13 +395,50 @@ Be concise, technical, and accurate."""
             api_key=resolved.api_key,
             base_url=resolved.base_url,
         )
-        return await impl.chat(
+        started = time.perf_counter()
+        result = await impl.chat(
             messages,
             model=resolved.model,
             system_prompt=system_prompt or "",
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        latency_ms = int((time.perf_counter() - started) * 1000)
+
+        if isinstance(result, LLMChatResult):
+            text = result.text
+            prompt_tokens = int(result.prompt_tokens or 0)
+            completion_tokens = int(result.completion_tokens or 0)
+            total_tokens = int(result.total_tokens or 0) or (prompt_tokens + completion_tokens)
+            provider_name = result.provider or resolved.provider
+            model_name = result.model or resolved.model
+        else:
+            # Backward-compat if a stub still returns a bare string.
+            text = str(result)
+            prompt_tokens = completion_tokens = total_tokens = 0
+            provider_name = resolved.provider
+            model_name = resolved.model
+
+        record_llm_usage(
+            provider=provider_name,
+            model=model_name,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            estimated_cost_usd=estimate_cost_usd(
+                model=model_name,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            ),
+            config_id=resolved.config_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            source=source,
+            latency_ms=latency_ms,
+            request_id=request_id,
+        )
+        return text
 
 
 llm_service = LLMService()

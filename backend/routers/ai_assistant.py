@@ -693,14 +693,17 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
         )
         mcp_tool_calls: list[dict[str, Any]] = []
         mcp_pending: list[dict[str, Any]] = []
+        from ..services.isolation import tenant_of as _tenant_of
+
+        chat_tenant = _tenant_of(current_user)
+        chat_user = getattr(current_user, "username", None) or str(getattr(current_user, "id", "") or "")
         if req.use_mcp:
             from ..ai.tool_loop import chat_with_tools
-            from ..services.isolation import tenant_of
 
             loop_result = await chat_with_tools(
                 messages=llm_messages,
                 user=current_user,
-                tenant_id=tenant_of(current_user),
+                tenant_id=chat_tenant,
                 model=model,
                 system_prompt=system_prompt,
                 source="chat",
@@ -709,7 +712,15 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
             mcp_tool_calls = loop_result.get("tool_calls") or []
             mcp_pending = loop_result.get("pending_approvals") or []
         else:
-            response_text = await llm_router.chat(llm_messages, model=model, system_prompt=system_prompt)
+            response_text = await llm_router.chat(
+                llm_messages,
+                model=model,
+                system_prompt=system_prompt,
+                user_id=chat_user,
+                tenant_id=chat_tenant,
+                workspace_id=getattr(conv, "workspace_id", None) if conv else None,
+                source="chat",
+            )
 
         # Separate prose from the structured ACTIONS_JSON block (if present).
         natural_response, structured_actions, parse_errors = _parse_actions_json(

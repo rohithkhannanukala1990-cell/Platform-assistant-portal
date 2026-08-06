@@ -72,6 +72,31 @@ class UserAgentPermission(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class LLMUsageEvent(SQLModel, table=True):
+    """Per-call LLM token usage for organization cost reporting."""
+
+    __tablename__ = "llm_usage_events"
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    tenant_id: str = Field(default="default", index=True)
+    workspace_id: Optional[str] = Field(default=None, index=True)
+    user_id: Optional[str] = Field(default=None, index=True)
+    source: str = Field(default="unknown", index=True)  # chat | agent | triage | ...
+    provider: str = Field(default="", index=True)
+    model: str = Field(default="", index=True)
+    config_id: Optional[int] = Field(default=None, index=True)
+    prompt_tokens: int = Field(default=0)
+    completion_tokens: int = Field(default=0)
+    total_tokens: int = Field(default=0)
+    estimated_cost_usd: float = Field(default=0.0)
+    latency_ms: Optional[int] = Field(default=None)
+    request_id: Optional[str] = Field(default=None)
+
+
 class AgentRun(SQLModel, table=True):
     """Persisted agent pipeline runs (HITL approvals)."""
 

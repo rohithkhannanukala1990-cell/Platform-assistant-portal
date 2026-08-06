@@ -7,8 +7,9 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import LLMNotConfiguredError, LLMProvider
+from .base import LLMChatResult, LLMNotConfiguredError, LLMProvider
 from .openai_compatible import _mock_enabled, _mock_response
+from ..usage_pricing import estimate_tokens_from_text
 
 
 class AnthropicProvider(LLMProvider):
@@ -30,9 +31,22 @@ class AnthropicProvider(LLMProvider):
         system_prompt: str = "",
         temperature: float = 0.2,
         max_tokens: Optional[int] = None,
-    ) -> str:
+    ) -> LLMChatResult:
         if _mock_enabled():
-            return _mock_response(messages)
+            text = _mock_response(messages)
+            prompt_est = estimate_tokens_from_text(
+                (system_prompt or "")
+                + "\n".join(str(m.get("content") or "") for m in messages)
+            )
+            completion_est = estimate_tokens_from_text(text)
+            return LLMChatResult(
+                text=text,
+                prompt_tokens=prompt_est,
+                completion_tokens=completion_est,
+                total_tokens=prompt_est + completion_est,
+                provider=self.id,
+                model=model,
+            )
         if not self._api_key:
             raise LLMNotConfiguredError(
                 "anthropic API key is not configured (set ANTHROPIC_API_KEY or LLM_MOCK=1)."
@@ -69,4 +83,15 @@ class AnthropicProvider(LLMProvider):
             data = response.json()
         parts = data.get("content") or []
         texts = [p.get("text", "") for p in parts if isinstance(p, dict) and p.get("type") == "text"]
-        return "".join(texts) if texts else str(data)
+        text = "".join(texts) if texts else str(data)
+        usage = data.get("usage") or {}
+        prompt_tokens = int(usage.get("input_tokens") or 0)
+        completion_tokens = int(usage.get("output_tokens") or 0)
+        return LLMChatResult(
+            text=text,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+            provider=self.id,
+            model=model,
+        )
