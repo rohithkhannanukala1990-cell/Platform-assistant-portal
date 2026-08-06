@@ -137,7 +137,7 @@ export default function WorkspaceSwitcher({
           type="button"
           onClick={() => {
             setIsOpen(false)
-            navigate('/ops?view=workspaces&create=true')
+            navigate('/workspaces?create=true')
           }}
           className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-semibold"
         >
@@ -165,7 +165,7 @@ export default function WorkspaceSwitcher({
           className="w-full text-left text-xs text-blue-400 hover:text-blue-300 px-2 py-1.5 mt-1"
           onClick={() => {
             setIsOpen(false)
-            navigate('/ops?view=workspaces')
+            navigate('/workspaces')
           }}
         >
           View All →

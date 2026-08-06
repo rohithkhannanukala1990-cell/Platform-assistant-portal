@@ -12,8 +12,29 @@ permissions:
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aiops_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d aiops_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       PYTHONPATH: ${{ github.workspace }}
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aiops_test
+      SECRET_KEY: ci-jwt-secret-not-for-production
+      LLM_MOCK: "1"
+      SKIP_BACKGROUND_SCHEDULER: "1"
+      ENV: test
+      DEFAULT_ADMIN_USERNAME: admin
+      DEFAULT_ADMIN_PASSWORD: Admin123!
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,7 +44,7 @@ jobs:
         run: |
           pip install -r backend/requirements.txt
           pip install pytest pytest-asyncio httpx
-      - name: Run tests
+      - name: Run tests (Postgres)
         run: pytest backend/tests/ -v --tb=short
       - name: Security scan (pip-audit)
         continue-on-error: true
@@ -46,6 +67,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
       - name: Run ESLint
         run: npm run lint
       - name: Run unit tests
@@ -57,6 +80,58 @@ jobs:
       - name: Audit packages (moderate advisory)
         continue-on-error: true
         run: npm audit --audit-level=moderate
+
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-lint]
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      DATABASE_URL: sqlite:///./backend/e2e_portal.db
+      SECRET_KEY: e2e-jwt-secret-not-for-production
+      LLM_MOCK: "1"
+      SKIP_BACKGROUND_SCHEDULER: "1"
+      ENV: test
+      ENABLE_DEMO_DATA: "true"
+      ENFORCE_WORKSPACE_ISOLATION: "false"
+      SECRETS_ENCRYPTION_KEY: rw5jOUzQ-R3miqZbXHu_UPh8NvzBNWhp-cEpJHGuPRc=
+      DEFAULT_ADMIN_USERNAME: admin
+      DEFAULT_ADMIN_PASSWORD: Admin123!
+      ALLOWED_ORIGINS: http://127.0.0.1:5173,http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install backend deps
+        run: pip install -r backend/requirements.txt
+      - name: Install frontend deps
+        run: npm ci
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Start backend
+        run: |
+          python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 &
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8000/health/live; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Start frontend
+        run: |
+          npm run dev -- --host 127.0.0.1 --port 5173 &
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:5173; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Run Playwright smoke
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:5173
+        run: npm run test:e2e
 
   docker-build:
     runs-on: ubuntu-latest

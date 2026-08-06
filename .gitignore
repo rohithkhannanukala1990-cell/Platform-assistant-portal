@@ -58,3 +58,10 @@ desktop.ini
 npm-debug.log*
 celerybeat-schedule
 celerybeat.pid
+
+# ── Playwright ────────────────────────────────────────────────────────────────
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+backend/e2e_portal.db*

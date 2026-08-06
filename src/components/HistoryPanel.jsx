@@ -7,12 +7,11 @@ import {
   RefreshCw, Inbox,
   Zap, Construction, Rocket,
 } from 'lucide-react'
-import { API_BASE } from '../config/apiBase'
 
 const ENDPOINTS = {
-  alerts: `${API_BASE}/api/incidents`,
-  infra:  `${API_BASE}/api/infra/history`,
-  cicd:   `${API_BASE}/api/cicd/history`,
+  alerts: '/api/incidents',
+  infra:  '/api/infra/history',
+  cicd:   '/api/cicd/history',
 }
 
 const TABS = [
@@ -137,7 +136,7 @@ function CICDRow({ item, selected, onClick }) {
 }
 
 export default function HistoryPanel({ versions, onSelect, selectedIds, activeView }) {
-  const { role } = useAuth()
+  const { role, authFetch } = useAuth()
   const [activeTab, setActiveTab]   = useState('alerts')
   const [data, setData]             = useState({ alerts: [], infra: [], cicd: [] })
   const [loading, setLoading]       = useState(false)
@@ -150,14 +149,14 @@ export default function HistoryPanel({ versions, onSelect, selectedIds, activeVi
       const url = tab === 'alerts' && role !== 'Admin'
         ? `${ENDPOINTS[tab]}?role=${role}`
         : ENDPOINTS[tab]
-      const res = await fetch(url)
+      const res = await authFetch(url)
       if (res.ok) {
         const json = await res.json()
         setData((prev) => ({ ...prev, [tab]: json }))
       }
     } catch (_err) { /* fail silently */ }
     finally { setLoading(false) }
-  }, [role])
+  }, [role, authFetch])
 
   // Re-fetch the active tab whenever its version bumps
   useEffect(() => { fetchTab(activeTab) }, [fetchTab, activeTab, versions[activeTab]])

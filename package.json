@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "lint": "eslint src",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "node scripts/e2e-login-smoke.mjs",
+    "test:e2e:playwright": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -25,6 +28,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
+    "@playwright/test": "^1.50.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
     "@testing-library/user-event": "^14.6.1",

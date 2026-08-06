@@ -8,28 +8,8 @@ import {
   RefreshCw,
   Layers,
 } from 'lucide-react'
-import { API_BASE } from '../config/apiBase'
+import { useAuth } from '../contexts/AuthContext'
 import { PageHeader, StatCard, EmptyState, SectionHeader } from './ui'
-
-function authHeaders(extra = {}) {
-  const token = localStorage.getItem('token') || localStorage.getItem('aiops_access_token')
-  const headers = { ...extra }
-  if (token) headers.Authorization = `Bearer ${token}`
-  return headers
-}
-
-async function apiFetch(path, options = {}) {
-  const url = path.startsWith('http') ? path : `${API_BASE}${path}`
-  const res = await fetch(url, {
-    ...options,
-    headers: authHeaders(options.headers || {}),
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || `Request failed (${res.status})`)
-  }
-  return res.json()
-}
 
 function statusPill(status) {
   if (status === 'pass') {
@@ -82,6 +62,7 @@ function pickPrimaryEvaluation(evaluations, preferredSlug = 'prod-readiness-v1')
 }
 
 export default function StandardsPage() {
+  const { authFetch } = useAuth()
   const [standards, setStandards] = useState([])
   const [entities, setEntities] = useState([])
   const [evaluationsByEntity, setEvaluationsByEntity] = useState({})
@@ -90,6 +71,18 @@ export default function StandardsPage() {
   const [error, setError] = useState(null)
   const [evaluatingStandardId, setEvaluatingStandardId] = useState(null)
   const [reevaluatingEntityId, setReevaluatingEntityId] = useState(null)
+
+  const apiFetch = useCallback(
+    async (path, options = {}) => {
+      const res = await authFetch(path, options)
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || `Request failed (${res.status})`)
+      }
+      return res.json()
+    },
+    [authFetch]
+  )
 
   const loadEvaluations = useCallback(async (entityList) => {
     const map = {}
@@ -104,7 +97,7 @@ export default function StandardsPage() {
       })
     )
     setEvaluationsByEntity(map)
-  }, [])
+  }, [apiFetch])
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -125,7 +118,7 @@ export default function StandardsPage() {
       setLoading(false)
       setTableLoading(false)
     }
-  }, [loadEvaluations])
+  }, [loadEvaluations, apiFetch])
 
   useEffect(() => {
     void loadAll()

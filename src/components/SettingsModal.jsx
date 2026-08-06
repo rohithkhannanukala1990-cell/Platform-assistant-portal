@@ -17,19 +17,18 @@ import {
   Copy,
   Check,
 } from 'lucide-react'
-import { API_BASE } from '../config/apiBase'
+import { useAuth } from '../contexts/AuthContext'
 import LLMProvidersPanel from './LLMProvidersPanel'
 import MCPServersPanel from './MCPServersPanel'
 import MCPToolsCatalog from './MCPToolsCatalog'
 import CommandPolicyPanel from './CommandPolicyPanel'
 import AlertRulesPanel from './AlertRulesPanel'
 
-const API = `${API_BASE}/api/settings`
-
 const CLOUD_OPTIONS    = ['GCP', 'AWS', 'Azure', 'DigitalOcean']
 const CICD_OPTIONS     = ['GitHub Actions', 'GitLab CI', 'Jenkins']
 
 export default function SettingsModal({ onClose, embedded = false }) {
+  const { authFetch } = useAuth()
   const [settings, setSettings]   = useState({})
   const [saving, setSaving]       = useState(false)
   const [saved, setSaved]         = useState(false)
@@ -37,11 +36,11 @@ export default function SettingsModal({ onClose, embedded = false }) {
   const [localValues, setLocal]   = useState({})
 
   useEffect(() => {
-    fetch(API)
+    authFetch('/api/settings')
       .then((r) => r.json())
       .then((data) => { setSettings(data); setLocal(data) })
       .catch(() => setError('Could not load settings — is the backend running?'))
-  }, [])
+  }, [authFetch])
 
   function handleChange(key, value) {
     setLocal((prev) => ({ ...prev, [key]: value }))
@@ -52,7 +51,7 @@ export default function SettingsModal({ onClose, embedded = false }) {
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch(API, {
+      const res = await authFetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(localValues),

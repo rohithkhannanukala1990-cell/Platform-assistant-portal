@@ -158,13 +158,9 @@ export default function RBACManager() {
 
     try {
       // 2. Persist to backend
-      const token = localStorage.getItem('token') || localStorage.getItem('aiops_access_token')
-      const response = await fetch(`/api/users/${userId}/role`, {
+      const response = await authFetch(`/api/users/${userId}/role`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole }),
       })
 

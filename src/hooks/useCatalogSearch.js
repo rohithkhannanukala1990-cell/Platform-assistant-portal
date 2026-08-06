@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
+import { useAuth } from '../contexts/AuthContext'
 
 /**
  * Debounced catalog search against GET /api/catalog/search.
  * @param {{ query?: string, type?: string, page?: number }} params
  */
 export default function useCatalogSearch({ query = '', type = '', page = 1 } = {}) {
+  const { authFetch } = useAuth()
   const [results, setResults] = useState([])
   const [total, setTotal] = useState(0)
   const [pages, setPages] = useState(1)
@@ -21,16 +23,12 @@ export default function useCatalogSearch({ query = '', type = '', page = 1 } = {
       setIsLoading(true)
       setError(null)
       try {
-        const token =
-          localStorage.getItem('token') || localStorage.getItem('aiops_access_token')
         const params = new URLSearchParams()
         if (query) params.set('q', query)
         if (type) params.set('type', type)
         params.set('page', String(page || 1))
         const url = `/api/catalog/search?${params.toString()}`
-        const response = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
+        const response = await authFetch(url)
         if (!response.ok) {
           throw new Error(`Server error ${response.status}`)
         }
@@ -49,11 +47,9 @@ export default function useCatalogSearch({ query = '', type = '', page = 1 } = {
     }, 300)
 
     return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-      }
+      if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [query, type, page])
+  }, [query, type, page, authFetch])
 
   return { results, total, pages, isLoading, error }
 }

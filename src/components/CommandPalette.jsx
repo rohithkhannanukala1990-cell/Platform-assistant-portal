@@ -9,7 +9,7 @@ import {
   Server,
   GitBranch,
 } from 'lucide-react'
-import { API_BASE } from '../config/apiBase'
+import { useAuth } from '../contexts/AuthContext'
 
 const ALL_COMMANDS = [
   { label: 'Dashboard', path: '/dashboard', category: 'Navigation' },
@@ -142,6 +142,7 @@ function TypeBadge({ type }) {
 
 export default function CommandPalette({ open: controlledOpen, onClose }) {
   const navigate = useNavigate()
+  const { authFetch } = useAuth()
   const inputRef = useRef(null)
 
   const isControlled = controlledOpen !== undefined && typeof onClose === 'function'
@@ -261,12 +262,9 @@ export default function CommandPalette({ open: controlledOpen, onClose }) {
     const timer = window.setTimeout(async () => {
       setLoading(true)
       try {
-        const token = localStorage.getItem('aiops_access_token')
-        const headers = {}
-        if (token) headers.Authorization = `Bearer ${token}`
-        const res = await fetch(
-          `${API_BASE}/api/search?q=${encodeURIComponent(q)}&limit=20`,
-          { headers, signal: controller.signal }
+        const res = await authFetch(
+          `/api/search?q=${encodeURIComponent(q)}&limit=20`,
+          { signal: controller.signal }
         )
         if (!res.ok) throw new Error(await res.text())
         const data = await res.json()
@@ -283,7 +281,7 @@ export default function CommandPalette({ open: controlledOpen, onClose }) {
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [query, useSearchMode, q])
+  }, [query, useSearchMode, q, authFetch])
 
   if (!open) return null
 

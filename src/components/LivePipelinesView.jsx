@@ -3,10 +3,10 @@ import {
   GitBranch, RefreshCw, CheckCircle2, XCircle,
   Clock, AlertTriangle, Loader2, User, Zap,
 } from 'lucide-react'
-import { API_BASE } from '../config/apiBase'
+import { useAuth } from '../contexts/AuthContext'
 
-const ACTIVE_API   = `${API_BASE}/api/cicd/active-runs`
-const MONITOR_API  = `${API_BASE}/api/cicd/monitor`
+const ACTIVE_API   = '/api/cicd/active-runs'
+const MONITOR_API  = '/api/cicd/monitor'
 
 const STAGES = ['Build', 'Test', 'Security Scan', 'Deploy']
 
@@ -227,6 +227,7 @@ function RunDetail({ run }) {
 }
 
 export default function LivePipelinesView() {
+  const { authFetch } = useAuth()
   const [runs, setRuns]               = useState([])
   const [loading, setLoading]         = useState(true)
   const [selectedRun, setSelectedRun] = useState(null)
@@ -237,7 +238,7 @@ export default function LivePipelinesView() {
 
   const fetchRuns = useCallback(async () => {
     try {
-      const res = await fetch(ACTIVE_API)
+      const res = await authFetch(ACTIVE_API)
       const data = await res.json()
       const nextRuns = Array.isArray(data)
         ? data
@@ -258,7 +259,7 @@ export default function LivePipelinesView() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [authFetch])
 
   useEffect(() => {
     fetchRuns()
@@ -270,7 +271,7 @@ export default function LivePipelinesView() {
     setScanning(true)
     setScanMsg(null)
     try {
-      const res  = await fetch(MONITOR_API, { method: 'POST' })
+      const res  = await authFetch(MONITOR_API, { method: 'POST' })
       const data = await res.json()
       setScanMsg({ type: 'success', text: `Monitor scan dispatched. Any stuck pipelines will be triaged automatically.` })
     } catch {

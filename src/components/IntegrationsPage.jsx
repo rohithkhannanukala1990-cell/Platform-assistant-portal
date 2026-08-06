@@ -9,8 +9,10 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
 
-const GATEWAY_URL = `${API_BASE}/api/webhooks/inbound`
-const ACTIVITY_URL = `${API_BASE}/api/webhooks/activity`
+const GATEWAY_PATH = '/api/webhooks/inbound'
+const ACTIVITY_PATH = '/api/webhooks/activity'
+const GATEWAY_URL = `${API_BASE}${GATEWAY_PATH}`
+const ACTIVITY_URL = ACTIVITY_PATH
 
 // ── Webhook source catalogue ──────────────────────────────────────────────────
 const INTEGRATIONS = [
@@ -187,7 +189,7 @@ function ActivityRow({ ev }) {
 }
 
 export default function IntegrationsPage() {
-  const { role } = useAuth()
+  const { role, authFetch } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [activity, setActivity]   = useState([])
@@ -198,11 +200,11 @@ export default function IntegrationsPage() {
   const fetchActivity = useCallback(async () => {
     setLoadingAct(true)
     try {
-      const res = await fetch(ACTIVITY_URL)
+      const res = await authFetch(ACTIVITY_URL)
       if (res.ok) setActivity(await res.json())
     } catch (_) {}
     finally { setLoadingAct(false) }
-  }, [])
+  }, [authFetch])
 
   useEffect(() => {
     fetchActivity()
@@ -213,7 +215,7 @@ export default function IntegrationsPage() {
   async function testFire(integration) {
     setFiring(integration.id)
     try {
-      await fetch(GATEWAY_URL, {
+      await authFetch(GATEWAY_PATH, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(integration.example),

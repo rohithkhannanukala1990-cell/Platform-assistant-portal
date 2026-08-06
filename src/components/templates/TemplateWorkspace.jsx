@@ -623,7 +623,7 @@ export default function TemplateWorkspace({ loadTemplates, isAdmin, children }) 
                   const wid = applyResult.workspace?.id
                   setApplyModal({ open: false, template: null })
                   setApplyResult(null)
-                  if (wid) navigate(`/ops?view=workspaces&ws=${encodeURIComponent(wid)}`)
+                  if (wid) navigate(`/workspaces?ws=${encodeURIComponent(wid)}`)
                 }}
               >
                 Open Workspace

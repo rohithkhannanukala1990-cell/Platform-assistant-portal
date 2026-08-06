@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { API_BASE } from '../config/apiBase'
 import RelatedAgentsBar from './RelatedAgentsBar'
+import { useAuth } from '../contexts/AuthContext'
 
 const API_URL = `${API_BASE}/api/infra/generate`
 
@@ -109,6 +110,7 @@ function CodePane({ title, icon: Icon, iconColor, borderColor, language, plainTe
 }
 
 export default function InfraBuilderView({ selectedRecord, onClearRecord, onGenerateComplete }) {
+  const { authFetch } = useAuth()
   const [provider, setProvider] = useState('GCP')
   const [prompt, setPrompt]     = useState('')
   const [result, setResult]     = useState(null)
@@ -133,7 +135,7 @@ export default function InfraBuilderView({ selectedRecord, onClearRecord, onGene
     setResult(null)
     onClearRecord?.()
     try {
-      const res = await fetch(API_URL, {
+      const res = await authFetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, provider }),

@@ -9,7 +9,6 @@ import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import { usePortalWebSocket } from '../hooks/usePortalWebSocket'
 import { useToast } from './ToastNotification'
-import { API_BASE } from '../config/apiBase'
 
 const SEV_CFG = {
   Critical: { cls: 'bg-red-500/15 border-red-500/40 text-red-400',    dot: 'bg-red-400'    },
@@ -551,7 +550,6 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
     else toast.success(msg)
   }
   // roleFilter prop pins the widget to a specific role regardless of the active persona.
-  // e.g. DatabasePortal passes roleFilter="DatabaseDeveloper" so it always shows DB incidents.
   const effectiveRole = roleFilter ?? role
 
   const [incidents, setIncidents] = useState([])
@@ -567,7 +565,7 @@ export default function AgentApprovalsWidget({ roleFilter = null }) {
   const fetchAll = useCallback(async () => {
     try {
       const param = effectiveRole === 'Admin' ? '' : `?role=${effectiveRole}`
-      const res = await fetch(`${API_BASE}/api/incidents/approvals${param}`)
+      const res = await authFetch(`/api/incidents/approvals${param}`)
       if (res.ok) setIncidents(await res.json())
       else setIncidents([])
 

@@ -1,28 +1,52 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Bell, Check, CheckCheck, Trash2 } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function NotificationsPage() {
+  const { authFetch } = useAuth()
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
 
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await authFetch('/api/notifications')
+      const data = res.ok ? await res.json() : []
+      setNotifications(Array.isArray(data) ? data : [])
+    } catch {
+      setNotifications([])
+    } finally {
+      setLoading(false)
+    }
+  }, [authFetch])
+
   useEffect(() => {
-    fetch('/api/notifications', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : [])
-      .then(data => setNotifications(Array.isArray(data) ? data : []))
-      .catch(() => setNotifications([]))
-      .finally(() => setLoading(false))
-  }, [])
+    void load()
+  }, [load])
 
   const filtered = filter === 'unread'
     ? notifications.filter(n => !n.read)
     : notifications
 
-  const markAll = () =>
-    setNotifications(ns => ns.map(n => ({ ...n, read: true })))
+  const markAll = async () => {
+    const unread = notifications.filter((n) => !n.read)
+    await Promise.all(
+      unread.map((n) =>
+        authFetch(`/api/notifications/${n.id}/read`, { method: 'PUT' }).catch(() => null)
+      )
+    )
+    setNotifications((ns) => ns.map((n) => ({ ...n, read: true })))
+  }
 
-  const dismiss = (id) =>
-    setNotifications(ns => ns.filter(n => n.id !== id))
+  const dismiss = async (id) => {
+    try {
+      await authFetch(`/api/notifications/${id}/read`, { method: 'PUT' })
+    } catch {
+      /* local fallback */
+    }
+    setNotifications((ns) => ns.filter((n) => n.id !== id))
+  }
 
   return (
     <div className="max-w-2xl mx-auto pt-8 px-4">
@@ -43,7 +67,7 @@ export default function NotificationsPage() {
                        rounded border border-slate-700 transition-colors">
             {filter === 'all' ? 'Show Unread' : 'Show All'}
           </button>
-          <button onClick={markAll}
+          <button onClick={() => void markAll()}
             className="text-xs text-slate-400 hover:text-white px-3 py-1
                        rounded border border-slate-700 transition-colors
                        flex items-center gap-1">
@@ -78,31 +102,22 @@ export default function NotificationsPage() {
               <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0
                 ${n.read ? 'bg-slate-600' : 'bg-indigo-400'}`} />
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-white font-medium truncate">
-                  {n.title || n.message}
-                </p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {n.timestamp
-                    ? new Date(n.timestamp).toLocaleString()
-                    : 'Just now'}
-                </p>
-              </div>
-              <div className="flex gap-1 shrink-0">
-                {!n.read && (
-                  <button
-                    onClick={() => setNotifications(ns =>
-                      ns.map(x => x.id===n.id ? {...x,read:true} : x))}
-                    className="p-1 text-slate-400 hover:text-green-400 transition-colors"
-                    title="Mark read">
-                    <Check className="w-4 h-4" />
-                  </button>
+                <p className="text-sm text-white">{n.message || n.title || 'Notification'}</p>
+                {n.created_at && (
+                  <p className="text-xs text-slate-500 mt-1">{n.created_at}</p>
                 )}
-                <button onClick={() => dismiss(n.id)}
-                  className="p-1 text-slate-400 hover:text-red-400 transition-colors"
-                  title="Dismiss">
-                  <Trash2 className="w-4 h-4" />
-                </button>
               </div>
+              <button
+                type="button"
+                onClick={() => void dismiss(n.id)}
+                className="p-1.5 text-slate-500 hover:text-white"
+                aria-label="Dismiss notification"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+              {!n.read && (
+                <Check className="w-3.5 h-3.5 text-slate-600 mt-1" aria-hidden />
+              )}
             </li>
           ))}
         </ul>

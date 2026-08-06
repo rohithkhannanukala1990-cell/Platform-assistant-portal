@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getPortalContextHeaders } from '../utils/portalContextHeaders'
+import { useAuth } from '../contexts/AuthContext'
 
 /**
  * Fetches GET /api/dashboard/summary and refetches when the active workspace changes.
- * Workspace/tenant headers are included via portal context (authFetch pattern).
  */
 export default function useDashboardData() {
+  const { authFetch } = useAuth()
   const [data, setData] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -14,14 +14,7 @@ export default function useDashboardData() {
     setIsLoading(true)
     setError(null)
     try {
-      const token = localStorage.getItem('token') || localStorage.getItem('aiops_access_token')
-      const portalHeaders = getPortalContextHeaders()
-      const response = await fetch('/api/dashboard/summary', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...portalHeaders,
-        },
-      })
+      const response = await authFetch('/api/dashboard/summary')
       if (response.ok) {
         setData(await response.json())
       } else {
@@ -32,7 +25,7 @@ export default function useDashboardData() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [authFetch])
 
   useEffect(() => {
     void fetchSummary()

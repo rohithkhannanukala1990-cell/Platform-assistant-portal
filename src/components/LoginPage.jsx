@@ -86,8 +86,9 @@ export default function LoginPage() {
 
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400">Username</label>
+            <label htmlFor="login-username" className="text-xs font-semibold text-slate-400">Username</label>
             <input
+              id="login-username"
               type="text"
               autoComplete="username"
               value={username}
@@ -100,9 +101,10 @@ export default function LoginPage() {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400">Password</label>
+            <label htmlFor="login-password" className="text-xs font-semibold text-slate-400">Password</label>
             <div className="relative">
               <input
+                id="login-password"
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 value={password}

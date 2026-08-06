@@ -4,15 +4,17 @@ import os
 from pathlib import Path
 
 # Must run before importing backend.* (database URL is read at import time).
-_test_db = Path(__file__).resolve().parent.parent / "test_pytest.db"
-if _test_db.exists():
-    try:
-        _test_db.unlink(missing_ok=True)
-    except PermissionError:
-        # Windows: prior pytest/IDE may still hold the file — use a unique DB path.
-        _test_db = Path(__file__).resolve().parent.parent / f"test_pytest_{os.getpid()}.db"
+# Honor an externally provided DATABASE_URL (e.g. Postgres in CI); otherwise use SQLite.
+if not (os.environ.get("DATABASE_URL") or "").strip():
+    _test_db = Path(__file__).resolve().parent.parent / "test_pytest.db"
+    if _test_db.exists():
+        try:
+            _test_db.unlink(missing_ok=True)
+        except PermissionError:
+            # Windows: prior pytest/IDE may still hold the file — use a unique DB path.
+            _test_db = Path(__file__).resolve().parent.parent / f"test_pytest_{os.getpid()}.db"
+    os.environ["DATABASE_URL"] = f"sqlite:///{_test_db.as_posix()}"
 
-os.environ["DATABASE_URL"] = f"sqlite:///{_test_db.as_posix()}"
 os.environ["SKIP_BACKGROUND_SCHEDULER"] = "1"
 os.environ.setdefault("ENV", "test")
 os.environ.setdefault("SECRET_KEY", "pytest-jwt-secret-not-for-production")

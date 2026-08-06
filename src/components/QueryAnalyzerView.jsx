@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { API_BASE } from '../config/apiBase'
 import { DemoPreviewBanner } from './ui'
+import { useAuth } from '../contexts/AuthContext'
 
 const DB_OPTIONS = [
   'prod-postgres-primary',
@@ -44,6 +45,7 @@ function CopyButton({ text }) {
 }
 
 export default function QueryAnalyzerView() {
+  const { authFetch } = useAuth()
   const [query,    setQuery]    = useState('')
   const [database, setDatabase] = useState(DB_OPTIONS[0])
   const [loading,  setLoading]  = useState(false)
@@ -56,7 +58,7 @@ export default function QueryAnalyzerView() {
     setResult(null)
     setError(null)
     try {
-      const res = await fetch(`${API_BASE}/api/db/analyze-query`, {
+      const res = await authFetch(`${API_BASE}/api/db/analyze-query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query.trim(), database }),
