@@ -227,7 +227,7 @@ function AgentRunCard({ card, onApprove, onReject, busy }) {
 export default function AgentRunnerPanel() {
   const location = useLocation()
   const { authFetch, token } = useAuth()
-  const { toDict, isProduction, workspace_id: workspaceId } = usePlatformContext()
+  const { toDict, isProduction, environment, workspace_id: workspaceId } = usePlatformContext()
   const { toast } = useToast()
 
   const [activeTab, setActiveTab] = useState('run')
@@ -268,7 +268,27 @@ export default function AgentRunnerPanel() {
     }
   }, [location.state])
 
-  const envLabel = isProduction() ? '🔴 PRODUCTION' : '🟡 STAGING'
+  // Show the real header environment — previously anything non-prod was mislabeled "STAGING".
+  const envKey = String(environment || 'development').toLowerCase()
+  const envBadge = (() => {
+    const labels = {
+      local: { text: 'Local', dot: 'bg-slate-400', cls: 'text-slate-300 border-slate-600' },
+      development: { text: 'Development', dot: 'bg-blue-500', cls: 'text-blue-300 border-blue-500/40' },
+      dev: { text: 'Development', dot: 'bg-blue-500', cls: 'text-blue-300 border-blue-500/40' },
+      test: { text: 'Test', dot: 'bg-purple-500', cls: 'text-purple-300 border-purple-500/40' },
+      staging: { text: 'Staging', dot: 'bg-amber-400', cls: 'text-amber-300 border-amber-500/40' },
+      production: { text: 'Production', dot: 'bg-red-500', cls: 'text-red-300 border-red-500/40' },
+      prod: { text: 'Production', dot: 'bg-red-500', cls: 'text-red-300 border-red-500/40' },
+      dr: { text: 'DR', dot: 'bg-orange-500', cls: 'text-orange-300 border-orange-500/40' },
+    }
+    return labels[envKey] || {
+      text: envKey.charAt(0).toUpperCase() + envKey.slice(1),
+      dot: 'bg-slate-400',
+      cls: 'text-slate-300 border-slate-600',
+    }
+  })()
+  const envLabel = envBadge.text
+  const showHitlHint = isProduction()
 
   const allTerminal = cards.length > 0 && cards.every((c) => TERMINAL_STATUSES.has(c.status))
   const missingWorkspace = !workspaceId
@@ -509,7 +529,11 @@ export default function AgentRunnerPanel() {
               <label htmlFor="agent-task" className="text-sm font-semibold text-neutral-200">
                 Task
               </label>
-              <span className="text-xs font-bold px-2.5 py-1 rounded-md border border-neutral-700 bg-neutral-950 text-neutral-300">
+              <span
+                className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-neutral-950 ${envBadge.cls}`}
+                title={showHitlHint ? 'Human approval required in this environment' : undefined}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${envBadge.dot}`} aria-hidden />
                 {envLabel}
               </span>
             </div>
