@@ -8,6 +8,7 @@ An internal developer portal that combines service catalog, incident response, c
 - **Incident response** — triage queue, incident command center, runbooks, log scanning.
 - **Service catalog** — services, scorecards, golden paths, standards, entity actions.
 - **AI agents** — 17 specialist agents (incident, cost, security, deploy, migration, and more) that run analyses and propose actions. Risky actions in production require explicit human approval before they execute.
+- **LLM cost tracking** — every AI call records token usage and estimated USD cost per user; org-wide utilization, per-user/provider breakdowns, and monthly token budgets appear under Reports → Token Utilization.
 - **Workspaces & environments** — group tools, accounts, and users per team; agent behavior adapts to the selected environment (local → dev → test → staging → prod → DR).
 
 See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for how to use the portal day-to-day, and [docs/AGENTS.md](docs/AGENTS.md) for the full agent catalog.

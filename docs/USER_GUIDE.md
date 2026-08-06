@@ -28,6 +28,7 @@ Think of pages as your desk, and agents as specialists you call over when stuck.
 | Fix a failed CI build | **Connectors → GitHub Actions** | Related agents → Pipeline |
 | Review a pull request with AI | **Connectors → GitHub PRs** | Related agents → Code review |
 | See deploy frequency / MTTR | **DORA Metrics** | Open the four score cards |
+| See how much the AI costs us | **Reports → Token Utilization** | Check tokens, estimated $ and per-user usage |
 | Connect GitHub / PagerDuty / AWS | **Tool Registry** (admin) | Add the account, then retry |
 | Ask a free-form question | **AI Assistant** | Type the question in plain English |
 | Run a named specialist myself | **Agents** | Pick agent(s) → write a clear task → Run |
@@ -300,6 +301,27 @@ Agents then talk to staging systems as that team — not production.
 
 ---
 
+## Token utilization & AI cost (Reports)
+
+Every AI call in the portal — chat, floating chat, and agent runs — records how many **tokens** it used and an **estimated cost in USD**, tagged with the user who triggered it.
+
+Where to look:
+
+- **Reports → Token Utilization** — org-wide totals for the last 30 days:
+  - total tokens, estimated cost, number of API calls, active users
+  - breakdown **by user** (who is using the AI most)
+  - breakdown **by provider / model** (where the money goes)
+  - **monthly token budget** bars per configured provider
+- **Settings → LLM providers** (admin) — each provider shows a usage bar against its monthly token budget; set the budget when adding or editing a provider.
+
+Good to know:
+
+- Cost is an **estimate** based on public list prices per model — use it for trends and accountability, not invoicing.
+- Budget bars turn **amber at 70%** and **red at 90%** of the monthly limit.
+- Usage is scoped to your organization (tenant), so you only see your own org's numbers.
+
+---
+
 ## Quick glossary
 
 | Word in the UI | What it means |
@@ -313,6 +335,7 @@ Agents then talk to staging systems as that team — not production.
 | **Agent** | An AI specialist for one job (incidents, cost, CI…) |
 | **Approval** | Human OK required before a risky action runs |
 | **Run History** | Log of what agents did, with evidence |
+| **Token Utilization** | How many AI tokens (and estimated $) your org used |
 
 ---
 
