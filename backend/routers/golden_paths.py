@@ -63,6 +63,10 @@ class GoldenPathTemplateCreate(BaseModel):
     config_schema_json: Optional[str] = None
     steps_json: Optional[str] = None
     is_active: bool = True
+    # Runbook-style metadata (stored inside config_schema_json.meta)
+    tags: Optional[list[str]] = None
+    severity: Optional[str] = None
+    estimated_time: Optional[str] = None
 
 
 class GoldenPathTemplateUpdate(BaseModel):
@@ -74,6 +78,9 @@ class GoldenPathTemplateUpdate(BaseModel):
     config_schema_json: Optional[str] = None
     steps_json: Optional[str] = None
     is_active: Optional[bool] = None
+    tags: Optional[list[str]] = None
+    severity: Optional[str] = None
+    estimated_time: Optional[str] = None
 
 
 class GoldenPathRunRequest(BaseModel):
@@ -295,6 +302,56 @@ def _slugify(name: str) -> str:
     return (s[:120] if s else "") or "golden-path"
 
 
+def _parse_config_obj(raw: Optional[str]) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+
+
+def _runbook_meta_from_config(raw: Optional[str]) -> dict[str, Any]:
+    """Read tags / severity / estimated_time from config_schema_json."""
+    cfg = _parse_config_obj(raw)
+    meta = cfg.get("meta") if isinstance(cfg.get("meta"), dict) else {}
+    tags = meta.get("tags") if isinstance(meta.get("tags"), list) else cfg.get("tags")
+    if not isinstance(tags, list):
+        tags = []
+    tags = [str(t).strip() for t in tags if str(t).strip()]
+    severity = meta.get("severity") or cfg.get("severity") or "Medium"
+    estimated_time = meta.get("estimated_time") or cfg.get("estimated_time") or ""
+    return {
+        "tags": tags,
+        "severity": str(severity),
+        "estimated_time": str(estimated_time) if estimated_time else "",
+    }
+
+
+def _merge_runbook_meta(
+    existing_json: Optional[str],
+    *,
+    tags: Optional[list[str]] = None,
+    severity: Optional[str] = None,
+    estimated_time: Optional[str] = None,
+    config_schema_json: Optional[str] = None,
+) -> Optional[str]:
+    """Merge runbook metadata into config_schema_json without dropping other keys."""
+    base = _parse_config_obj(config_schema_json if config_schema_json is not None else existing_json)
+    meta = base.get("meta") if isinstance(base.get("meta"), dict) else {}
+    if tags is not None:
+        meta["tags"] = [str(t).strip() for t in tags if str(t).strip()]
+    if severity is not None and str(severity).strip():
+        meta["severity"] = str(severity).strip()
+    if estimated_time is not None:
+        meta["estimated_time"] = str(estimated_time).strip()
+    if tags is None and severity is None and estimated_time is None and config_schema_json is None:
+        return existing_json
+    base["meta"] = meta
+    return json.dumps(base)
+
+
 def _audit(user: User, event_type: str, detail: str) -> None:
     write_audit(
         actor=user.username,
@@ -306,6 +363,12 @@ def _audit(user: User, event_type: str, detail: str) -> None:
 
 
 def _serialize_template(row: GoldenPathTemplate) -> dict[str, Any]:
+    meta = _runbook_meta_from_config(row.config_schema_json)
+    tags = list(meta["tags"])
+    # Always surface category / slug as discoverable tags without duplicating.
+    for extra in (row.category, row.slug):
+        if extra and extra not in tags:
+            tags.append(extra)
     return {
         "id": row.id,
         "name": row.name,
@@ -319,6 +382,9 @@ def _serialize_template(row: GoldenPathTemplate) -> dict[str, Any]:
         "created_by": row.created_by,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "tags": tags,
+        "severity": meta["severity"] or "Medium",
+        "estimated_time": meta["estimated_time"] or "",
     }
 
 
@@ -897,13 +963,20 @@ def create_golden_path_template(
             detail="Invalid golden path steps_json: must contain a JSON list of steps",
         )
     now = _now()
+    config_json = _merge_runbook_meta(
+        None,
+        tags=body.tags,
+        severity=body.severity,
+        estimated_time=body.estimated_time,
+        config_schema_json=body.config_schema_json,
+    )
     row = GoldenPathTemplate(
         name=body.name.strip(),
         slug=slug,
         description=(body.description or "").strip(),
         category=(body.category or "General").strip(),
         entity_kind=body.entity_kind,
-        config_schema_json=body.config_schema_json,
+        config_schema_json=config_json,
         steps_json=json.dumps(steps),
         is_active=body.is_active,
         created_by=current_user.username,
@@ -942,6 +1015,10 @@ def update_golden_path_template(
     if not row:
         raise HTTPException(status_code=404, detail="Template not found")
     data = body.model_dump(exclude_unset=True)
+    # Pull runbook meta fields out — they live inside config_schema_json.
+    tags = data.pop("tags", None)
+    severity = data.pop("severity", None)
+    estimated_time = data.pop("estimated_time", None)
     if "slug" in data and data["slug"]:
         dup = session.exec(
             select(GoldenPathTemplate).where(
@@ -951,8 +1028,30 @@ def update_golden_path_template(
         ).first()
         if dup:
             raise HTTPException(status_code=400, detail="Slug already exists")
+    if "steps_json" in data and data["steps_json"] is not None:
+        try:
+            steps = json.loads(data["steps_json"] or "[]")
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid golden path steps_json: must be valid JSON ({exc})",
+            ) from exc
+        if not isinstance(steps, list):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid golden path steps_json: must contain a JSON list of steps",
+            )
+        data["steps_json"] = json.dumps(steps)
     for key, val in data.items():
         setattr(row, key, val)
+    if tags is not None or severity is not None or estimated_time is not None:
+        row.config_schema_json = _merge_runbook_meta(
+            row.config_schema_json,
+            tags=tags,
+            severity=severity,
+            estimated_time=estimated_time,
+            config_schema_json=data.get("config_schema_json", row.config_schema_json),
+        )
     row.updated_at = _now()
     session.add(row)
     session.commit()
