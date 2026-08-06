@@ -39,9 +39,9 @@ const ALL_COMMANDS = [
   { label: 'Kubernetes', path: '/k8s', category: 'DevTools' },
   { label: 'PagerDuty', path: '/pagerduty', category: 'Ops' },
   { label: 'Live Pipelines', path: '/live-pipelines', category: 'DevTools' },
-  { label: 'Deployments', path: '/deployments', category: 'DevTools' },
-  { label: 'Schema Browser', path: '/schema-browser', category: 'DevTools' },
-  { label: 'Data Lineage', path: '/data-lineage', category: 'DevTools' },
+  { label: 'Deployments', path: '/deployments', category: 'DevTools', preview: true },
+  { label: 'Schema Browser', path: '/schema-browser', category: 'DevTools', preview: true },
+  { label: 'Data Lineage', path: '/data-lineage', category: 'DevTools', preview: true },
   { label: 'Runbooks', path: '/runbooks', category: 'DevTools' },
 ]
 
@@ -339,7 +339,10 @@ export default function CommandPalette({ open: controlledOpen, onClose }) {
                         selected ? 'bg-card' : 'hover:bg-card/60'
                       }`}
                     >
-                      <span className="flex-1 min-w-0 font-medium text-white truncate">{item.label}</span>
+                      <span className="flex-1 min-w-0 font-medium text-white truncate">
+                        {item.label}
+                        {item.preview ? ' (preview)' : ''}
+                      </span>
                       <span className="text-gray-500 text-xs shrink-0">{item.path}</span>
                     </button>
                   )
@@ -374,7 +377,10 @@ export default function CommandPalette({ open: controlledOpen, onClose }) {
                         selected ? 'bg-card' : 'hover:bg-card/60'
                       }`}
                     >
-                      <span className="flex-1 min-w-0 font-medium text-white truncate">{item.label}</span>
+                      <span className="flex-1 min-w-0 font-medium text-white truncate">
+                        {item.label}
+                        {item.preview ? ' (preview)' : ''}
+                      </span>
                       <span className="text-gray-500 text-xs shrink-0">{item.path}</span>
                     </button>
                   )

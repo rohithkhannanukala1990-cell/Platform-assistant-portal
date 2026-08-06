@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import {
   Rocket, CheckCircle2, XCircle, Clock, RefreshCw,
-  GitBranch, GitCommit, User, ChevronDown, AlertTriangle,
+  GitBranch, GitCommit, User, ChevronDown,
   RotateCcw, FileText, Filter, Loader2, Terminal,
 } from 'lucide-react'
 import RelatedAgentsBar from './RelatedAgentsBar'
+import { DemoPreviewBanner } from './ui'
 
 const ENVIRONMENTS = ['All', 'production', 'staging', 'dev']
 
@@ -91,15 +92,10 @@ export default function DeploymentsView() {
 
       <RelatedAgentsBar surface="deployments" />
 
-      {/* Demo-data notice */}
-      <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl border border-amber-500/25 bg-amber-500/5">
-        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-        <p className="text-xs text-amber-200/90 leading-relaxed">
-          <span className="font-semibold">Sample data.</span> This page shows demo deployments so you can preview the workflow.
-          Connect a CI/CD integration (GitHub Actions, ArgoCD) to see real deployment history here.
-          Deploy and rollback buttons run a simulation only.
-        </p>
-      </div>
+      <DemoPreviewBanner title="Preview — sample deployments">
+        Connect a CI/CD integration (GitHub Actions, ArgoCD) for real history.
+        Deploy and rollback buttons run a simulation only.
+      </DemoPreviewBanner>
 
       {/* New deploy panel */}
       <div className="p-5 rounded-2xl border border-blue-500/20 bg-blue-500/5 flex flex-col gap-4">

@@ -4,6 +4,7 @@ import {
   Lightbulb, Terminal, Sparkles, RefreshCw, Copy, Check,
 } from 'lucide-react'
 import { API_BASE } from '../config/apiBase'
+import { DemoPreviewBanner } from './ui'
 
 const DB_OPTIONS = [
   'prod-postgres-primary',
@@ -80,6 +81,10 @@ export default function QueryAnalyzerView() {
         </h1>
         <p className="text-sm text-slate-500 mt-0.5">Paste a SQL query — get EXPLAIN plan, index recommendations, and an AI-powered rewrite</p>
       </div>
+
+      <DemoPreviewBanner title="Preview — query analyzer">
+        Example databases and sample flows are for UX review. Wire a live DB account for production EXPLAIN plans.
+      </DemoPreviewBanner>
 
       {/* Input panel */}
       <div className="flex flex-col gap-3 p-5 rounded-2xl border border-border bg-card">

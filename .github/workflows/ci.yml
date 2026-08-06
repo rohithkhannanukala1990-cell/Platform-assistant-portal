@@ -52,9 +52,11 @@ jobs:
         run: npm run test
       - name: Check build
         run: npm run build
-      - name: Audit packages
+      - name: Audit packages (critical blocks CI)
+        run: npm audit --audit-level=critical
+      - name: Audit packages (moderate advisory)
         continue-on-error: true
-        run: npm audit --audit-level moderate
+        run: npm audit --audit-level=moderate
 
   docker-build:
     runs-on: ubuntu-latest

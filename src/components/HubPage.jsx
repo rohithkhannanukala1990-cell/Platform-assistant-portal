@@ -13,7 +13,7 @@ export default function HubPage({ title, subtitle, items }) {
     <div className="flex flex-col gap-6 animate-fade-in">
       <PageHeader title={title} subtitle={subtitle} />
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {items.map(({ label, description, path, icon: Icon }) => (
+        {items.map(({ label, description, path, icon: Icon, preview }) => (
           <button
             key={path}
             type="button"
@@ -24,8 +24,13 @@ export default function HubPage({ title, subtitle, items }) {
               <Icon className="w-5 h-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-white flex items-center gap-1">
+              <p className="text-sm font-semibold text-white flex items-center gap-1.5 flex-wrap">
                 {label}
+                {preview && (
+                  <span className="text-[9px] uppercase tracking-wider font-semibold text-amber-400/90 border border-amber-500/30 rounded px-1 py-0.5">
+                    Preview
+                  </span>
+                )}
                 <ChevronRight className="w-3.5 h-3.5 text-slate-600 transition-transform group-hover:translate-x-0.5 group-hover:text-accent" />
               </p>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">{description}</p>

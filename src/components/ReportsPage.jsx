@@ -12,6 +12,12 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { PageHeader, Card, StatCard, SectionHeader, EmptyState } from './ui'
+import {
+  budgetBarTone,
+  budgetUsagePct,
+  formatTokenCount,
+  formatUsdCost,
+} from '../utils/llmUsageFormat'
 
 const KPI_CARDS = [
   { key: 'total', label: 'Total Entities', field: 'total_entities', icon: BarChart2, iconClass: 'bg-blue-500/15 text-blue-400' },
@@ -350,7 +356,7 @@ export default function ReportsPage() {
                 icon={Zap}
                 iconClass="bg-emerald-500/15 text-emerald-400"
                 label="Total Tokens"
-                value={llmUsage ? Number(llmUsage.total_tokens || 0).toLocaleString() : '—'}
+                value={llmUsage ? formatTokenCount(llmUsage.total_tokens) : '—'}
               />
               <StatCard
                 icon={Coins}
@@ -358,7 +364,7 @@ export default function ReportsPage() {
                 label="Est. Cost (USD)"
                 value={
                   llmUsage
-                    ? `$${Number(llmUsage.estimated_cost_usd || 0).toFixed(4)}`
+                    ? formatUsdCost(llmUsage.estimated_cost_usd)
                     : '—'
                 }
               />
@@ -366,7 +372,7 @@ export default function ReportsPage() {
                 icon={BarChart2}
                 iconClass="bg-blue-500/15 text-blue-400"
                 label="API Calls"
-                value={llmUsage ? Number(llmUsage.calls || 0).toLocaleString() : '—'}
+                value={llmUsage ? formatTokenCount(llmUsage.calls) : '—'}
               />
               <StatCard
                 icon={Users}
@@ -395,11 +401,11 @@ export default function ReportsPage() {
                           <tr key={u.user_id} className="border-b border-border last:border-0">
                             <td className="px-2 py-2 text-sm text-white truncate max-w-[160px]">{u.user_id}</td>
                             <td className="px-2 py-2 text-sm text-gray-300 text-right">
-                              {Number(u.tokens || 0).toLocaleString()}
+                              {formatTokenCount(u.tokens)}
                             </td>
                             <td className="px-2 py-2 text-sm text-gray-300 text-right">{u.calls}</td>
                             <td className="px-2 py-2 text-sm text-amber-300 text-right">
-                              ${Number(u.estimated_cost_usd || 0).toFixed(4)}
+                              {formatUsdCost(u.estimated_cost_usd)}
                             </td>
                           </tr>
                         ))}
@@ -418,7 +424,7 @@ export default function ReportsPage() {
                         <div key={p.provider} className="flex items-center justify-between text-sm">
                           <span className="text-gray-400">{p.provider}</span>
                           <span className="text-white">
-                            {Number(p.tokens || 0).toLocaleString()} tok · ${Number(p.estimated_cost_usd || 0).toFixed(4)}
+                            {formatTokenCount(p.tokens)} tok · {formatUsdCost(p.estimated_cost_usd)}
                           </span>
                         </div>
                       ))}
@@ -430,7 +436,7 @@ export default function ReportsPage() {
                             {m.model} <span className="text-gray-600">({m.provider})</span>
                           </span>
                           <span className="text-gray-300 shrink-0 ml-2">
-                            {Number(m.tokens || 0).toLocaleString()} · ${Number(m.estimated_cost_usd || 0).toFixed(4)}
+                            {formatTokenCount(m.tokens)} · {formatUsdCost(m.estimated_cost_usd)}
                           </span>
                         </div>
                       ))}
@@ -445,7 +451,8 @@ export default function ReportsPage() {
                   {llmUsage.budget.map((b) => {
                     const budget = Number(b.monthly_token_budget || 0)
                     const used = Number(b.tokens_used_this_month || 0)
-                    const pct = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0
+                    const pct = budgetUsagePct(used, budget)
+                    const tone = budgetBarTone(pct)
                     return (
                       <div key={b.config_id ?? `${b.provider}-${b.model}`}>
                         <div className="flex items-center justify-between text-xs mb-1">
@@ -453,13 +460,17 @@ export default function ReportsPage() {
                             {b.model} <span className="text-gray-600">({b.provider})</span>
                           </span>
                           <span className="text-white">
-                            {used.toLocaleString()} / {budget.toLocaleString()} ({pct}%)
+                            {formatTokenCount(used)} / {formatTokenCount(budget)} ({pct}%)
                           </span>
                         </div>
                         <div className="h-2 bg-white/5 rounded-full overflow-hidden">
                           <div
                             className={`h-full rounded-full transition-all ${
-                              pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                              tone === 'critical'
+                                ? 'bg-red-500'
+                                : tone === 'warn'
+                                  ? 'bg-amber-500'
+                                  : 'bg-emerald-500'
                             }`}
                             style={{ width: `${pct}%` }}
                           />

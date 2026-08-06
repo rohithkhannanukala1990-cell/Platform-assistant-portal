@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { LayoutGrid, Key, Link, Search, Copy, Check, ChevronRight, Table2, Hash } from 'lucide-react'
+import { DemoPreviewBanner } from './ui'
 
 const SCHEMA = {
   'prod-postgres-primary': [
@@ -119,6 +120,10 @@ export default function SchemaBrowserView() {
           {Object.keys(SCHEMA).map(k => <option key={k} value={k}>{k}</option>)}
         </select>
       </div>
+
+      <DemoPreviewBanner title="Preview — sample schema">
+        Tables and columns below are illustrative. Connect a database tool account to browse live schemas.
+      </DemoPreviewBanner>
 
       <div className="flex gap-4" style={{ minHeight: 520 }}>
 

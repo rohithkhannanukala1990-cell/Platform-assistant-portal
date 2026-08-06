@@ -114,7 +114,7 @@ const NAV_GROUPS = [
     defaultOpen: false,
     items: [
       { label: 'CI/CD Pipelines', path: '/cicd', icon: 'GitBranch' },
-      { label: 'Deployments', path: '/deployments', icon: 'Rocket' },
+      { label: 'Deployments', path: '/deployments', icon: 'Rocket', preview: true },
       { label: 'Kubernetes', path: '/k8s', icon: 'Server' },
       { label: 'Infra Builder', path: '/infra', icon: 'Hammer' },
       { label: 'Runbooks', path: '/runbooks', icon: 'BookMarked' },
@@ -237,7 +237,7 @@ export default function Sidebar({ user, open = false, onClose }) {
   const widthClass = collapsed ? (narrow ? 'w-0 border-r-0' : 'w-14') : 'w-60'
   const hiddenOnNarrow = collapsed && narrow
 
-  function NavItem({ label, path, icon, badgeKey }) {
+  function NavItem({ label, path, icon, badgeKey, preview }) {
     const Icon = ICON_MAP[icon] || LayoutDashboard
     const badgeCount = badgeKey === 'agentApprovals' ? agentApprovalCount : 0
     const layoutClasses = collapsed && !narrow ? 'justify-center px-2' : 'px-3'
@@ -245,7 +245,7 @@ export default function Sidebar({ user, open = false, onClose }) {
       <NavLink
         to={path}
         end
-        title={collapsed ? label : undefined}
+        title={collapsed ? (preview ? `${label} (preview)` : label) : undefined}
         aria-current={isActivePath(location.pathname, path) ? 'page' : undefined}
         className={({ isActive }) => {
           const active =
@@ -266,6 +266,11 @@ export default function Sidebar({ user, open = false, onClose }) {
         {!collapsed && (
           <>
             <span className="truncate flex-1">{label}</span>
+            {preview && (
+              <span className="shrink-0 text-[9px] uppercase tracking-wider font-semibold text-amber-400/90 border border-amber-500/30 rounded px-1 py-0.5">
+                Preview
+              </span>
+            )}
             {badgeCount > 0 && (
               <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-amber-500 text-neutral-950 text-[10px] font-bold">
                 {badgeCount > 99 ? '99+' : badgeCount}

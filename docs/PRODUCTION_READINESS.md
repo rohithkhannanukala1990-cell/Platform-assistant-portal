@@ -17,6 +17,24 @@ Not a claim of Port/Backstage/incident.io feature parity.
 
 **P0 blockers:** none open. Remaining P1 FE/ops items are **accepted risk** with owners — see `docs/PRODUCTION_BUG_BACKLOG.md`.
 
+## Quality score (honest)
+
+Internal review (Aug 2026): **~7.5–8 / 10** for a design-partner pilot — not a claim of product perfection.
+
+What already lifts the score: HITL agents, tenant isolation, backend test depth, docs, LLM cost tracking.
+
+What still blocks a higher score:
+
+| Gap | Why it matters |
+|-----|----------------|
+| Preview/demo pages | Deployments + Data Tools are labeled **Preview** and show sample banners — still not live integrations |
+| Frontend tests | Growing Vitest suite; still thin vs route count |
+| No TypeScript | Large JSX surface without static types |
+| God files | Catalog/auth/AI/health modules remain large |
+| Soft dep audits | Full `pip-audit` / moderate `npm audit` stay advisory until baselines are clean |
+
+Path toward **9+**: replace preview pages with live connectors, TypeScript on critical FE modules, split god files, hard-fail remaining audits, browser e2e for login → catalog → agent approve.
+
 ## What remains (~ vs competitors)
 
 - **Self-service** — not a Port action marketplace; catalog HITL post-approve may be status-only (ID-033).

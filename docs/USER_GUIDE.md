@@ -29,6 +29,7 @@ Think of pages as your desk, and agents as specialists you call over when stuck.
 | Review a pull request with AI | **Connectors → GitHub PRs** | Related agents → Code review |
 | See deploy frequency / MTTR | **DORA Metrics** | Open the four score cards |
 | See how much the AI costs us | **Reports → Token Utilization** | Check tokens, estimated $ and per-user usage |
+| Try a data / deploy UI that isn’t live yet | **Deployments** or **Data Tools** | Look for the amber **Preview** badge — sample data only |
 | Connect GitHub / PagerDuty / AWS | **Tool Registry** (admin) | Add the account, then retry |
 | Ask a free-form question | **AI Assistant** | Type the question in plain English |
 | Run a named specialist myself | **Agents** | Pick agent(s) → write a clear task → Run |

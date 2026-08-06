@@ -4,6 +4,7 @@ import {
   TrendingDown, RefreshCw, DollarSign, Cloud, Archive,
   Loader2,
 } from 'lucide-react'
+import { DemoPreviewBanner } from './ui'
 
 const BUCKETS = [
   { id: 'bq-warehouse',   name: 'Data Warehouse',     provider: 'BigQuery',   region: 'us-central1', usedGB: 7800, totalGB: 10240, cost: 312.40, trend: +4.2,  status: 'warning',  icon: '📦', lastModified: '2 min ago' },
@@ -70,6 +71,10 @@ export default function StorageView() {
           </button>
         </div>
       </div>
+
+      <DemoPreviewBanner title="Preview — sample storage">
+        Bucket sizes and costs below are illustrative until cloud storage connectors report live usage.
+      </DemoPreviewBanner>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

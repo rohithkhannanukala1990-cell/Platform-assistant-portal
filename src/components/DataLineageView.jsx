@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { GitMerge, Database, Cloud, Zap, Box, Info, X } from 'lucide-react'
+import { DemoPreviewBanner } from './ui'
 
 // ── Graph data ─────────────────────────────────────────────────────────────────
 const NODES = [
@@ -101,6 +102,10 @@ export default function DataLineageView() {
           ))}
         </div>
       </div>
+
+      <DemoPreviewBanner title="Preview — sample lineage graph">
+        This graph is demo data for UX review. Live lineage from your warehouses and pipelines is not wired yet.
+      </DemoPreviewBanner>
 
       {/* Detail panel */}
       {selectedNode && (
