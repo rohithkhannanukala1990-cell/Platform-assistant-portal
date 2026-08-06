@@ -113,13 +113,13 @@ const NAV_GROUPS = [
     name: 'Developer Tools',
     defaultOpen: false,
     items: [
-      { label: 'CI/CD Pipelines', path: '/cicd', icon: 'GitBranch' },
-      { label: 'Deployments', path: '/deployments', icon: 'Rocket', preview: true },
+      { label: 'Deployments', path: '/deployments', icon: 'Rocket' },
       { label: 'Kubernetes', path: '/k8s', icon: 'Server' },
-      { label: 'Infra Builder', path: '/infra', icon: 'Hammer' },
       { label: 'Runbooks', path: '/runbooks', icon: 'BookMarked' },
       { label: 'Data Tools', path: '/data-tools', icon: 'Database' },
       { label: 'Connectors', path: '/connectors', icon: 'Plug' },
+      { label: 'CI/CD Pipelines', path: '/cicd', icon: 'GitBranch', preview: true },
+      { label: 'Infra Builder', path: '/infra', icon: 'Hammer', preview: true },
     ],
   },
   {
@@ -142,8 +142,14 @@ const NAV_GROUPS = [
       { label: 'AI Assistant', path: '/ai-assistant', icon: 'Sparkles' },
       { label: 'Agents', path: '/agents', icon: 'Bot', badgeKey: 'agentApprovals' },
       { label: 'Run History', path: '/agent-history', icon: 'Activity' },
-      { label: 'Code Editor', path: '/editor', icon: 'Code2' },
-      { label: 'Terminal', path: '/terminal', icon: 'TerminalSquare' },
+    ],
+  },
+  {
+    name: 'Labs',
+    defaultOpen: false,
+    items: [
+      { label: 'Code Editor', path: '/editor', icon: 'Code2', preview: true },
+      { label: 'Terminal', path: '/terminal', icon: 'TerminalSquare', preview: true },
     ],
   },
 ]

@@ -39,9 +39,11 @@ const ALL_COMMANDS = [
   { label: 'Kubernetes', path: '/k8s', category: 'DevTools' },
   { label: 'PagerDuty', path: '/pagerduty', category: 'Ops' },
   { label: 'Live Pipelines', path: '/live-pipelines', category: 'DevTools' },
-  { label: 'Deployments', path: '/deployments', category: 'DevTools', preview: true },
+  { label: 'Deployments', path: '/deployments', category: 'DevTools' },
   { label: 'Schema Browser', path: '/schema-browser', category: 'DevTools', preview: true },
   { label: 'Data Lineage', path: '/data-lineage', category: 'DevTools', preview: true },
+  { label: 'Code Editor', path: '/editor', category: 'Labs', preview: true },
+  { label: 'Terminal', path: '/terminal', category: 'Labs', preview: true },
   { label: 'Runbooks', path: '/runbooks', category: 'DevTools' },
 ]
 

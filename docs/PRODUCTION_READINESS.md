@@ -19,21 +19,22 @@ Not a claim of Port/Backstage/incident.io feature parity.
 
 ## Quality score (honest)
 
-Internal review (Aug 2026): **~7.5–8 / 10** for a design-partner pilot — not a claim of product perfection.
+Internal review (Aug 2026): **~8.5 / 10** for a design-partner pilot — not a claim of product perfection.
 
-What already lifts the score: HITL agents, tenant isolation, backend test depth, docs, LLM cost tracking.
+What already lifts the score: HITL agents, tenant isolation, backend test depth, docs, LLM cost tracking,
+typed Auth/API helpers, live Deployments (GitHub Actions + optional Argo CD), preview-labeled labs.
 
 What still blocks a higher score:
 
 | Gap | Why it matters |
 |-----|----------------|
-| Preview/demo pages | Deployments + Data Tools are labeled **Preview** and show sample banners — still not live integrations |
+| Partial TypeScript | Critical modules typed; most pages still JSX |
+| Preview Data Tools | Sample schema/lineage/storage until live connectors |
 | Frontend tests | Growing Vitest suite; still thin vs route count |
-| No TypeScript | Large JSX surface without static types |
 | God files | Catalog/auth/AI/health modules remain large |
 | Soft dep audits | Full `pip-audit` / moderate `npm audit` stay advisory until baselines are clean |
 
-Path toward **9+**: replace preview pages with live connectors, TypeScript on critical FE modules, split god files, hard-fail remaining audits, browser e2e for login → catalog → agent approve.
+Path toward **9.5+**: TypeScript across high-traffic pages, browser e2e for login → catalog → agent approve, split god files, hard-fail remaining audits, replace remaining preview Data Tools.
 
 ## What remains (~ vs competitors)
 

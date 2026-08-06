@@ -85,10 +85,10 @@ export function agentRunnerState({ agents, task, entityId, entityName, extra = {
  */
 export default function RelatedAgentsBar({
   surface,
-  agents,
-  task,
-  entityId,
-  entityName,
+  agents = null,
+  task = null,
+  entityId = null,
+  entityName = null,
   className = '',
   title = 'Related agents',
 }) {

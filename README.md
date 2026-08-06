@@ -17,7 +17,7 @@ See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for how to use the portal day-to-da
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 18, Vite 5, Tailwind CSS 3, React Router 7 |
+| Frontend | React 18, Vite 5, Tailwind CSS 3, React Router 7, TypeScript (incremental) |
 | Backend | FastAPI, SQLModel, Celery |
 | Data | PostgreSQL 16 (production) / SQLite (local dev), Redis 7 |
 | Observability | Prometheus, Grafana, Loki |
