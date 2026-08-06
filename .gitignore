@@ -29,6 +29,7 @@ test_pytest_*.db
 
 # ── Virtual environments ───────────────────────────────────────────────────────
 .venv/
+.venv-*/
 venv/
 env/
 
