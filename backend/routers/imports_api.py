@@ -140,9 +140,16 @@ def _bulk_insert_tool_accounts(
                 aid = (row.get("id") or "").strip() or str(uuid.uuid4())
                 if session.get(ToolAccount, aid):
                     aid = str(uuid.uuid4())
-                env = (row.get("environment") or "development").strip()
+                from ..importers.environment_infer import (
+                    normalize_environment,
+                    requires_hitl_for_env,
+                )
+
+                env = normalize_environment(row.get("environment") or "development")
                 auth_type = (row.get("auth_type") or "api_key").strip()
                 hitl = _normalize_requires_hitl(row.get("requires_hitl"))
+                if row.get("requires_hitl") is None:
+                    hitl = 1 if requires_hitl_for_env(env) else 0
                 created_by = (row.get("created_by") or "import").strip() or actor_username
                 try:
                     raw_cred = (row.get("credentials_vault_ref") or "").strip() or None
@@ -252,7 +259,13 @@ def _record_import_history(
 
 
 def _strip_discovery_metadata(rows: list[dict]) -> list[dict]:
-    skip = {"metadata", "discovered_services", "discovered_repos"}
+    skip = {
+        "metadata",
+        "discovered_services",
+        "discovered_repos",
+        "environment_source",
+        "environment_confidence",
+    }
     out: list[dict] = []
     for a in rows:
         if not isinstance(a, dict):

@@ -109,6 +109,15 @@ const AWS_REGION_OPTIONS = [
   { id: 'ap-northeast-1', label: 'ap-northeast-1' },
 ]
 
+const DISCOVER_ENVIRONMENTS = [
+  'local',
+  'development',
+  'test',
+  'staging',
+  'production',
+  'dr',
+]
+
 const JSON_EXAMPLE = `{
   "accounts": [
     {
@@ -207,11 +216,14 @@ export default function AccountImportView() {
   const [selectedDiscoverIds, setSelectedDiscoverIds] = useState(() => new Set())
 
   const [awsAccountId, setAwsAccountId] = useState('')
+  const [awsAccountAlias, setAwsAccountAlias] = useState('')
   const [awsRegions, setAwsRegions] = useState(() => new Set(['us-east-1', 'us-west-2']))
   const [gcpProjectId, setGcpProjectId] = useState('')
   const [azureSubId, setAzureSubId] = useState('')
   const [azureTenantId, setAzureTenantId] = useState('')
+  const [azureSubName, setAzureSubName] = useState('')
   const [githubOrg, setGithubOrg] = useState('')
+  const [discoverEnvHint, setDiscoverEnvHint] = useState('')
 
   const [historyItems, setHistoryItems] = useState([])
   const [historyPage, setHistoryPage] = useState(1)
@@ -449,30 +461,72 @@ export default function AccountImportView() {
   }, [authFetch])
 
   const buildCloudCredentials = useCallback(() => {
+    const envHint = discoverEnvHint.trim()
     if (discoverProvider === 'aws') {
       return {
         account_id: awsAccountId.trim(),
+        account_alias: awsAccountAlias.trim() || undefined,
         regions: Array.from(awsRegions),
+        ...(envHint ? { environment: envHint } : {}),
       }
     }
-    if (discoverProvider === 'gcp') return { project_id: gcpProjectId.trim() }
+    if (discoverProvider === 'gcp') {
+      return {
+        project_id: gcpProjectId.trim(),
+        ...(envHint ? { environment: envHint } : {}),
+      }
+    }
     if (discoverProvider === 'azure') {
       return {
         subscription_id: azureSubId.trim(),
         tenant_id: azureTenantId.trim(),
+        subscription_name: azureSubName.trim() || undefined,
+        ...(envHint ? { environment: envHint } : {}),
       }
     }
-    if (discoverProvider === 'github') return { org_name: githubOrg.trim() }
+    if (discoverProvider === 'github') {
+      return {
+        org_name: githubOrg.trim(),
+        ...(envHint ? { environment: envHint } : {}),
+      }
+    }
     return {}
   }, [
     discoverProvider,
     awsAccountId,
+    awsAccountAlias,
     awsRegions,
     gcpProjectId,
     azureSubId,
     azureTenantId,
+    azureSubName,
     githubOrg,
+    discoverEnvHint,
   ])
+
+  const setDiscoverRowEnvironment = useCallback((rowId, environment) => {
+    setDiscoverResult((prev) => {
+      if (!prev) return prev
+      const patch = (list) =>
+        (list || []).map((row) =>
+          row.id === rowId
+            ? {
+                ...row,
+                environment,
+                environment_source: 'explicit',
+                environment_confidence: 'high',
+                requires_hitl: environment === 'production' || environment === 'dr',
+              }
+            : row
+        )
+      return {
+        ...prev,
+        rows: patch(prev.rows),
+        accounts: patch(prev.accounts),
+        preview: patch(prev.preview),
+      }
+    })
+  }, [])
 
   const runCloudDiscover = useCallback(async () => {
     setIsDiscovering(true)
@@ -985,6 +1039,26 @@ export default function AccountImportView() {
             </div>
 
             <div className="mt-6 rounded-xl border border-border bg-card/30 p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 uppercase mb-1">
+                  Environment hint (optional)
+                </label>
+                <select
+                  value={discoverEnvHint}
+                  onChange={(e) => setDiscoverEnvHint(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-border text-sm text-white"
+                >
+                  <option value="">Auto-detect from names / IDs</option>
+                  {DISCOVER_ENVIRONMENTS.map((env) => (
+                    <option key={env} value={env}>{env}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Leave on auto-detect to infer local / development / test / staging / production / dr from account names.
+                  Pick a value to force every discovered row to that environment.
+                </p>
+              </div>
+
               {discoverProvider === 'aws' && (
                 <>
                   <label className="block text-xs font-semibold text-slate-400 uppercase">Account ID</label>
@@ -992,6 +1066,13 @@ export default function AccountImportView() {
                     value={awsAccountId}
                     onChange={(e) => setAwsAccountId(e.target.value)}
                     placeholder="123456789012"
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-border text-sm text-white"
+                  />
+                  <label className="block text-xs font-semibold text-slate-400 uppercase">Account alias / name</label>
+                  <input
+                    value={awsAccountAlias}
+                    onChange={(e) => setAwsAccountAlias(e.target.value)}
+                    placeholder="e.g. acme-prod, acme-staging, acme-dev"
                     className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-border text-sm text-white"
                   />
                   <p className="text-xs text-slate-500 font-semibold uppercase">Regions</p>
@@ -1049,6 +1130,13 @@ export default function AccountImportView() {
                   <input
                     value={azureSubId}
                     onChange={(e) => setAzureSubId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-border text-sm text-white"
+                  />
+                  <label className="block text-xs font-semibold text-slate-400 uppercase">Subscription name</label>
+                  <input
+                    value={azureSubName}
+                    onChange={(e) => setAzureSubName(e.target.value)}
+                    placeholder="e.g. Contoso Production"
                     className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-border text-sm text-white"
                   />
                   <label className="block text-xs font-semibold text-slate-400 uppercase">Tenant ID</label>
@@ -1147,11 +1235,22 @@ export default function AccountImportView() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-lg">{meta.emoji}</span>
                           <span className="font-semibold text-white truncate">{acc.account_name}</span>
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-md border font-medium ${envBadgeClass(acc.environment)}`}
+                          <select
+                            value={DISCOVER_ENVIRONMENTS.includes(acc.environment) ? acc.environment : 'development'}
+                            onChange={(e) => acc.id && setDiscoverRowEnvironment(acc.id, e.target.value)}
+                            className={`text-xs px-2 py-0.5 rounded-md border font-medium bg-slate-950 ${envBadgeClass(acc.environment)}`}
+                            title="Change environment before import"
                           >
-                            {acc.environment}
-                          </span>
+                            {DISCOVER_ENVIRONMENTS.map((env) => (
+                              <option key={env} value={env}>{env}</option>
+                            ))}
+                          </select>
+                          {acc.environment_source && (
+                            <span className="text-[10px] text-slate-500">
+                              {acc.environment_source}
+                              {acc.environment_confidence ? ` · ${acc.environment_confidence}` : ''}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-slate-500 mt-1">
                           {[acc.region, acc.auth_type].filter(Boolean).join(' · ')}
