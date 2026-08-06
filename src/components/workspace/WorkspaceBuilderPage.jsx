@@ -45,7 +45,7 @@ function ToolCard({ tool, onSwitchAccount, onRunAgent, onRemove }) {
   const statusColor = tool.status === 'connected' ? 'text-green-400' : 'text-red-400'
 
   return (
-    <div className="bg-gray-800 border border-gray-600 rounded-xl p-4 w-56 shadow-lg select-none">
+    <div className="bg-card border border-gray-600 rounded-xl p-4 w-56 shadow-lg select-none">
       <div className="flex items-center justify-between mb-2">
         <span className="text-white font-semibold capitalize">{tool.tool_id}</span>
         <button
@@ -107,7 +107,7 @@ function AccountSelectorModal({ toolId, workspaceId, onSelect, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-xl p-6 w-80 shadow-2xl">
+      <div className="bg-card rounded-xl p-6 w-80 shadow-2xl">
         <h3 className="text-white font-semibold mb-4">Select Account — {toolId}</h3>
         {loading && <p className="text-gray-400 text-sm">Loading accounts…</p>}
         {!loading && accounts.length === 0 && (

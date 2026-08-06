@@ -294,13 +294,13 @@ export default function CommandPalette({ open: controlledOpen, onClose }) {
       role="presentation"
     >
       <div
-        className="max-w-xl w-full bg-gray-900 border border-gray-700 rounded-xl shadow-2xl overflow-hidden"
+        className="max-w-xl w-full bg-gray-900 border border-border rounded-xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
       >
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-700">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
           <Search className="w-5 h-5 text-gray-500 shrink-0" />
           <input
             ref={inputRef}
@@ -336,7 +336,7 @@ export default function CommandPalette({ open: controlledOpen, onClose }) {
                       onClick={() => openResult(item)}
                       onMouseEnter={() => setSelectedIndex(idx)}
                       className={`w-full flex items-center gap-3 px-4 py-2 text-left text-sm transition-colors ${
-                        selected ? 'bg-gray-800' : 'hover:bg-gray-800/60'
+                        selected ? 'bg-card' : 'hover:bg-card/60'
                       }`}
                     >
                       <span className="flex-1 min-w-0 font-medium text-white truncate">{item.label}</span>
@@ -371,7 +371,7 @@ export default function CommandPalette({ open: controlledOpen, onClose }) {
                       onClick={() => openResult(item)}
                       onMouseEnter={() => setSelectedIndex(idx)}
                       className={`w-full flex items-center gap-3 px-4 py-2 text-left text-sm transition-colors ${
-                        selected ? 'bg-gray-800' : 'hover:bg-gray-800/60'
+                        selected ? 'bg-card' : 'hover:bg-card/60'
                       }`}
                     >
                       <span className="flex-1 min-w-0 font-medium text-white truncate">{item.label}</span>
@@ -397,7 +397,7 @@ export default function CommandPalette({ open: controlledOpen, onClose }) {
                       onClick={() => openResult(item)}
                       onMouseEnter={() => setSelectedIndex(idx)}
                       className={`w-full flex items-center gap-3 px-4 py-2 text-left text-sm transition-colors ${
-                        selected ? 'bg-gray-800' : 'hover:bg-gray-800/60'
+                        selected ? 'bg-card' : 'hover:bg-card/60'
                       }`}
                     >
                       <TypeBadge type={item.type} />
@@ -411,7 +411,7 @@ export default function CommandPalette({ open: controlledOpen, onClose }) {
             ))}
         </div>
 
-        <div className="px-4 py-2 border-t border-gray-700 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
+        <div className="px-4 py-2 border-t border-border text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
           <span>↑↓ navigate</span>
           <span>↵ open</span>
           <span>esc close</span>

@@ -29,7 +29,7 @@ export default class ErrorBoundary extends Component {
           <p className="text-gray-400 mb-6 text-center max-w-md">
             The portal encountered an unexpected error.
           </p>
-          <pre className="text-left text-sm text-gray-400 font-mono bg-gray-950 border border-gray-700 rounded-lg p-4 max-w-2xl w-full overflow-auto mb-8">
+          <pre className="text-left text-sm text-gray-400 font-mono bg-gray-950 border border-border rounded-lg p-4 max-w-2xl w-full overflow-auto mb-8">
             {msg}
           </pre>
           <div className="flex gap-4">

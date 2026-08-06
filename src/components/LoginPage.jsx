@@ -134,7 +134,7 @@ export default function LoginPage() {
                 placeholder="6-digit authenticator code"
                 value={totpCode}
                 onChange={(e) => setTotpCode(e.target.value)}
-                className="w-full px-4 py-2 bg-gray-800 border border-yellow-500
+                className="w-full px-4 py-2 bg-card border border-yellow-500
                            rounded-lg text-white text-center tracking-widest
                            text-xl focus:outline-none focus:border-yellow-400"
               />

@@ -155,7 +155,7 @@ function normalizeDoraMetrics(data) {
 
 function MetricSkeleton() {
   return (
-    <div className="bg-gray-800 rounded-xl p-5 animate-pulse">
+    <div className="bg-card rounded-xl p-5 animate-pulse">
       <div className="h-4 bg-gray-700 rounded w-1/2 mb-3" />
       <div className="h-8 bg-gray-700 rounded w-1/3" />
     </div>

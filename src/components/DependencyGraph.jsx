@@ -377,7 +377,7 @@ export default function DependencyGraph() {
             <button
               type="button"
               onClick={resetLayout}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-700 text-slate-300 hover:bg-gray-800 text-xs font-semibold"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-slate-300 hover:bg-card text-xs font-semibold"
             >
               <RotateCcw className="w-3.5 h-3.5" /> Reset Layout
             </button>
@@ -534,7 +534,7 @@ export default function DependencyGraph() {
           </svg>
 
           {selectedEntity && (
-            <div className="absolute top-3 right-3 w-64 rounded-lg border border-gray-700 bg-gray-900/95 shadow-xl p-4 text-sm z-20">
+            <div className="absolute top-3 right-3 w-64 rounded-lg border border-border bg-gray-900/95 shadow-xl p-4 text-sm z-20">
               <p className="font-bold text-white truncate">{selectedEntity.name}</p>
               <dl className="mt-2 space-y-1 text-slate-400 text-xs">
                 <div className="flex justify-between gap-2">
@@ -557,12 +557,12 @@ export default function DependencyGraph() {
               <button
                 type="button"
                 onClick={viewInCatalog}
-                className="mt-3 w-full py-2 rounded-lg bg-slate-800 border border-gray-700 text-white text-xs font-semibold hover:bg-slate-700"
+                className="mt-3 w-full py-2 rounded-lg bg-slate-800 border border-border text-white text-xs font-semibold hover:bg-slate-700"
               >
                 View in Catalog
               </button>
               {selectedEdges.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-gray-700">
+                <div className="mt-3 pt-3 border-t border-border">
                   <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Dependencies</p>
                   <ul className="space-y-1.5 max-h-32 overflow-y-auto">
                     {selectedEdges.map((edge) => (
@@ -596,7 +596,7 @@ export default function DependencyGraph() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
           <form
             onSubmit={(ev) => void saveDependency(ev)}
-            className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl space-y-4"
+            className="w-full max-w-md rounded-xl border border-border bg-gray-900 p-6 shadow-2xl space-y-4"
             onClick={(ev) => ev.stopPropagation()}
           >
             <div className="flex items-center justify-between">
@@ -615,7 +615,7 @@ export default function DependencyGraph() {
                 required
                 value={addForm.from_entity_id}
                 onChange={(ev) => setAddForm({ ...addForm, from_entity_id: ev.target.value })}
-                className="mt-1 w-full px-3 py-2 rounded-lg bg-gray-950 border border-gray-700 text-white text-sm"
+                className="mt-1 w-full px-3 py-2 rounded-lg bg-gray-950 border border-border text-white text-sm"
               >
                 <option value="">Select entity…</option>
                 {entities.map((e) => (
@@ -631,7 +631,7 @@ export default function DependencyGraph() {
                 required
                 value={addForm.to_entity_id}
                 onChange={(ev) => setAddForm({ ...addForm, to_entity_id: ev.target.value })}
-                className="mt-1 w-full px-3 py-2 rounded-lg bg-gray-950 border border-gray-700 text-white text-sm"
+                className="mt-1 w-full px-3 py-2 rounded-lg bg-gray-950 border border-border text-white text-sm"
               >
                 <option value="">Select entity…</option>
                 {entities.map((e) => (
@@ -646,7 +646,7 @@ export default function DependencyGraph() {
               <select
                 value={addForm.dep_type}
                 onChange={(ev) => setAddForm({ ...addForm, dep_type: ev.target.value })}
-                className="mt-1 w-full px-3 py-2 rounded-lg bg-gray-950 border border-gray-700 text-white text-sm"
+                className="mt-1 w-full px-3 py-2 rounded-lg bg-gray-950 border border-border text-white text-sm"
               >
                 <option value="calls">calls</option>
                 <option value="uses">uses</option>
@@ -657,7 +657,7 @@ export default function DependencyGraph() {
               <button
                 type="button"
                 onClick={() => setShowAddForm(false)}
-                className="flex-1 py-2.5 rounded-lg border border-gray-700 text-slate-300 text-sm font-semibold hover:bg-gray-800"
+                className="flex-1 py-2.5 rounded-lg border border-border text-slate-300 text-sm font-semibold hover:bg-card"
               >
                 Cancel
               </button>

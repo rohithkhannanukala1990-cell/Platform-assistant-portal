@@ -11,6 +11,7 @@ pydantic-settings>=2.0.0,<3
 # ── Database ──────────────────────────────────────────────
 sqlmodel>=0.0.21,<0.1
 psycopg2-binary>=2.9.9,<3
+alembic>=1.13.0,<2
 
 # ── Auth & Security ───────────────────────────────────────
 python3-saml>=1.16.0,<2

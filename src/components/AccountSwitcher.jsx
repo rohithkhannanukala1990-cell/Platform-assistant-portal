@@ -288,7 +288,7 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
         type="button"
         onClick={() => setIsOpen((o) => !o)}
         disabled={!toolId}
-        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-700 bg-gray-800 text-sm text-slate-200 hover:bg-gray-700/80 disabled:opacity-50"
+        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card text-sm text-slate-200 hover:bg-gray-700/80 disabled:opacity-50"
         aria-expanded={isOpen}
       >
         <span
@@ -302,8 +302,8 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
       </button>
 
       {isOpen && toolId && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-[320px] max-h-[460px] overflow-y-auto rounded-lg border border-gray-700 bg-gray-800 shadow-xl flex flex-col">
-          <div className="px-3 py-2 border-b border-gray-700">
+        <div className="absolute left-0 top-full mt-1 z-50 w-[320px] max-h-[460px] overflow-y-auto rounded-lg border border-border bg-card shadow-xl flex flex-col">
+          <div className="px-3 py-2 border-b border-border">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
               Workspace
             </p>
@@ -348,7 +348,7 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
             )}
           </div>
 
-          <div className="px-3 py-2 border-b border-gray-700 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+          <div className="px-3 py-2 border-b border-border text-xs font-semibold text-slate-400 uppercase tracking-wide">
             Select {displayToolName} Account
           </div>
 
@@ -397,7 +397,7 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
             })}
           </div>
 
-          <div className="border-t border-gray-700 px-3 py-2 flex flex-col gap-1 shrink-0 bg-gray-900/40">
+          <div className="border-t border-border px-3 py-2 flex flex-col gap-1 shrink-0 bg-gray-900/40">
             <button
               type="button"
               onClick={openAccessModal}
@@ -413,7 +413,7 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
 
       {accessModalOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70">
-          <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-800 shadow-2xl p-5">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl p-5">
             <h3 className="text-sm font-semibold text-white mb-3">Request account access</h3>
             <label className="block text-[10px] uppercase text-slate-500 mb-1">Account</label>
             <select
@@ -473,7 +473,7 @@ function AccountRow({ account, activeAccountId, isPinned, onPin, onSelect }) {
   const active = account.id === activeAccountId
   return (
     <div
-      className={`w-full px-3 py-2 flex items-start gap-2 border-b border-gray-700/40 ${
+      className={`w-full px-3 py-2 flex items-start gap-2 border-b border-border/40 ${
         active ? 'bg-gray-700/30' : ''
       }`}
     >

@@ -48,7 +48,7 @@ export default function CodeEditor() {
 
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-2
-                      bg-gray-800 border-b border-gray-700 shrink-0">
+                      bg-card border-b border-border shrink-0">
         <span className="text-gray-400 text-xs font-semibold
                          uppercase tracking-wide">Code Editor</span>
         <div className="flex-1" />

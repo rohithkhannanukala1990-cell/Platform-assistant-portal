@@ -33,10 +33,11 @@ jobs:
         run: |
           pip install pip-audit
           pip-audit --requirement backend/requirements.txt
-      - name: Frontend lint
+      - name: Frontend lint and tests
         run: |
           npm ci
           npm run lint
+          npm run test
       - name: npm audit
         continue-on-error: true
         run: npm audit --audit-level=moderate

@@ -5,8 +5,10 @@ import { API_BASE } from '../config/apiBase'
 const MAX_RETRIES = 5
 const BASE_MS = 1000
 
-function buildPortalWsUrl(userId) {
-  const qs = `user_id=${encodeURIComponent(userId)}`
+function buildPortalWsUrl() {
+  // Identity is derived server-side from the JWT; user_id is no longer sent.
+  const token = localStorage.getItem('aiops_access_token') || ''
+  const qs = `token=${encodeURIComponent(token)}`
   if (API_BASE) {
     try {
       const u = new URL(API_BASE.startsWith('http') ? API_BASE : `http://${API_BASE}`)
@@ -24,7 +26,6 @@ function buildPortalWsUrl(userId) {
 }
 
 export function usePortalWebSocket({
-  userId = 'anonymous',
   onMessage,
   onConnectedChange,
   onOpen,
@@ -45,7 +46,7 @@ export function usePortalWebSocket({
 
   const connect = useCallback(() => {
     if (unmountedRef.current) return
-    const ws = new WebSocket(buildPortalWsUrl(userId))
+    const ws = new WebSocket(buildPortalWsUrl())
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -74,7 +75,7 @@ export function usePortalWebSocket({
     }
 
     ws.onerror = () => ws.close()
-  }, [userId, onMessage, setConnectionState, onOpen, onClose])
+  }, [onMessage, setConnectionState, onOpen, onClose])
 
   useEffect(() => {
     unmountedRef.current = false

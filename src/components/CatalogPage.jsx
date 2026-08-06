@@ -15,8 +15,20 @@ import {
   XCircle,
   Zap,
   History,
+  GitBranch,
+  Server,
+  KeyRound,
+  Ticket,
+  ShieldCheck,
+  Rocket,
+  Database,
+  Bell,
+  FileText,
+  Terminal,
+  Cloud,
+  Lock,
+  Wrench,
 } from 'lucide-react'
-import * as LucideIcons from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { RunActionModal, LogsDrawer } from './entityActionsShared'
@@ -1023,8 +1035,28 @@ function CheckRow({ check }) {
   )
 }
 
+// Named map instead of `import * as LucideIcons` — the star import pulled the
+// entire icon library (~700 kB) into this chunk. Unknown names fall back to Zap.
+const ACTION_ICONS = {
+  Zap,
+  RefreshCw,
+  GitBranch,
+  Server,
+  KeyRound,
+  Ticket,
+  ShieldCheck,
+  Rocket,
+  Database,
+  Bell,
+  FileText,
+  Terminal,
+  Cloud,
+  Lock,
+  Wrench,
+}
+
 function ActionIcon({ name, className }) {
-  const Icon = LucideIcons[name] || Zap
+  const Icon = ACTION_ICONS[name] || Zap
   return <Icon className={className} />
 }
 

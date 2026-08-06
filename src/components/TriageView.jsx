@@ -87,7 +87,7 @@ function NoiseAnalysisTab({ workspaceId, authFetch }) {
 
       {result && (
         <>
-          <div className="bg-gray-800 rounded-xl p-4 mb-4">
+          <div className="bg-card rounded-xl p-4 mb-4">
             <p className="text-white text-sm">{result.summary}</p>
             <p className="text-gray-400 text-xs mt-1">
               Status:{' '}
@@ -106,7 +106,7 @@ function NoiseAnalysisTab({ workspaceId, authFetch }) {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead>
-                    <tr className="text-gray-400 border-b border-gray-700">
+                    <tr className="text-gray-400 border-b border-border">
                       <th className="py-2 pr-4">Alert Name</th>
                       <th className="py-2 pr-4">Fires (7d)</th>
                       <th className="py-2 pr-4">Signal Score</th>
@@ -115,7 +115,7 @@ function NoiseAnalysisTab({ workspaceId, authFetch }) {
                   </thead>
                   <tbody>
                     {result.details.noisy_alerts.map((alert, i) => (
-                      <tr key={i} className="border-b border-gray-800 hover:bg-gray-800/50">
+                      <tr key={i} className="border-b border-gray-800 hover:bg-card/50">
                         <td className="py-2 pr-4 text-white">{alert.name}</td>
                         <td className="py-2 pr-4 text-gray-300">{alert.fire_count}</td>
                         <td className="py-2 pr-4">

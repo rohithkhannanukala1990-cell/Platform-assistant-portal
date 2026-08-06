@@ -78,8 +78,17 @@ async def ws_broadcast(
 
 async def accept_portal_connection(
     websocket: WebSocket,
-    user_id: str = "anonymous",
+    token: str = "",
 ) -> None:
+    """Portal push channel. Identity comes from the JWT, never from the client."""
+    user = _authenticate_ws_token(token)
+    if not user:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Unauthorized"})
+        await websocket.close()
+        return
+
+    user_id = user.username
     await websocket.accept()
     _user_clients.setdefault(user_id, []).append(websocket)
     try:

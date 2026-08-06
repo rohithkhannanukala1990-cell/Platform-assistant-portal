@@ -361,7 +361,7 @@ export default function ScorecardsPage() {
             {platformHealth?.status && (
               <Link
                 to="/health"
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-700 bg-gray-800/80 text-xs font-medium text-slate-300 hover:text-white hover:border-gray-500"
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card/80 text-xs font-medium text-slate-300 hover:text-white hover:border-gray-500"
                 title="Open system health dashboard"
               >
                 <HeartPulse className="w-3.5 h-3.5 text-rose-400" />

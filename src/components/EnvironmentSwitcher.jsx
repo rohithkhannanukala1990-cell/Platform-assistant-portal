@@ -244,7 +244,7 @@ export default function EnvironmentSwitcher({ onClose }) {
       <button
         type="button"
         onClick={() => setIsOpen((o) => !o)}
-        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-700 bg-gray-800 text-sm text-slate-200 hover:bg-gray-700/80 hover:border-gray-600 transition-colors"
+        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card text-sm text-slate-200 hover:bg-gray-700/80 hover:border-gray-600 transition-colors"
         aria-expanded={isOpen}
         aria-haspopup="listbox"
       >
@@ -260,7 +260,7 @@ export default function EnvironmentSwitcher({ onClose }) {
 
       {isOpen && (
         <div
-          className="absolute left-0 top-full mt-1 z-50 w-[280px] rounded-lg border border-gray-700 bg-gray-800 shadow-xl py-1 max-h-[min(420px,70vh)] overflow-y-auto"
+          className="absolute left-0 top-full mt-1 z-50 w-[280px] rounded-lg border border-border bg-card shadow-xl py-1 max-h-[min(420px,70vh)] overflow-y-auto"
           role="listbox"
         >
           {ENVIRONMENTS.map((env) => {
@@ -306,7 +306,7 @@ export default function EnvironmentSwitcher({ onClose }) {
       {showConfirmModal && pendingEnv && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70">
           <div
-            className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-800 shadow-2xl p-6"
+            className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl p-6"
             role="dialog"
             aria-modal="true"
             aria-labelledby="prod-modal-title"

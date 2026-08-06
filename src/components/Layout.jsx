@@ -8,20 +8,22 @@ import { API_BASE } from '../config/apiBase'
 import { useAuth } from '../contexts/AuthContext'
 
 function buildPortalWsUrl() {
+  const token = localStorage.getItem('aiops_access_token') || ''
+  const qs = `token=${encodeURIComponent(token)}`
   if (!API_BASE) {
     const proto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = typeof window !== 'undefined' ? window.location.host : 'localhost:5173'
-    return `${proto}//${host}/ws/portal`
+    return `${proto}//${host}/ws/portal?${qs}`
   }
   try {
     const u = new URL(API_BASE.startsWith('http') ? API_BASE : `http://${API_BASE}`)
     u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
     u.pathname = '/ws/portal'
-    u.search = ''
+    u.search = qs
     u.hash = ''
     return u.toString()
   } catch {
-    return 'ws://localhost:8000/ws/portal'
+    return `ws://localhost:8000/ws/portal?${qs}`
   }
 }
 

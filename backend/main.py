@@ -334,8 +334,8 @@ async def add_security_headers(request: Request, call_next):
 @app.websocket("/ws/portal")
 async def portal_ws(
     websocket: WebSocket,
-    user_id: str = Query(default="anonymous"),
+    token: str = Query(default=""),
 ):
     from .ws_portal import accept_portal_connection
 
-    await accept_portal_connection(websocket, user_id=user_id)
+    await accept_portal_connection(websocket, token=token)

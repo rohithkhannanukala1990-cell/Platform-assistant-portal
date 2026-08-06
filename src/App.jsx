@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, lazy, Suspense } from 'react'
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 
@@ -32,10 +32,6 @@ const AgentRunnerPanel = lazy(() => import('./components/AgentRunnerPanel'))
 const CodeEditor = lazy(() => import('./components/CodeEditor'))
 const Terminal = lazy(() => import('./components/Terminal'))
 const QueryAnalyzerView = lazy(() => import('./components/QueryAnalyzerView'))
-const OpsPortal = lazy(() => import('./components/OpsPortal'))
-const DeveloperPortal = lazy(() => import('./components/DeveloperPortal'))
-const DataEngineerPortal = lazy(() => import('./components/DataEngineerPortal'))
-const DatabasePortal = lazy(() => import('./components/DatabasePortal'))
 const HistoryPanel = lazy(() => import('./components/HistoryPanel'))
 const StorageView = lazy(() => import('./components/StorageView'))
 const RunbooksView = lazy(() => import('./components/RunbooksView'))
@@ -58,21 +54,6 @@ const DataLineageView = lazy(() => import('./components/DataLineageView'))
 const NotificationsPage = lazy(() => import('./components/NotificationsPage'))
 const ConnectorsHubPage = lazy(() => import('./components/ConnectorsHubPage'))
 const DataToolsHubPage = lazy(() => import('./components/DataToolsHubPage'))
-
-const OPS_URL_VIEWS = new Set([
-  'dashboard',
-  'triage',
-  'infra',
-  'cicd',
-  'integrations',
-  'health',
-  'tool-registry',
-  'workspaces',
-  'templates',
-  'rbac',
-  'ai-assistant',
-  'import',
-])
 
 function PageLoader() {
   return (
@@ -108,37 +89,6 @@ function PrivateRoute({ children, adminOnly = false }) {
 
 function SettingsPage() {
   return <SettingsModal onClose={() => window.history.back()} />
-}
-
-function OpsPortalRoute() {
-  const location = useLocation()
-  const [currentView, setCurrentView] = useState('dashboard')
-  useEffect(() => {
-    const v = new URLSearchParams(location.search).get('view')
-    if (v && OPS_URL_VIEWS.has(v)) setCurrentView(v)
-  }, [location.pathname, location.search])
-
-  const handleBreadcrumb = useCallback(() => {}, [])
-
-  return (
-    <OpsPortal
-      currentView={currentView}
-      onViewChange={setCurrentView}
-      onBreadcrumb={handleBreadcrumb}
-    />
-  )
-}
-
-function DeveloperPortalRoute() {
-  const location = useLocation()
-  const [currentView, setCurrentView] = useState('catalog')
-
-  useEffect(() => {
-    const search = location.state?.catalogSearch
-    if (search) setCurrentView('catalog')
-  }, [location.state])
-
-  return <DeveloperPortal currentView={currentView} />
 }
 
 function AuthenticatedRoutes() {
@@ -255,11 +205,11 @@ function AuthenticatedRoutes() {
           <Route path="/db-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
           <Route path="/query-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
 
-          {/* Legacy / role portals — preserved */}
-          <Route path="/ops" element={<PrivateRoute><OpsPortalRoute /></PrivateRoute>} />
-          <Route path="/developer" element={<PrivateRoute><DeveloperPortalRoute /></PrivateRoute>} />
-          <Route path="/data" element={<PrivateRoute><DataEngineerPortal currentView="pipelines" /></PrivateRoute>} />
-          <Route path="/database" element={<PrivateRoute><DatabasePortal currentView="dbhealth" /></PrivateRoute>} />
+          {/* Legacy role-portal URLs redirect into the unified shell */}
+          <Route path="/ops" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/developer" element={<Navigate to="/catalog" replace />} />
+          <Route path="/data" element={<Navigate to="/data-tools" replace />} />
+          <Route path="/database" element={<Navigate to="/db-analyzer" replace />} />
           <Route path="/history" element={<PrivateRoute><HistoryPanel /></PrivateRoute>} />
           <Route path="/system-health" element={<Navigate to="/health" replace />} />
           <Route path="/storage" element={<PrivateRoute><StorageView /></PrivateRoute>} />

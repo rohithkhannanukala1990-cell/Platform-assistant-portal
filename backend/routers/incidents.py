@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import logging
 import re
 
 import httpx
@@ -11,6 +12,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ..ai.ai_utils import call_llm
+
+logger = logging.getLogger(__name__)
 from ..auth import User, get_current_user, require_admin, write_audit
 from ..database import (
     create_notification,
@@ -158,6 +161,19 @@ def get_incident_by_id(
 @router.post("/api/incidents/{incident_id}/remediate")
 @limiter.limit("5/minute")
 async def remediate_incident(request: Request, incident_id: int, current_user: User = Depends(get_current_user)):
+    """Demo-only simulated runbook. Real remediation goes through the plan
+    approval flow (/approve + safe executor), never this endpoint."""
+    from ..services.demo_fixtures import demo_data_enabled
+
+    if not demo_data_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Simulated remediation is disabled outside demo mode. "
+                "Use the remediation plan approval flow instead."
+            ),
+        )
+
     tenant_id = require_tenant(request)
     incident = get_incident(incident_id, tenant_id=tenant_id)
     if not incident:
@@ -170,20 +186,20 @@ async def remediate_incident(request: Request, incident_id: int, current_user: U
     updated = update_incident_status(
         incident_id,
         status="RESOLVED",
-        execution_logs=MOCK_RUNBOOK_LOGS,
+        execution_logs="[SIMULATED — demo mode, no commands were executed]\n" + MOCK_RUNBOOK_LOGS,
     )
     try:
         append_timeline_event(
             incident_id,
             event_type="executed",
-            detail="Automated runbook remediation completed",
+            detail="Simulated runbook remediation (demo mode)",
             actor=current_user.username,
         )
     except Exception:
-        pass
+        logger.warning("Best-effort side effect failed (timeline/metrics/broadcast)", exc_info=True)
 
     create_notification(
-        message=f"✅ Incident #{incident_id} auto-remediated via Automated Runbook",
+        message=f"Incident #{incident_id} resolved via simulated runbook (demo mode)",
         type="info",
         incident_id=incident_id,
     )
@@ -192,7 +208,7 @@ async def remediate_incident(request: Request, incident_id: int, current_user: U
         actor_role=current_user.role,
         event_type="REMEDIATE",
         resource=f"incident:{incident_id}",
-        detail="runbook executed",
+        detail="simulated runbook (demo mode) — no commands executed",
     )
 
     return enrich_incident_detail(updated)
@@ -225,7 +241,7 @@ async def dry_run_incident(request: Request, incident_id: int, current_user: Use
             meta={"all_safe": result.get("all_safe"), "steps": len(result.get("steps") or [])},
         )
     except Exception:
-        pass
+        logger.warning("Best-effort side effect failed (timeline/metrics/broadcast)", exc_info=True)
     write_audit(
         actor=current_user.username,
         actor_role=current_user.role,
@@ -281,7 +297,7 @@ async def approve_incident(
             meta={"all_safe": dry.get("all_safe")},
         )
     except Exception:
-        pass
+        logger.warning("Best-effort side effect failed (timeline/metrics/broadcast)", exc_info=True)
     if commands and not dry.get("all_safe", True):
         raise HTTPException(
             status_code=400,
@@ -343,14 +359,14 @@ async def approve_incident(
                 meta={"live": live, "commands": len(commands)},
             )
         except Exception:
-            pass
+            logger.warning("Best-effort side effect failed (timeline/metrics/broadcast)", exc_info=True)
 
     try:
         inc_ts = datetime.fromisoformat(incident["timestamp"])
         approval_seconds = (datetime.now(timezone.utc) - inc_ts).total_seconds()
         HITL_APPROVAL_SECONDS.observe(approval_seconds)
     except Exception:
-        pass
+        logger.warning("Best-effort side effect failed (timeline/metrics/broadcast)", exc_info=True)
     write_audit(
         actor=current_user.username,
         actor_role=current_user.role,
@@ -383,7 +399,7 @@ async def approve_incident(
             )
         )
     except Exception:
-        pass
+        logger.warning("Best-effort side effect failed (timeline/metrics/broadcast)", exc_info=True)
 
     refreshed = get_incident(incident_id, tenant_id=require_tenant(request))
     return enrich_incident_detail(refreshed or updated)
@@ -428,13 +444,13 @@ async def reject_incident(
             actor=current_user.username,
         )
     except Exception:
-        pass
+        logger.warning("Best-effort side effect failed (timeline/metrics/broadcast)", exc_info=True)
     try:
         inc_ts = datetime.fromisoformat(incident["timestamp"])
         approval_seconds = (datetime.now(timezone.utc) - inc_ts).total_seconds()
         HITL_APPROVAL_SECONDS.observe(approval_seconds)
     except Exception:
-        pass
+        logger.warning("Best-effort side effect failed (timeline/metrics/broadcast)", exc_info=True)
     write_audit(
         actor=current_user.username,
         actor_role=current_user.role,
@@ -463,7 +479,7 @@ async def reject_incident(
             )
         )
     except Exception:
-        pass
+        logger.warning("Best-effort side effect failed (timeline/metrics/broadcast)", exc_info=True)
 
     refreshed = get_incident(incident_id, tenant_id=require_tenant(request))
     return enrich_incident_detail(refreshed or updated)
@@ -502,7 +518,7 @@ async def retriage_incident(
             meta={"new_incident_id": result.get("id")},
         )
     except Exception:
-        pass
+        logger.warning("Best-effort side effect failed (timeline/metrics/broadcast)", exc_info=True)
     write_audit(
         actor=current_user.username,
         actor_role=current_user.role,
@@ -577,7 +593,7 @@ async def run_incident_agent(
             meta={"run_id": result.run_id, "status": result.status},
         )
     except Exception:
-        pass
+        logger.warning("Best-effort side effect failed (timeline/metrics/broadcast)", exc_info=True)
     write_audit(
         actor=current_user.username,
         actor_role=current_user.role,

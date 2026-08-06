@@ -48,6 +48,8 @@ jobs:
         run: npm ci
       - name: Run ESLint
         run: npm run lint
+      - name: Run unit tests
+        run: npm run test
       - name: Check build
         run: npm run build
       - name: Audit packages

@@ -128,7 +128,7 @@ export default function WorkspaceSwitcher({
 
   const dropdown = isOpen ? (
     <div
-      className={`${panelClass} w-[280px] rounded-lg border border-gray-700 bg-gray-800 shadow-xl py-2 px-2 flex flex-col gap-2 max-h-[min(480px,80vh)] overflow-y-auto`}
+      className={`${panelClass} w-[280px] rounded-lg border border-border bg-card shadow-xl py-2 px-2 flex flex-col gap-2 max-h-[min(480px,80vh)] overflow-y-auto`}
       role="listbox"
     >
       <div className="flex items-center justify-between gap-2 px-1">
@@ -155,7 +155,7 @@ export default function WorkspaceSwitcher({
         ) : null}
       </div>
 
-      <div className="border-t border-gray-700/80" />
+      <div className="border-t border-border/80" />
 
       <div>
         <p className="text-[10px] text-slate-500 uppercase tracking-wider px-1 mb-1">All</p>
@@ -174,7 +174,7 @@ export default function WorkspaceSwitcher({
 
       {activeWorkspace ? (
         <>
-          <div className="border-t border-gray-700/80" />
+          <div className="border-t border-border/80" />
           <button
             type="button"
             onClick={() => void onClear()}
@@ -196,7 +196,7 @@ export default function WorkspaceSwitcher({
       <button
         type="button"
         onClick={() => setIsOpen((o) => !o)}
-        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-700 bg-gray-800 text-sm text-slate-200 hover:bg-gray-700/80 hover:border-gray-600 transition-colors max-w-[220px]"
+        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card text-sm text-slate-200 hover:bg-gray-700/80 hover:border-gray-600 transition-colors max-w-[220px]"
         aria-expanded={isOpen}
         aria-haspopup="listbox"
       >

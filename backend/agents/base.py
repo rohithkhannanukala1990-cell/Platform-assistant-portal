@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from abc import ABC
@@ -16,6 +17,8 @@ from ..ai.llm_router import llm_router
 from ..command_validator import CommandValidator
 from ..context import PlatformContext
 from ..executor.safe_executor import safe_executor
+
+logger = logging.getLogger(__name__)
 
 # Prompt discipline — agents must only reason over EVIDENCE blobs.
 GROUNDING_RULES = """You must only use facts from the EVIDENCE section.
@@ -356,6 +359,7 @@ class BaseAgent(ABC):
                 catalog = await mcp_tool_catalog(context.tenant_id)
                 mcp_block = format_mcp_catalog_for_prompt(catalog)
         except Exception:
+            logger.warning("MCP tool catalog unavailable; agent prompt continues without it", exc_info=True)
             mcp_block = ""
 
         system = llm_router.build_system_prompt(

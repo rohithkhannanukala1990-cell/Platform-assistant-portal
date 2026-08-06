@@ -22,13 +22,6 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from './ToastNotification'
 
-const MOCK_USERS = [
-  { id: 'admin', name: 'Administrator', role: 'Admin' },
-  { id: 'developer1', name: 'Developer One', role: 'User' },
-  { id: 'developer2', name: 'Developer Two', role: 'User' },
-  { id: 'dataeng1', name: 'Data Engineer', role: 'User' },
-]
-
 const PLATFORM_ROLES = ['Admin', 'User', 'ReadOnly']
 
 const ACTION_ORDER = ['read', 'create', 'update', 'delete', 'apply', 'test', 'export', 'manage']
@@ -67,7 +60,7 @@ export default function RBACManager() {
   const [roleDetailCache, setRoleDetailCache] = useState({})
   const [matrixRoleDetails, setMatrixRoleDetails] = useState({})
   const [expandedRoleId, setExpandedRoleId] = useState(null)
-  const [users, setUsers] = useState(MOCK_USERS)
+  const [users, setUsers] = useState([])
   const [userRolesMap, setUserRolesMap] = useState({})
   const [workspaces, setWorkspaces] = useState([])
   const [isLoading, setIsLoading] = useState(false)
