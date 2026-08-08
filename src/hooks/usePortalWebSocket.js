@@ -6,15 +6,13 @@ const MAX_RETRIES = 5
 const BASE_MS = 1000
 
 function buildPortalWsUrl() {
-  // Identity is derived server-side from the JWT; user_id is no longer sent.
-  const token = localStorage.getItem('aiops_access_token') || ''
-  const qs = `token=${encodeURIComponent(token)}`
+  // JWT is sent in the first message after open — never in the URL (proxy logs).
   if (API_BASE) {
     try {
       const u = new URL(API_BASE.startsWith('http') ? API_BASE : `http://${API_BASE}`)
       u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
       u.pathname = '/ws/portal'
-      u.search = qs
+      u.search = ''
       u.hash = ''
       return u.toString()
     } catch {
@@ -22,7 +20,14 @@ function buildPortalWsUrl() {
     }
   }
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${window.location.host}/ws/portal?${qs}`
+  return `${proto}://${window.location.host}/ws/portal`
+}
+
+function sendWsAuth(ws) {
+  const token = localStorage.getItem('aiops_access_token') || ''
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ token }))
+  }
 }
 
 export function usePortalWebSocket({
@@ -50,6 +55,7 @@ export function usePortalWebSocket({
     wsRef.current = ws
 
     ws.onopen = () => {
+      sendWsAuth(ws)
       retriesRef.current = 0
       setConnectionState(true)
       onOpen?.()

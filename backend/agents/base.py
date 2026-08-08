@@ -261,6 +261,12 @@ class BaseAgent(ABC):
 
         return try_pagerduty_connector_from_context(context, db=session)
 
+    async def _ground_aws(self, context: PlatformContext, session: Session | None = None):
+        """Resolve scoped AWS connector or return None if not configured."""
+        from ..services.aws_access import try_aws_connector_from_context
+
+        return try_aws_connector_from_context(context, db=session)
+
     # ── Policy ────────────────────────────────────────────────────────────────
 
     def _apply_command_policy(self, commands: list[str], context: PlatformContext):

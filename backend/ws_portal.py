@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlmodel import Session, select
 
 from .auth import User, decode_token
@@ -20,12 +21,13 @@ _run_watchers: Dict[str, List[WebSocket]] = {}
 TERMINAL_STATUSES = frozenset({"success", "failed", "pending_approval"})
 POLL_INTERVAL_S = 1.5
 MAX_WATCH_S = 120.0
+WS_AUTH_TIMEOUT_S = 5.0
 
 router = APIRouter(tags=["websocket"])
 
 
 def _authenticate_ws_token(token: str) -> Optional[User]:
-    """Validate JWT using the same logic as get_current_user (query-param token)."""
+    """Validate JWT using the same logic as get_current_user."""
     if not token:
         return None
     try:
@@ -38,6 +40,42 @@ def _authenticate_ws_token(token: str) -> Optional[User]:
     except Exception:
         return None
     return None
+
+
+async def _accept_and_read_token(websocket: WebSocket) -> Optional[str]:
+    """Accept the socket, then require `{token}` in the first client message.
+
+    Tokens must not appear in the WebSocket URL (proxy/access logs).
+    """
+    await websocket.accept()
+    try:
+        auth_msg = await asyncio.wait_for(
+            websocket.receive_text(), timeout=WS_AUTH_TIMEOUT_S
+        )
+        data = json.loads(auth_msg)
+        if isinstance(data, dict):
+            return str(data.get("token") or "")
+    except Exception:
+        try:
+            await websocket.send_json({"type": "error", "message": "auth_required"})
+            await websocket.close(code=1008)
+        except Exception:
+            pass
+        return None
+    try:
+        await websocket.send_json({"type": "error", "message": "auth_required"})
+        await websocket.close(code=1008)
+    except Exception:
+        pass
+    return None
+
+
+async def _reject_unauthorized(websocket: WebSocket) -> None:
+    try:
+        await websocket.send_json({"type": "error", "message": "unauthorized"})
+        await websocket.close(code=1008)
+    except Exception:
+        pass
 
 
 def _fetch_run_sync(run_id: str) -> Optional[AgentRun]:
@@ -76,20 +114,17 @@ async def ws_broadcast(
     await broadcast_json(payload)
 
 
-async def accept_portal_connection(
-    websocket: WebSocket,
-    token: str = "",
-) -> None:
+async def accept_portal_connection(websocket: WebSocket) -> None:
     """Portal push channel. Identity comes from the JWT, never from the client."""
+    token = await _accept_and_read_token(websocket)
+    if token is None:
+        return
     user = _authenticate_ws_token(token)
     if not user:
-        await websocket.accept()
-        await websocket.send_json({"type": "error", "message": "Unauthorized"})
-        await websocket.close()
+        await _reject_unauthorized(websocket)
         return
 
     user_id = user.username
-    await websocket.accept()
     _user_clients.setdefault(user_id, []).append(websocket)
     try:
         while True:
@@ -103,19 +138,15 @@ async def accept_portal_connection(
             pass
 
 
-async def accept_agent_run_connection(
-    websocket: WebSocket,
-    run_id: str,
-    token: str = "",
-) -> None:
+async def accept_agent_run_connection(websocket: WebSocket, run_id: str) -> None:
+    token = await _accept_and_read_token(websocket)
+    if token is None:
+        return
     user = _authenticate_ws_token(token)
     if not user:
-        await websocket.accept()
-        await websocket.send_json({"type": "error", "message": "Unauthorized"})
-        await websocket.close()
+        await _reject_unauthorized(websocket)
         return
 
-    await websocket.accept()
     _run_watchers.setdefault(run_id, []).append(websocket)
     loop = asyncio.get_event_loop()
     started = time.monotonic()
@@ -160,12 +191,8 @@ async def accept_agent_run_connection(
 
 
 @router.websocket("/ws/agent-run/{run_id}")
-async def agent_run_ws(
-    websocket: WebSocket,
-    run_id: str,
-    token: str = Query(default=""),
-):
-    await accept_agent_run_connection(websocket, run_id, token=token)
+async def agent_run_ws(websocket: WebSocket, run_id: str):
+    await accept_agent_run_connection(websocket, run_id)
 
 
 async def broadcast_json(payload: dict) -> None:
@@ -218,21 +245,15 @@ def _is_blocked(command: str) -> bool:
 
 
 @router.websocket("/ws/terminal")
-async def terminal_ws(
-    websocket: WebSocket,
-    token: str = Query(default=""),
-):
+async def terminal_ws(websocket: WebSocket):
+    token = await _accept_and_read_token(websocket)
+    if token is None:
+        return
     user = _authenticate_ws_token(token)
     if not user:
-        await websocket.accept()
-        await websocket.send_json({
-            "type": "error",
-            "message": "Unauthorized",
-        })
-        await websocket.close()
+        await _reject_unauthorized(websocket)
         return
 
-    await websocket.accept()
     await websocket.send_json({
         "type": "output",
         "data": (
@@ -260,6 +281,15 @@ async def terminal_ws(
         if not command:
             await websocket.send_json({"type": "output", "data": "$ "})
             continue
+
+        # Ignore accidental second auth frames from reconnect races.
+        if command.startswith("{"):
+            try:
+                maybe = json.loads(command)
+                if isinstance(maybe, dict) and "token" in maybe:
+                    continue
+            except Exception:
+                pass
 
         if command.lower() == "help":
             await websocket.send_json({

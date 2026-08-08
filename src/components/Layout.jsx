@@ -8,22 +8,21 @@ import { API_BASE } from '../config/apiBase'
 import { useAuth } from '../contexts/AuthContext'
 
 function buildPortalWsUrl() {
-  const token = localStorage.getItem('aiops_access_token') || ''
-  const qs = `token=${encodeURIComponent(token)}`
+  // JWT is sent in the first message after open — never in the URL (proxy logs).
   if (!API_BASE) {
     const proto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = typeof window !== 'undefined' ? window.location.host : 'localhost:5173'
-    return `${proto}//${host}/ws/portal?${qs}`
+    return `${proto}//${host}/ws/portal`
   }
   try {
     const u = new URL(API_BASE.startsWith('http') ? API_BASE : `http://${API_BASE}`)
     u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
     u.pathname = '/ws/portal'
-    u.search = qs
+    u.search = ''
     u.hash = ''
     return u.toString()
   } catch {
-    return `ws://localhost:8000/ws/portal?${qs}`
+    return 'ws://localhost:8000/ws/portal'
   }
 }
 
@@ -61,6 +60,10 @@ export default function Layout({ user }) {
     let ws
     try {
       ws = new WebSocket(buildPortalWsUrl())
+      ws.onopen = () => {
+        const token = localStorage.getItem('aiops_access_token') || ''
+        ws.send(JSON.stringify({ token }))
+      }
       ws.onmessage = (ev) => {
         let data
         try {

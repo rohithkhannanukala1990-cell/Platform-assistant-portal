@@ -17,12 +17,24 @@ export default function Terminal() {
     const term = termRef.current
     if (!term || !containerRef.current) return
     const token = localStorage.getItem(TOKEN_KEY) ?? ''
-    const ws = new WebSocket(`${WS_BASE}/ws/terminal?token=${token}`)
+    // JWT is sent in the first message after open — never in the URL (proxy logs).
+    const ws = new WebSocket(`${WS_BASE}/ws/terminal`)
     wsRef.current = ws
-    ws.onopen = () => term.write('\x1b[32mConnected\x1b[0m\r\n$ ')
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ token }))
+      term.write('\x1b[32mConnected\x1b[0m\r\n')
+    }
     ws.onmessage = (ev) => {
-      try { term.write(JSON.parse(ev.data).data || ev.data) }
-      catch { term.write(ev.data) }
+      try {
+        const msg = JSON.parse(ev.data)
+        if (msg.type === 'error') {
+          term.write(`\r\n\x1b[31m${msg.message || 'Unauthorized'}\x1b[0m\r\n`)
+          return
+        }
+        term.write(msg.data || ev.data)
+      } catch {
+        term.write(ev.data)
+      }
     }
     ws.onclose = () => term.write('\r\n\x1b[31mDisconnected. Click Reconnect.\x1b[0m\r\n')
     ws.onerror = () => term.write('\r\n\x1b[31mConnection error.\x1b[0m\r\n')

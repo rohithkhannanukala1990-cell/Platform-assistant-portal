@@ -1,4 +1,4 @@
-"""PagerDuty connector — incidents / oncalls via pdpyras (account-scoped credentials)."""
+"""PagerDuty connector — incidents / oncalls via python-pagerduty (account-scoped credentials)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import asyncio
 import os
 from typing import Any
 
-from pdpyras import APISession
+from pagerduty import RestApiV2Client
 
 from .registry import PagerDutyConnector as _BasePd
 
@@ -32,22 +32,22 @@ class PagerDutyConnector(_BasePd):
     def configured(self) -> bool:
         return bool(self._api_key())
 
-    def _session(self) -> APISession | None:
+    def _client(self) -> RestApiV2Client | None:
         key = self._api_key()
         if not key:
             return None
-        return APISession(key)
+        return RestApiV2Client(key)
 
     async def ping(self) -> dict[str, Any]:
         def _sync() -> dict[str, Any]:
-            session = self._session()
-            if not session:
+            client = self._client()
+            if not client:
                 return {
                     "ok": False,
                     "error": {"type": "not_configured", "message": "PagerDuty API key missing"},
                 }
             try:
-                abilities = session.get("/abilities")
+                abilities = client.get("/abilities")
                 return {"ok": True, "abilities": abilities if isinstance(abilities, list) else True}
             except Exception as exc:
                 msg = str(exc)
@@ -64,14 +64,14 @@ class PagerDutyConnector(_BasePd):
         date_range: str | None = None,
     ) -> list[dict[str, Any]]:
         def _sync() -> list[dict[str, Any]]:
-            session = self._session()
-            if not session:
+            client = self._client()
+            if not client:
                 return []
             statuses = [s.strip() for s in status.split(",") if s.strip()] or ["triggered"]
             params: dict[str, Any] = {"statuses[]": statuses, "limit": limit}
             if date_range:
                 params["date_range"] = date_range
-            incidents = session.list_all("incidents", params=params)
+            incidents = client.list_all("incidents", params=params)
             out: list[dict[str, Any]] = []
             for inc in incidents:
                 service = inc.get("service") or {}
@@ -102,15 +102,15 @@ class PagerDutyConnector(_BasePd):
         service_id: str | None = None,
     ) -> list[dict[str, Any]]:
         def _sync() -> list[dict[str, Any]]:
-            session = self._session()
-            if not session:
+            client = self._client()
+            if not client:
                 return []
             params: dict[str, Any] = {"limit": limit}
             if schedule_id:
                 params["schedule_ids[]"] = schedule_id
             if service_id:
                 params["service_ids[]"] = service_id
-            rows = session.list_all("oncalls", params=params)
+            rows = client.list_all("oncalls", params=params)
             out: list[dict[str, Any]] = []
             for row in rows:
                 user = row.get("user") or {}
@@ -146,8 +146,8 @@ class PagerDutyConnector(_BasePd):
         urgency: str = "high",
     ) -> dict[str, Any]:
         def _sync() -> dict[str, Any]:
-            session = self._session()
-            if not session:
+            client = self._client()
+            if not client:
                 return {}
             from_user = self._from_email()
             body = {
@@ -160,7 +160,7 @@ class PagerDutyConnector(_BasePd):
                 }
             }
             headers = {"From": from_user} if from_user else None
-            resp = session.rpost("incidents", json=body, headers=headers)
+            resp = client.rpost("incidents", json=body, headers=headers)
             return {
                 "id": resp.get("id"),
                 "title": resp.get("title"),
@@ -176,12 +176,12 @@ class PagerDutyConnector(_BasePd):
 
     async def acknowledge_incident(self, incident_id: str) -> dict[str, Any]:
         def _sync() -> dict[str, Any]:
-            session = self._session()
-            if not session:
+            client = self._client()
+            if not client:
                 return {"success": False}
             from_user = self._from_email()
             headers = {"From": from_user} if from_user else None
-            session.rput(
+            client.rput(
                 f"incidents/{incident_id}",
                 json={
                     "incident": {
@@ -201,12 +201,12 @@ class PagerDutyConnector(_BasePd):
 
     async def resolve_incident(self, incident_id: str) -> dict[str, Any]:
         def _sync() -> dict[str, Any]:
-            session = self._session()
-            if not session:
+            client = self._client()
+            if not client:
                 return {"success": False}
             from_user = self._from_email()
             headers = {"From": from_user} if from_user else None
-            session.rput(
+            client.rput(
                 f"incidents/{incident_id}",
                 json={
                     "incident": {

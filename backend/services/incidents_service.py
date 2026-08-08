@@ -24,6 +24,7 @@ from ..observability.metrics import (
 )
 from ..ai.ai_utils import call_llm
 from ..ai.llm_service import llm_service
+from ..agents.base import GROUNDING_RULES
 
 TRIAGE_SYSTEM_PROMPT = """You are a senior DevOps and SRE engineer embedded inside Cursor IDE.
 Analyze the provided server logs and return ONLY a valid JSON object — no markdown, no explanation, no code fences.
@@ -116,8 +117,8 @@ async def run_triage(
     Call AI → parse → save incident → notification → Slack.
     Returns the serialised TriageResponse dict (or raises on AI error).
     """
-    from .agents.security_agent import is_security_source, SECURITY_SYSTEM_PROMPT
-    from .agents.tester_agent import is_tester_source, TESTER_SYSTEM_PROMPT
+    from ..agents.security_agent import is_security_source, SECURITY_SYSTEM_PROMPT
+    from ..agents.tester_agent import is_tester_source, TESTER_SYSTEM_PROMPT
     if is_security_source(source):
         active_system_prompt = SECURITY_SYSTEM_PROMPT
     elif is_tester_source(source):
@@ -125,9 +126,26 @@ async def run_triage(
     else:
         active_system_prompt = TRIAGE_SYSTEM_PROMPT
 
+    evidence = [
+        {
+            "type": "raw_logs",
+            "title": "submitted_logs",
+            "source": source or "portal",
+            "snippet": (log_text or "")[:4000],
+        }
+    ]
+    grounded_prompt = (
+        f"{GROUNDING_RULES}\n\n"
+        f"EVIDENCE:\n{json.dumps(evidence, indent=2)}\n\n"
+        "Task: Triage this incident. Use only the facts in the EVIDENCE section above.\n"
+        f"Source: {source or 'unknown'}\n"
+        "Do not invent service names, file paths, or commands not present in EVIDENCE.\n\n"
+        f"LOGS:\n{log_text}"
+    )
+
     _start = time.time()
     provider, model = llm_service.resolve_provider_and_model()
-    raw_text = await call_llm(log_text, system_prompt=active_system_prompt)
+    raw_text = await call_llm(grounded_prompt, system_prompt=active_system_prompt)
     model_used = model
     LLM_LATENCY_SECONDS.labels(provider=provider).observe(time.time() - _start)
 

@@ -92,6 +92,7 @@ def main() -> int:
         "POST",
         "/api/policies/commands/evaluate",
         token=token,
+        # Schema: singular `command` (not `commands` list).
         body={"command": "kubectl get pods -n default", "environment": "production", "tool": "shell"},
     )
     if not ok("policy evaluate", code, body=pol):
@@ -104,6 +105,7 @@ def main() -> int:
         "/api/agents/run",
         token=token,
         body={
+            # Schema: `task` (not intent/description).
             "task": "catalog health overview",
             "context": {
                 "environment": "development",

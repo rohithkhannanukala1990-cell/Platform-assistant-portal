@@ -2,27 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date, datetime, timezone
 
 from sqlmodel import Session
 
-from ..connectors.aws_connector import AWSConnector
 from ..context import PlatformContext
-from ..services.aws_access import try_aws_connector_from_context
 from .base import AgentResult, BaseAgent
-
-_ACCOUNT: dict = {}
-
-
-def _aws_configured(context: PlatformContext) -> bool:
-    if context.tool_accounts.get("aws"):
-        return True
-    return bool(
-        (os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
-        or (os.getenv("AWS_PROFILE") or "").strip()
-        or (os.getenv("AWS_ROLE_ARN") or "").strip()
-    )
 
 
 class CostAgent(BaseAgent):
@@ -38,15 +23,17 @@ class CostAgent(BaseAgent):
         start = params.get("start") or today.replace(day=1).isoformat()
         end = params.get("end") or today.isoformat()
 
-        if not _aws_configured(context):
+        conn = await self._ground_aws(context, db)
+        if conn is None:
             return self._no_data_result(
                 context,
-                "AWS not connected. Connect AWS Cost Explorer credentials before cost analysis.",
+                "AWS not connected — add AWS credentials in Tool Registry "
+                "under Settings → Tool Registry → AWS.",
                 missing_tools=["AWS"],
             )
 
         try:
-            services = await (try_aws_connector_from_context(context, db=db) or AWSConnector(_ACCOUNT)).get_cost_explorer(start, end)
+            services = await conn.get_cost_explorer(start, end)
         except Exception as exc:
             return self._no_data_result(
                 context,

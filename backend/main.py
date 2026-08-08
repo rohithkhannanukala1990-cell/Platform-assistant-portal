@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, WebSocket
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -332,10 +332,7 @@ async def add_security_headers(request: Request, call_next):
 
 
 @app.websocket("/ws/portal")
-async def portal_ws(
-    websocket: WebSocket,
-    token: str = Query(default=""),
-):
+async def portal_ws(websocket: WebSocket):
     from .ws_portal import accept_portal_connection
 
-    await accept_portal_connection(websocket, token=token)
+    await accept_portal_connection(websocket)

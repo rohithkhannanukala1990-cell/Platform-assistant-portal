@@ -34,14 +34,14 @@ const AGENT_NAMES = [
 
 const TERMINAL_STATUSES = new Set(['success', 'failed', 'pending_approval', 'skipped', 'dry_run', 'error', 'rejected'])
 
-function buildAgentRunWsUrl(runId, token) {
-  const qs = `token=${encodeURIComponent(token || '')}`
+function buildAgentRunWsUrl(runId) {
+  // JWT is sent in the first message after open — never in the URL (proxy logs).
   if (API_BASE) {
     try {
       const u = new URL(API_BASE.startsWith('http') ? API_BASE : `http://${API_BASE}`)
       u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
       u.pathname = `/ws/agent-run/${runId}`
-      u.search = qs
+      u.search = ''
       u.hash = ''
       return u.toString()
     } catch {
@@ -50,7 +50,7 @@ function buildAgentRunWsUrl(runId, token) {
   }
   const proto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws'
   const host = typeof window !== 'undefined' ? window.location.host : 'localhost:8000'
-  return `${proto}://${host}/ws/agent-run/${runId}?${qs}`
+  return `${proto}://${host}/ws/agent-run/${runId}`
 }
 
 function parseMultiAgentCards(result, selectedAgents) {
@@ -324,8 +324,12 @@ export default function AgentRunnerPanel() {
       closeWs()
       if (!runId || !token) return
 
-      const ws = new WebSocket(buildAgentRunWsUrl(runId, token))
+      const ws = new WebSocket(buildAgentRunWsUrl(runId))
       wsRef.current = ws
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ token }))
+      }
 
       ws.onmessage = (event) => {
         try {

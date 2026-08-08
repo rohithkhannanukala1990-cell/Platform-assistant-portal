@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 
 from sqlmodel import Session
 
-from ..connectors.aws_connector import AWSConnector
 from ..context import PlatformContext
-from ..services.aws_access import try_aws_connector_from_context
 from .base import AgentResult, BaseAgent
 
 SECURITY_SYSTEM_PROMPT = """
@@ -22,24 +19,12 @@ SECURITY_SOURCES = {
     "prisma", "aqua", "sysdig", "checkov", "semgrep",
 }
 
-_ACCOUNT: dict = {}
-
 
 def is_security_source(source: str) -> bool:
     return (
         source.lower() in SECURITY_SOURCES
         or "security" in source.lower()
         or "cve" in source.lower()
-    )
-
-
-def _aws_configured(context: PlatformContext) -> bool:
-    if context.tool_accounts.get("aws"):
-        return True
-    return bool(
-        (os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
-        or (os.getenv("AWS_PROFILE") or "").strip()
-        or (os.getenv("AWS_ROLE_ARN") or "").strip()
     )
 
 
@@ -58,15 +43,16 @@ class SecurityAgent(BaseAgent):
             findings = injected
             source = "params"
         else:
-            if not _aws_configured(context):
+            conn = await self._ground_aws(context, db)
+            if conn is None:
                 return self._no_data_result(
                     context,
-                    "No security findings source available. Connect AWS Security Hub "
-                    "or pass findings in params.",
+                    "AWS GuardDuty not connected — add AWS credentials in Tool Registry "
+                    "under Settings → Tool Registry → AWS.",
                     missing_tools=["GuardDuty", "AWS"],
                 )
             try:
-                findings = await (try_aws_connector_from_context(context, db=db) or AWSConnector(_ACCOUNT)).list_security_findings()
+                findings = await conn.list_security_findings()
                 source = "aws_security_hub"
             except Exception as exc:
                 return self._no_data_result(

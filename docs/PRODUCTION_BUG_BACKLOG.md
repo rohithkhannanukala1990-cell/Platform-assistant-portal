@@ -45,9 +45,9 @@ Sources: direct review + prior audits. Security items from direct reads.
 - [x] **ID-018** Pending incident approvals leak across tenants — Fixed P1: `get_pending_approvals(..., tenant_id=)`.
 - [x] **ID-019** Catalog search ignores tenant — Fixed P1: `apply_tenant_filter` on search.
 - [x] **ID-050** Catalog dependencies cross-tenant R/W — Fixed P1: tenant on `_get_active` + scoped list/delete.
-- [x] **ID-051** JWT in Terminal WebSocket query string — **Accepted risk (P8)** — Owner: **frontend** — Token may appear in proxy logs for Terminal WS only; agents use same pattern historically. Mitigate: restrict Terminal to Admin, private network, short JWT. Track post-pilot WS subprotocol.
-- [x] **ID-052** Dashboard data hook bypasses `authFetch` / `API_BASE` — **Accepted risk (P8)** — Owner: **frontend** — Some legacy hooks still use relative `fetch`; core agents/tools/ICC paths use `authFetch`. Mitigate: same-origin deploy behind nginx. Migrate remaining hooks post-pilot.
-- [x] **ID-053** Notifications page never loads — **Accepted risk (P8)** — Owner: **frontend** — Non-blocking for agent/HITL pilot; page may show empty without cookie session. Fix: `authFetch('/api/notifications')` post-pilot.
+- [x] **ID-051** JWT in Terminal WebSocket query string — **Fixed**: WS auth via first JSON `{token}` message on `/ws/portal`, `/ws/agent-run/{id}`, `/ws/terminal` (no query-param JWT).
+- [x] **ID-052** Dashboard data hook bypasses `authFetch` / `API_BASE` — **Fixed**: dashboard/notifications and related hooks use `authFetch`.
+- [x] **ID-053** Notifications page never loads — **Fixed**: `authFetch('/api/notifications')`.
 - [x] **ID-054** Sidebar “Run History” dead link — Fixed P7: `/agent-history` route → AgentRunnerPanel history tab.
 - [x] **ID-057** Non-prod agent commands auto-execute under default-allow — Fixed P1: unmatched commands → `require_approval` when environment or process `ENV` is production (executor refuses without `approved=True`).
 
@@ -74,12 +74,12 @@ Sources: direct review + prior audits. Security items from direct reads.
 - [x] **ID-036** Tool accounts matrix / category counts unscoped — Fixed P1: tenant + ownership filters on categories/matrix.
 - [x] **ID-037** Dashboard AWS-cost agent toast spam — Fixed P7: `silentToast: true` on dashboard cost fetch + AgentRunner self-toasts.
 - [ ] **ID-038** Unhandled rejections in admin polling — AuditLog/UserManagement/OpsPortal. **Owner: frontend** post-pilot.
-- [ ] **ID-039** AgentApprovalsWidget incidents fetch without auth — **Owner: frontend** — Use `authFetch`. Post-pilot.
-- [ ] **ID-055** IntegrationsPage webhook activity unauthenticated — **Owner: frontend** — Use `authFetch`. Post-pilot.
+- [x] **ID-039** AgentApprovalsWidget incidents fetch without auth — **Fixed**: uses `authFetch`.
+- [x] **ID-055** IntegrationsPage webhook activity unauthenticated — **Fixed**: uses `authFetch`.
 - [x] **ID-056** Webhook claim-before-process can drop events — Fixed P2: `error`/`failed` deliveries reclaimable on provider retry.
 - [x] **ID-058** Golden-path agent step missing `tenant_id` on PlatformContext — Fixed P1: thread `tenant_id` from run/inputs into `PlatformContext`.
 - [x] **ID-059** `_finalize_with_policy` keeps `details.commands` for read_only — Fixed P1: clear `commands` on read_only return.
-- [ ] **ID-060** Incident triage LLM prompts lack GROUNDING_RULES — **Owner: backend** — Prepend shared grounding. Post-pilot.
+- [x] **ID-060** Incident triage LLM prompts lack GROUNDING_RULES — **Fixed**: `run_triage` injects `GROUNDING_RULES` + EVIDENCE into the user prompt.
 - [ ] **ID-061** DB query analyzer fabricates mock EXPLAIN — **Owner: backend** — Return explicit no-live-EXPLAIN. Post-pilot.
 - [x] **ID-062** `monitor_cicd_pipelines` invents incidents from demo fixtures — Fixed P1: gated by `demo_data_enabled()`; no-op when false.
 - [x] **ID-063** Incident approve lacks Admin/owner authz — Fixed P1: `require_admin` on approve/reject.
@@ -114,7 +114,7 @@ Sources: direct review + prior audits. Security items from direct reads.
 - [x] **ID-073** Prod compose omits LLM + `GITHUB_WEBHOOK_SECRET` — Fixed P1.
 - [x] **ID-074** Daily health workflow can’t alert on total outage — Fixed P1.
 - [x] **ID-013** Non-root USER — Verified present. No action.
-- [ ] **ID-075** `/metrics` exposed unauthenticated through prod edge — **Accepted risk (P8)** — Owner: **ops** — Prefer scrape on internal Docker network only; add nginx allow/deny post-pilot if edge exposes `/metrics`.
+- [x] **ID-075** `/metrics` exposed unauthenticated through prod edge — **Fixed**: nginx denies `/metrics` on the public edge; Prometheus scrapes `api_1`/`api_2` on the Docker network.
 - [ ] **ID-076** `npm ci || npm install` fallback in prod image — **Owner: ops** post-pilot.
 - [ ] **ID-077** LB health check docs point to non-existent `/api/health` — **Owner: docs** — Prefer `/health/ready`. Post-pilot.
 - [ ] **ID-078** Duplicated grafana provisioning file — **Owner: ops** post-pilot.
