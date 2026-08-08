@@ -28,6 +28,23 @@ class AgentNotFound(Exception):
     pass
 
 
+def _require_tenant_id(context: PlatformContext | None) -> str:
+    """Return tenant_id or raise outside test/dev; never silently invent tenants."""
+    import os
+
+    tid = (context.tenant_id if context else None) or ""
+    tid = str(tid).strip()
+    if tid:
+        return tid
+    env = (os.environ.get("ENV") or os.environ.get("ENVIRONMENT") or "").strip().lower()
+    if env not in ("test", "development", "dev", ""):
+        raise ValueError(
+            "PlatformContext.tenant_id is None in a production agent run. "
+            "Check that the request middleware sets tenant context."
+        )
+    return DEFAULT_TENANT_ID
+
+
 def _normalize_role(role: str) -> str:
     r = (role or "User").strip()
     if r.lower() == "admin":
@@ -109,7 +126,7 @@ def _start_run(task: str, agent_name: str, context: PlatformContext) -> str:
             triggered_by=context.user_id,
             user_id=context.user_id,
             workspace_id=context.workspace_id or "",
-            tenant_id=context.tenant_id or "default",
+            tenant_id=_require_tenant_id(context),
             environment=context.environment,
             task=task,
         )
@@ -160,7 +177,7 @@ def _persist_run(task: str, result: AgentResult, context: PlatformContext | None
             triggered_by=result.triggered_by or user_id,
             user_id=user_id,
             workspace_id=(context.workspace_id if context else None) or result.workspace or "",
-            tenant_id=(context.tenant_id if context else None) or "default",
+            tenant_id=_require_tenant_id(context),
             environment=result.environment,
             task=task,
         )
@@ -229,7 +246,7 @@ def _validate_commands_in_result(
         role=(context.user_role if context else "User"),
         environment=(context.environment if context else "development"),
         tool=(context.active_tool if context and context.active_tool else "shell"),
-        tenant_id=(context.tenant_id if context else None),
+        tenant_id=_require_tenant_id(context),
     )
     decision = check.decision
     reasons = list(decision.reasons) if decision else list(check.violations)

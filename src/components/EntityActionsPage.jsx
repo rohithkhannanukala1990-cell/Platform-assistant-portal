@@ -355,7 +355,11 @@ export default function EntityActionsPage() {
             showToast(
               run.status === 'pending'
                 ? 'Action submitted for approval'
-                : 'Action completed successfully'
+                : run.status === 'not_implemented'
+                  ? 'Action is not implemented yet — nothing was executed'
+                  : run.status === 'failed'
+                    ? 'Action failed'
+                    : 'Action completed successfully'
             )
           }}
         />

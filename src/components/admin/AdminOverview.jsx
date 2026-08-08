@@ -30,6 +30,7 @@ export default function AdminOverview() {
   const [activity, setActivity] = useState([])
   const [agentHealth, setAgentHealth] = useState([])
   const [loading, setLoading] = useState(true)
+  const [pollError, setPollError] = useState(null)
 
   const load = useCallback(async () => {
     try {
@@ -45,6 +46,12 @@ export default function AdminOverview() {
       const stats = statsRes.ok ? await statsRes.json() : {}
       const audit = auditRes.ok ? await auditRes.json() : { results: [] }
       const approvals = approvalsRes.ok ? await approvalsRes.json() : []
+
+      if (![usersRes, agentsRes, statsRes, auditRes, approvalsRes].every((r) => r.ok || r.status === 403)) {
+        setPollError('Connection lost — retrying…')
+      } else {
+        setPollError(null)
+      }
 
       setKpis({
         totalUsers: Array.isArray(users) ? users.length : 0,
@@ -81,15 +88,17 @@ export default function AdminOverview() {
       )
       setAgentHealth(health)
     } catch {
-      /* ignore */
+      setPollError('Connection lost — retrying…')
     } finally {
       setLoading(false)
     }
   }, [authFetch])
 
   useEffect(() => {
-    load()
-    const t = setInterval(load, 30000)
+    void load()
+    const t = setInterval(() => {
+      void load()
+    }, 30000)
     return () => clearInterval(t)
   }, [load])
 
@@ -99,6 +108,11 @@ export default function AdminOverview() {
 
   return (
     <div className="space-y-8">
+      {pollError && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          {pollError}
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <KpiCard label="Total Users" value={kpis.totalUsers ?? '—'} />
         <KpiCard label="Active Agents" value={kpis.activeAgents ?? '—'} />

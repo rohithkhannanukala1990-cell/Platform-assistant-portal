@@ -272,9 +272,40 @@ async def approve_run(
         if not claim_agent_run(session, run_id):
             raise HTTPException(status_code=409, detail="Run already claimed or not pending approval")
 
+        details = {}
+        try:
+            details = json.loads(row.details_json or "{}")
+        except json.JSONDecodeError:
+            details = {}
+        is_catalog_hitl = agent_name == "catalog_self_service" and bool(
+            details.get("catalog_action_id")
+        )
+
     exec_log = None
     final_status = "success"
-    if commands:
+    catalog_result = None
+
+    if is_catalog_hitl:
+        from ..services.catalog_actions import fulfill_catalog_action_after_hitl
+
+        catalog_result = await fulfill_catalog_action_after_hitl(
+            details=details,
+            user=current_user,
+            tenant_id=run_tenant or tenant_id,
+        )
+        exec_log = json.dumps(catalog_result, default=str)[:4000]
+        status = str(catalog_result.get("status") or "")
+        if status in ("failed", "error"):
+            final_status = "failed"
+        elif status == "not_implemented":
+            final_status = "failed"
+            # Honest: approved but not executed live
+            exec_log = f"[post-HITL not_implemented]\n{exec_log}"
+        elif catalog_result.get("ok") is False:
+            final_status = "failed"
+        else:
+            final_status = "success"
+    elif commands:
         exec_ctx = {
             "role": current_user.role,
             "environment": env,
@@ -315,6 +346,15 @@ async def approve_run(
             raise HTTPException(status_code=404, detail="Run not found")
         row.status = final_status
         row.execution_log = exec_log
+        if catalog_result is not None:
+            try:
+                details_out = json.loads(row.details_json or "{}")
+            except json.JSONDecodeError:
+                details_out = {}
+            details_out["post_hitl_result"] = catalog_result
+            row.details_json = json.dumps(details_out, default=str)
+            if catalog_result.get("message"):
+                row.summary = str(catalog_result.get("message"))[:500]
         row.requires_approval = False
         row.updated_at = datetime.now(timezone.utc)
         session.add(row)

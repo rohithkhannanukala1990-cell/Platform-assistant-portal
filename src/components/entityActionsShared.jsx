@@ -7,6 +7,7 @@ export const STATUS_COLORS = {
   running: 'bg-blue-500/20 text-blue-300 border border-blue-500/30',
   completed: 'bg-green-500/20 text-green-300 border border-green-500/30',
   failed: 'bg-red-500/20 text-red-300 border border-red-500/30',
+  not_implemented: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
 }
 
 export const ACTION_TYPE_COLORS = {

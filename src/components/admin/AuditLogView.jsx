@@ -27,6 +27,7 @@ export default function AuditLogView() {
   const [page, setPage] = useState(1)
   const [data, setData] = useState({ total: 0, results: [] })
   const [drawer, setDrawer] = useState(null)
+  const [pollError, setPollError] = useState(null)
   const pageSize = 50
 
   const queryString = useMemo(() => {
@@ -38,17 +39,32 @@ export default function AuditLogView() {
   }, [filters, page])
 
   const load = useCallback(async () => {
-    const res = await authFetch(`/api/audit/?${queryString}`)
-    if (res.ok) setData(await res.json())
+    try {
+      const res = await authFetch(`/api/audit/?${queryString}`)
+      if (!res.ok) {
+        setPollError('Connection lost — retrying…')
+        return
+      }
+      setData(await res.json())
+      setPollError(null)
+    } catch {
+      setPollError('Connection lost — retrying…')
+    }
   }, [authFetch, queryString])
 
   useEffect(() => {
-    authFetch('/api/users/').then((r) => r.ok && r.json().then(setUsers))
+    authFetch('/api/users/')
+      .then((r) => r.ok && r.json().then(setUsers))
+      .catch(() => {
+        /* keep empty users list */
+      })
   }, [authFetch])
 
   useEffect(() => {
-    load()
-    const t = setInterval(load, 60000)
+    void load()
+    const t = setInterval(() => {
+      void load()
+    }, 60000)
     return () => clearInterval(t)
   }, [load])
 
@@ -87,9 +103,16 @@ export default function AuditLogView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-        <span className="text-xs text-neutral-500">Live — refreshes every 60s</span>
+        <span className={`w-2 h-2 rounded-full ${pollError ? 'bg-amber-500' : 'bg-emerald-500'} animate-pulse`} />
+        <span className="text-xs text-neutral-500">
+          {pollError || 'Live — refreshes every 60s'}
+        </span>
       </div>
+      {pollError && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          Reconnecting…
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2 items-end">
         <select

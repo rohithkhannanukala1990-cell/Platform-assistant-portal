@@ -30,6 +30,9 @@ _PRODUCTION_MUTATING_PREFIXES = (
     "failover",
 )
 
+# Pending HITL executions keyed by execution id (in-memory; lost on restart).
+_pending_executions: dict[str, dict] = {}
+
 
 # TODO: Standardize tool execution results using a common schema (AgentResult-like dict)
 class ToolExecutor:
@@ -54,14 +57,6 @@ class ToolExecutor:
             ]
         return False
 
-    # TODO(S1-P1.1): Ensure ToolExecutor.execute returns explicit HITL metadata:
-    # - requires_hitl: bool
-    # - status: "pending_approval" | "executing" | "completed" | "error"
-    # - result: { success, output, metadata }
-    # TODO: Accept structured actions (resource, operation, environment, identifier) and return execution dicts with:
-    # - id, conversation_id, tool_id, action, parameters
-    # - requires_hitl, status, created_at, executed_at
-    # - result: { success, output, metadata }
     async def execute(
         self,
         tool_id: str,
@@ -90,36 +85,44 @@ class ToolExecutor:
             "result": None,
         }
 
-        if not hitl:
-            try:
-                result = await self._run_action(
-                    tool_id, action, parameters)
-                execution["result"] = result
-                execution["status"] = (
-                    "completed"
-                    if result.get("success", True)
-                    else "error"
-                )
-                execution["executed_at"] = (
-                    datetime.now(timezone.utc).isoformat())
-            except Exception as exc:
-                execution["status"] = "error"
-                execution["executed_at"] = (
-                    datetime.now(timezone.utc).isoformat())
-                execution["result"] = {
-                    "success": False,
-                    "output": str(exc),
-                    "metadata": {
-                        "tool": tool_id,
-                        "action": action,
-                        "error_type": type(exc).__name__,
-                    },
-                }
+        if hitl:
+            _pending_executions[exec_id] = {
+                "tool_id": tool_id,
+                "action": action,
+                "parameters": parameters or {},
+                "environment": environment,
+                "conversation_id": conversation_id,
+                "created_at": execution["created_at"],
+            }
+            return execution
+
+        try:
+            result = await self._run_action(
+                tool_id, action, parameters)
+            execution["result"] = result
+            execution["status"] = (
+                "completed"
+                if result.get("success", True)
+                else "error"
+            )
+            execution["executed_at"] = (
+                datetime.now(timezone.utc).isoformat())
+        except Exception as exc:
+            execution["status"] = "error"
+            execution["executed_at"] = (
+                datetime.now(timezone.utc).isoformat())
+            execution["result"] = {
+                "success": False,
+                "output": str(exc),
+                "metadata": {
+                    "tool": tool_id,
+                    "action": action,
+                    "error_type": type(exc).__name__,
+                },
+            }
 
         return execution
 
-    # TODO(S1-P1.1): Keep _run_action outputs structured and consistent for UI
-    # TODO: Implement real action execution or keep simulated output, but always return a structured result dict
     async def _run_action(
         self, tool_id: str,
         action: str, parameters: Dict) -> Dict:
@@ -141,19 +144,30 @@ class ToolExecutor:
     async def approve_execution(
         self, execution_id: str,
         approved_by: str) -> Dict:
+        pending = _pending_executions.pop(execution_id, None)
+        if not pending:
+            return {
+                "execution_id": execution_id,
+                "status": "not_found",
+                "error": f"No pending execution found for id={execution_id}",
+            }
         result = await self._run_action(
-            "approved", "execute", {})
+            pending["tool_id"],
+            pending["action"],
+            pending.get("parameters") or {},
+        )
         return {
             "execution_id": execution_id,
             "status": "completed",
             "approved_by": approved_by,
             "approved_at": datetime.now(timezone.utc).isoformat(),
-            "result": result
+            "result": result,
         }
 
     async def reject_execution(
         self, execution_id: str,
         rejected_by: str, reason: str = "") -> Dict:
+        _pending_executions.pop(execution_id, None)
         return {
             "execution_id": execution_id,
             "status": "rejected",

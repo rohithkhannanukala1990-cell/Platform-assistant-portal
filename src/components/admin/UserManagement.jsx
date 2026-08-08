@@ -44,13 +44,21 @@ export default function UserManagement() {
   const [permForm, setPermForm] = useState({ agent_name: '', permission_level: 'observe' })
 
   const loadUsers = useCallback(async () => {
-    const res = await authFetch('/api/users/')
-    if (res.ok) setUsers(await res.json())
+    try {
+      const res = await authFetch('/api/users/')
+      if (res.ok) setUsers(await res.json())
+    } catch {
+      /* keep last known users */
+    }
   }, [authFetch])
 
   useEffect(() => {
-    loadUsers()
-    authFetch('/api/agents/').then((r) => r.ok && r.json().then(setAgents))
+    void loadUsers()
+    authFetch('/api/agents/')
+      .then((r) => r.ok && r.json().then(setAgents))
+      .catch(() => {
+        /* agents optional for this panel */
+      })
   }, [loadUsers, authFetch])
 
   const filtered = useMemo(() => {

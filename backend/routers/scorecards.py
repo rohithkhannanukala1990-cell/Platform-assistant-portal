@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -50,19 +49,6 @@ def _get_active_entity(
     if tenant_id is not None:
         assert_same_tenant(getattr(row, "tenant_id", None), tenant_id)
     return row
-
-
-def _parse_scorecard_json(text: str) -> list[dict[str, Any]]:
-    cleaned = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```$", "", cleaned.strip())
-    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-    if match:
-        cleaned = match.group(0)
-    data = json.loads(cleaned)
-    checks = data.get("checks")
-    if not isinstance(checks, list):
-        raise ValueError("checks must be a list")
-    return checks
 
 
 def _normalize_status(raw: str) -> str:

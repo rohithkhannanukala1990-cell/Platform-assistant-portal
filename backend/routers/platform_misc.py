@@ -370,12 +370,12 @@ Analyze the following SQL query and return ONLY a valid JSON object with these e
 {
   "is_valid": true or false,
   "issues": ["list of problems found, or empty array"],
-  "index_recommendations": ["list of CREATE INDEX suggestions, or empty array"],
-  "estimated_cost": "a human-readable estimate like 'Low', 'Medium', 'High', or 'Very High'",
+  "index_recommendations": ["list of CREATE INDEX suggestions based on SQL syntax alone, or empty array"],
+  "estimated_cost": "a human-readable estimate like 'Low', 'Medium', 'High', or 'Very High' based on query shape only",
   "rewritten_query": "an optimized version of the query, or null if already optimal",
-  "explain_plan": ["list of 4-6 mock EXPLAIN ANALYZE output lines as strings"],
   "summary": "one sentence plain-English explanation of what the query does and its main performance concern"
 }
+Do NOT invent EXPLAIN ANALYZE output — live plans require a connected database.
 Return ONLY the JSON. No markdown, no code fences, no explanation."""
 
 
@@ -386,7 +386,10 @@ async def analyze_query(
     req: QueryAnalyzeRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """AI-powered SQL query analysis: EXPLAIN plan, index recommendations, rewrite suggestions."""
+    """AI-powered SQL query analysis: index recommendations and rewrite suggestions.
+
+    Live EXPLAIN plans are not fabricated — connect a database for real EXPLAIN.
+    """
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="query cannot be empty.")
 
@@ -403,12 +406,14 @@ async def analyze_query(
             "index_recommendations": [],
             "estimated_cost": "Unknown",
             "rewritten_query": None,
-            "explain_plan": [
-                "Seq Scan on <table>  (cost=0.00..1240.00 rows=50000 width=80)",
-                "  Filter: (condition)",
-                "Planning Time: 0.8 ms",
-                "Execution Time: 342.1 ms",
-            ],
             "summary": "Unable to perform AI analysis. Please check your AI provider configuration.",
         }
+
+    # Never return LLM-invented EXPLAIN output (ID-061).
+    result["explain_plan"] = None
+    result["explain_note"] = (
+        "Live EXPLAIN requires a connected database with query execution rights. "
+        "Connect your database under Settings → Tool Registry → Database "
+        "to enable real EXPLAIN ANALYZE output."
+    )
     return result

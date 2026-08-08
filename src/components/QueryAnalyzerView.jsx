@@ -218,8 +218,8 @@ export default function QueryAnalyzerView() {
             )}
           </div>
 
-          {/* EXPLAIN plan */}
-          {result.explain_plan?.length > 0 && (
+          {/* EXPLAIN plan — only when live; never show invented plans */}
+          {result.explain_plan?.length > 0 ? (
             <div className="flex flex-col rounded-2xl border border-slate-700 overflow-hidden">
               <div className="flex items-center justify-between px-4 py-2.5 bg-black/60 border-b border-slate-700">
                 <div className="flex items-center gap-2">
@@ -237,7 +237,11 @@ export default function QueryAnalyzerView() {
                 {result.explain_plan.join('\n')}
               </pre>
             </div>
-          )}
+          ) : result.explain_note ? (
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-200/90">
+              {result.explain_note}
+            </div>
+          ) : null}
 
           {/* Rewritten query */}
           {result.rewritten_query && (

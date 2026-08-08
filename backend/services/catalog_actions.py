@@ -341,7 +341,74 @@ async def execute_catalog_action(
         return await _execute_scorecard_refresh(entity)
     if action.action_type == ACTION_OPEN_INCIDENT:
         return await _execute_open_incident(entity, payload, tenant_id=tenant_id)
+    if action.action_type == ACTION_PROPOSE_DEPLOY:
+        # Post-HITL: record approval; live deploy connector dispatch is not wired yet.
+        return {
+            "ok": True,
+            "status": "not_implemented",
+            "message": (
+                "Deploy proposal approved, but live deploy execution is not wired yet. "
+                "Connect a deploy integration in Tool Registry to enable real deploys."
+            ),
+            "action_type": action.action_type,
+            "entity_id": entity.id,
+            "payload": payload,
+        }
 
+    return {
+        "ok": False,
+        "status": "failed",
+        "message": f"Unknown action_type={action.action_type}",
+    }
+
+
+async def fulfill_catalog_action_after_hitl(
+    *,
+    details: dict[str, Any],
+    user: User,
+    tenant_id: str,
+) -> dict[str, Any]:
+    """Re-dispatch a catalog self-service action after AgentRun HITL approval (ID-033)."""
+    action_id = details.get("catalog_action_id")
+    entity_id = details.get("entity_id")
+    payload = details.get("payload") if isinstance(details.get("payload"), dict) else {}
+    if not action_id or not entity_id:
+        return {
+            "ok": False,
+            "status": "failed",
+            "message": "Missing catalog_action_id or entity_id on HITL payload",
+        }
+
+    with Session(engine) as session:
+        action = session.get(CatalogAction, action_id)
+        entity = session.get(CatalogEntity, entity_id)
+        if not action or not entity:
+            return {"ok": False, "status": "failed", "message": "Action or entity not found"}
+        session.expunge(action)
+        session.expunge(entity)
+
+    # Skip HITL gate — this path is only called after CAS approve.
+    template = _parse_template(action.payload_template)
+    merged = {**template, **payload}
+
+    if action.action_type == ACTION_RUN_GOLDEN_PATH:
+        return await _execute_run_golden_path(entity, merged, username=user.username)
+    if action.action_type == ACTION_REQUEST_SCORECARD_REFRESH:
+        return await _execute_scorecard_refresh(entity)
+    if action.action_type == ACTION_OPEN_INCIDENT:
+        return await _execute_open_incident(entity, merged, tenant_id=tenant_id)
+    if action.action_type == ACTION_PROPOSE_DEPLOY:
+        return {
+            "ok": True,
+            "status": "not_implemented",
+            "message": (
+                "Deploy proposal approved, but live deploy execution is not wired yet. "
+                "Connect a deploy integration in Tool Registry to enable real deploys."
+            ),
+            "action_type": action.action_type,
+            "entity_id": entity.id,
+            "payload": merged,
+        }
     return {
         "ok": False,
         "status": "failed",

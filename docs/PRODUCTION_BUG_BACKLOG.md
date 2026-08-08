@@ -58,7 +58,7 @@ Sources: direct review + prior audits. Security items from direct reads.
 - [x] **ID-020** CI Python 3.11 vs Dockerfile 3.12 — Fixed P2: CI + pr-check pinned to 3.12.
 - [x] **ID-021** *(superseded by ID-054)* — duplicate closed with ID-054.
 - [x] **ID-022** Naive UTC on liveness — Fixed P2: `datetime.now(timezone.utc)`.
-- [ ] **ID-023** Long JWT lifetime — `backend/auth.py` / `.env.production.example` — Default 480m — Prefer 60–120m in prod. **Owner: ops** (set `JWT_EXPIRE_MINUTES` in pilot `.env.production`).
+- [x] **ID-023** Long JWT lifetime — `backend/auth.py` already reads `JWT_EXPIRE_MINUTES`; `.env.production.example` set to **60**. **Owner: ops** — confirm pilot `.env.production`.
 - [x] **ID-024** `.env.production.example` incomplete (webhooks/SSO) — Fixed P8: SSO + webhook + connector placeholders documented.
 - [x] **ID-025** `SECRETS_ENCRYPTION_KEY=` inline `#` comment — Fixed P6: hint moved above value line in `.env.production.example`.
 - [x] **ID-026** documentation_agent HITL while `read_only=True` — Fixed P3: success + `recommended_actions`, never pending shell while read_only.
@@ -68,21 +68,26 @@ Sources: direct review + prior audits. Security items from direct reads.
 - [x] **ID-030** Agent approve any tenant user — Fixed P1: `require_admin` on approve/reject.
 - [x] **ID-031** Celery retry without countdown — Fixed P2: `monitor_cicd_pipelines` uses `_backoff_countdown`; DLQ only on MaxRetriesExceeded.
 - [x] **ID-032** Webhook gateway 500 on empty `alerts`/`evalMatches` — Fixed P2: guard empty lists in `_map_to_cloud_event`.
-- [ ] **ID-033** HITL catalog action approve is silent no-op — Propose Deploy pending run may only flip status. **Owner: backend** — Dispatch on `action_type` after HITL. Post-pilot.
+- [x] **ID-033** HITL catalog action approve is silent no-op — **Fixed**: entity-action approve re-dispatches; catalog_self_service AgentRun approve calls `fulfill_catalog_action_after_hitl`.
 - [x] **ID-034** Celery webhook retries duplicate incidents — Fixed P2: pass `delivery_id` to task; skip if delivery/event already processed; mark error reclaimable.
 - [x] **ID-035** `monitor_cicd_pipelines` DLQ then retry — Fixed P2: DLQ only on MaxRetriesExceeded.
 - [x] **ID-036** Tool accounts matrix / category counts unscoped — Fixed P1: tenant + ownership filters on categories/matrix.
 - [x] **ID-037** Dashboard AWS-cost agent toast spam — Fixed P7: `silentToast: true` on dashboard cost fetch + AgentRunner self-toasts.
-- [ ] **ID-038** Unhandled rejections in admin polling — AuditLog/UserManagement/OpsPortal. **Owner: frontend** post-pilot.
+- [x] **ID-038** Unhandled rejections in admin polling — **Fixed**: AuditLog/AdminOverview/UserManagement wrap polls in try/catch + reconnect banner.
 - [x] **ID-039** AgentApprovalsWidget incidents fetch without auth — **Fixed**: uses `authFetch`.
 - [x] **ID-055** IntegrationsPage webhook activity unauthenticated — **Fixed**: uses `authFetch`.
-- [x] **ID-056** Webhook claim-before-process can drop events — Fixed P2: `error`/`failed` deliveries reclaimable on provider retry.
+- [x] **ID-044** `tool_executor.approve_execution` stub payload — **Fixed**: pending executions stored and replayed on approve.
+- [x] **ID-043** Dead scorecard AI parse leftovers — **Fixed**: removed unused `_parse_scorecard_json`.
+- [x] **ID-061** DB query analyzer fabricates mock EXPLAIN — **Fixed**: `explain_plan=null` + `explain_note`; no invented plans.
+- [x] **ID-064** Entity actions simulated success for unwired handlers — **Fixed**: return `not_implemented` instead of green `completed` + `simulated`.
+- [x] **ID-065** `PlatformContext` silent `tenant_id=None` → default — **Fixed**: `_require_tenant_id` in orchestrator (prod raises).
 - [x] **ID-058** Golden-path agent step missing `tenant_id` on PlatformContext — Fixed P1: thread `tenant_id` from run/inputs into `PlatformContext`.
 - [x] **ID-059** `_finalize_with_policy` keeps `details.commands` for read_only — Fixed P1: clear `commands` on read_only return.
 - [x] **ID-060** Incident triage LLM prompts lack GROUNDING_RULES — **Fixed**: `run_triage` injects `GROUNDING_RULES` + EVIDENCE into the user prompt.
-- [ ] **ID-061** DB query analyzer fabricates mock EXPLAIN — **Owner: backend** — Return explicit no-live-EXPLAIN. Post-pilot.
+- [x] **ID-061** DB query analyzer fabricates mock EXPLAIN — **Fixed**: `explain_plan=null` + `explain_note`; no invented plans.
 - [x] **ID-062** `monitor_cicd_pipelines` invents incidents from demo fixtures — Fixed P1: gated by `demo_data_enabled()`; no-op when false.
 - [x] **ID-063** Incident approve lacks Admin/owner authz — Fixed P1: `require_admin` on approve/reject.
+- [x] **ID-056** Webhook claim-before-process can drop events — Fixed P2: `error`/`failed` deliveries reclaimable on provider retry.
 
 ---
 
@@ -91,15 +96,15 @@ Sources: direct review + prior audits. Security items from direct reads.
 - [x] **ID-040** CORS localhost fallback when origins unset — Fixed P1: production strips `*`, deny-all if origins unset.
 - [ ] **ID-041** ErrorBoundary console.error — `src/components/ErrorBoundary.jsx:15`. **Owner: frontend**
 - [ ] **ID-042** RBACManager console.error — `src/components/RBACManager.jsx:188`. **Owner: frontend**
-- [ ] **ID-043** Dead scorecard AI parse leftovers — `backend/routers/scorecards.py:49+`. **Owner: backend**
-- [ ] **ID-044** `tool_executor.approve_execution` stub payload — `backend/ai/tool_executor.py:141-152`. **Owner: backend**
+- [x] **ID-043** Dead scorecard AI parse leftovers — **Fixed**: removed unused `_parse_scorecard_json`.
+- [x] **ID-044** `tool_executor.approve_execution` stub payload — **Fixed**: pending executions stored and replayed on approve.
 - [ ] **ID-045** Smoke scripts use `python` — Prefer `python3` where available. **Owner: ops**
 - [x] **ID-046** Permanent Celery errors still retry 5× — Fixed P2: ValueError/KeyError/TypeError/JSONDecodeError → DLQ, no retry.
 - [ ] **ID-047** Role-filtered incident list truncates at 500 — **Owner: backend**
 - [ ] **ID-048** MFA-role DB read swallow — **Owner: backend** — Log + consider fail-closed.
 - [ ] **ID-049** Frontend P3 polish — GitHub double-fetch; index keys; residual clipboard. **Owner: frontend** (OncallWidget 500→empty fixed P7)
-- [ ] **ID-064** Entity actions simulated success for unwired handlers — **Owner: backend** — Use `not_implemented` status.
-- [ ] **ID-065** `PlatformContext.from_dict` silently defaults `tenant_id=None` — **Owner: backend**
+- [x] **ID-064** Entity actions simulated success for unwired handlers — **Fixed**: return `not_implemented` instead of green `completed` + `simulated`.
+- [x] **ID-065** `PlatformContext` silent `tenant_id=None` → default — **Fixed**: `_require_tenant_id` in orchestrator (prod raises).
 - [x] **ID-079** Pagination max page_size too high — Fixed P2: `MAX_PAGE_SIZE=100` (+ Query le=100 on lists).
 - [x] **ID-080** Prometheus metrics can throw on bad labels / middleware — Fixed P2: `_safe_label` + try/except around HTTP metrics.
 - [x] **ID-081** Rate-limit Redis policy undocumented — Fixed P2: documented fail-open API counters + login memory fallback in `rate_limit.py`.
@@ -141,10 +146,10 @@ Sources: direct review + prior audits. Security items from direct reads.
 | AGENT_REGISTRY 17 agents | Verified pass | |
 | MCP dangerous → HITL | Verified pass | Race fixed ID-007 |
 | Baseline deny not overridable by approval | Verified pass | |
-| Catalog HITL action post-approve no-op | P2 open | ID-033 — owner backend |
 | Golden-path agent context tenant | OK | ID-058 |
-| Triage / EXPLAIN fabrication | P2 open | ID-060, ID-061 |
-| Agent LLM calls include GROUNDING_RULES | Verified pass | BaseAgent; triage still ID-060 |
+| Triage / EXPLAIN fabrication | OK | ID-060, ID-061 fixed |
+| Agent LLM calls include GROUNDING_RULES | Verified pass | BaseAgent + triage |
+| Catalog HITL action post-approve | OK | ID-033 fixed |
 | G6 entity/catalog actions no shell bypass | Verified pass | |
 | `subprocess` only in SafeExecutor (+ health/MCP stdio) | Verified pass | |
 

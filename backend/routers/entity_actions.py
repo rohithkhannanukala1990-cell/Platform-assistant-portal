@@ -126,6 +126,16 @@ def _serialize_run(row: EntityActionRun, action_name: str | None = None) -> dict
     }
 
 
+_NOT_IMPLEMENTED = {
+    "status": "not_implemented",
+    "message": (
+        "This action type is not yet wired to a live handler. "
+        "Connect the relevant integration in Settings → Tool Registry "
+        "to enable real execution."
+    ),
+}
+
+
 async def _run_internal_action(
     session: Session, action: EntityAction, entity: CatalogEntity, logs: list[str]
 ) -> dict[str, Any]:
@@ -145,7 +155,10 @@ async def _run_internal_action(
         std = session.exec(select(Standard).where(Standard.slug == "prod-readiness-v1")).first()
         if not std:
             _log_line(logs, "Production readiness standard not found")
-            return {"simulated": True, "message": "Standard not seeded"}
+            return {
+                **_NOT_IMPLEMENTED,
+                "message": "Production readiness standard is not seeded in this environment.",
+            }
         ev = _run_evaluation(session, entity, std)
         _log_line(logs, f"Standards evaluation status={ev.status} score={ev.overall_score}")
         return {
@@ -155,11 +168,11 @@ async def _run_internal_action(
         }
 
     if slug in ("generate-cicd", "generate-infra", "create-jira-ticket"):
-        _log_line(logs, f"Internal handler for {slug} not wired — queuing")
-        return {"simulated": True, "message": "Action queued"}
+        _log_line(logs, f"Internal handler for {slug} not wired")
+        return dict(_NOT_IMPLEMENTED)
 
-    _log_line(logs, "No specific handler — simulated queue")
-    return {"simulated": True, "message": "Action queued"}
+    _log_line(logs, "No specific handler registered for this action")
+    return dict(_NOT_IMPLEMENTED)
 
 
 async def _dispatch_action(
@@ -167,22 +180,29 @@ async def _dispatch_action(
     action: EntityAction,
     entity: CatalogEntity,
     logs: list[str],
+    *,
+    force_execute: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    if action.action_type == "approval" or action.requires_approval:
+    if not force_execute and (action.action_type == "approval" or action.requires_approval):
         _log_line(logs, "Awaiting approval")
         return "pending", {"message": "Submitted for approval"}
 
     if action.action_type == "webhook":
-        _log_line(logs, "Webhook action queued")
-        return "completed", {"simulated": True, "message": "Webhook action queued"}
+        _log_line(logs, "Webhook action has no live delivery handler")
+        return "not_implemented", dict(_NOT_IMPLEMENTED)
 
-    if action.action_type == "internal":
+    if action.action_type in ("internal", "approval") or force_execute:
         _log_line(logs, f"Running internal action: {action.slug}")
         result = await _run_internal_action(session, action, entity, logs)
+        if result.get("status") == "not_implemented":
+            return "not_implemented", result
         return "completed", result
 
-    _log_line(logs, f"Unknown action_type={action.action_type}")
-    return "completed", {"simulated": True, "message": "Action queued"}
+    _log_line(logs, f"No handler for action_type={action.action_type}")
+    return "not_implemented", {
+        "status": "not_implemented",
+        "message": f"No handler registered for action_type='{action.action_type}'.",
+    }
 
 
 def _audit_action_run(
@@ -417,4 +437,104 @@ def get_action_run(
             raise HTTPException(status_code=404, detail="Run not found")
         _get_active_entity(session, row.entity_id, tenant_id=tenant_id)
         action = session.get(EntityAction, row.action_id)
+        return _serialize_run(row, action_name=action.name if action else None)
+
+
+@runs_router.post("/{run_id}/approve")
+async def approve_entity_action_run(
+    request: Request,
+    run_id: str,
+    current_user: User = Depends(require_admin),
+):
+    """HITL approve — re-dispatch the real action instead of only flipping status."""
+    tenant_id = require_tenant(request)
+    with Session(engine) as session:
+        row = session.get(EntityActionRun, run_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Action run not found")
+        entity = _get_active_entity(session, row.entity_id, tenant_id=tenant_id)
+        if row.status != "pending":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Run is not pending approval, status={row.status}",
+            )
+
+        action = session.get(EntityAction, row.action_id)
+        if not action:
+            raise HTTPException(status_code=404, detail="Action not found")
+
+        logs: list[str] = []
+        _log_line(logs, f"Approved by {current_user.username} — re-dispatching")
+        try:
+            final_status, result = await _dispatch_action(
+                session, action, entity, logs, force_execute=True
+            )
+        except Exception as exc:
+            final_status = "failed"
+            result = {"error": str(exc)}
+            _log_line(logs, f"Post-approval execution failed: {exc}")
+
+        now = datetime.now(timezone.utc)
+        result = {
+            **(result or {}),
+            "approved_by": current_user.username,
+            "approved_at": now.isoformat(),
+        }
+        _log_line(logs, f"Run finished with status={final_status}")
+        row.status = final_status
+        row.result_json = json.dumps(result)
+        row.execution_logs = "\n".join(
+            [*(row.execution_logs.splitlines() if row.execution_logs else []), *logs]
+        )
+        row.updated_at = now
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+
+        try:
+            inputs = json.loads(row.inputs_json or "{}")
+        except json.JSONDecodeError:
+            inputs = {}
+        _audit_action_run(current_user, action, entity, row, inputs)
+        return _serialize_run(row, action_name=action.name)
+
+
+@runs_router.post("/{run_id}/reject")
+def reject_entity_action_run(
+    request: Request,
+    run_id: str,
+    current_user: User = Depends(require_admin),
+):
+    tenant_id = require_tenant(request)
+    with Session(engine) as session:
+        row = session.get(EntityActionRun, run_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Action run not found")
+        entity = _get_active_entity(session, row.entity_id, tenant_id=tenant_id)
+        if row.status != "pending":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Run is not pending approval, status={row.status}",
+            )
+        action = session.get(EntityAction, row.action_id)
+        now = datetime.now(timezone.utc)
+        row.status = "failed"
+        row.result_json = json.dumps(
+            {
+                "status": "rejected",
+                "rejected_by": current_user.username,
+                "rejected_at": now.isoformat(),
+            }
+        )
+        row.execution_logs = (row.execution_logs or "") + f"\n[{now.isoformat()}] Rejected by {current_user.username}"
+        row.updated_at = now
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        try:
+            inputs = json.loads(row.inputs_json or "{}")
+        except json.JSONDecodeError:
+            inputs = {}
+        if action:
+            _audit_action_run(current_user, action, entity, row, inputs)
         return _serialize_run(row, action_name=action.name if action else None)

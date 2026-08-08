@@ -53,7 +53,7 @@ Path toward **9.5+ pilot**: TypeScript across high-traffic pages, expand browser
 - **Golden paths** — not Backstage Software Templates depth.
 - **On-call / alerts** — read-only PD view + rules-based correlation; scheduling & ML stay with PD / incident.io.
 - **Postmortems** — strong first draft; not full Scribe workflow.
-- **Ops polish** — JWT TTL tuning (ID-023); triage grounding fixed (ID-060).
+- **Ops polish** — JWT TTL: set `JWT_EXPIRE_MINUTES=60` in pilot `.env.production` (example updated).
 
 Honest matrix: [`docs/product_comparison.md`](./product_comparison.md).
 

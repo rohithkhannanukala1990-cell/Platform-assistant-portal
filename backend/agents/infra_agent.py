@@ -3,26 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 
 from sqlmodel import Session
 
-from ..connectors.aws_connector import AWSConnector
 from ..context import PlatformContext
 from .base import AgentResult, BaseAgent
-
-_ACCOUNT: dict = {}
-
-
-def _aws_configured(context: PlatformContext) -> bool:
-    if context.tool_accounts.get("aws"):
-        return True
-    return bool(
-        (os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
-        or (os.getenv("AWS_PROFILE") or "").strip()
-        or (os.getenv("AWS_ROLE_ARN") or "").strip()
-    )
 
 
 class InfraAgent(BaseAgent):
@@ -46,6 +32,8 @@ class InfraAgent(BaseAgent):
         wants_mutate = bool(re.search(r"\bscale|delete|destroy|terminate\b", task))
 
         k8s = await self._ground_k8s(context, db) if wants_k8s else None
+        aws = await self._ground_aws(context, db) if wants_aws or not wants_k8s else None
+
         if wants_k8s and k8s is None and not wants_aws:
             return self._no_data_result(
                 context,
@@ -59,10 +47,11 @@ class InfraAgent(BaseAgent):
                 },
             )
 
-        if wants_aws and not wants_k8s and not _aws_configured(context):
+        if wants_aws and not wants_k8s and aws is None:
             return self._no_data_result(
                 context,
-                "AWS not connected. Set AWS credentials or connect an AWS account.",
+                "AWS not connected — add AWS credentials in Tool Registry "
+                "under Settings → Tool Registry → AWS to inspect EC2 instances.",
                 missing_tools=["AWS"],
                 details={"resource_type": "ec2", "count": 0, "items": [], "environment": env},
             )
@@ -79,17 +68,15 @@ class InfraAgent(BaseAgent):
             if re.search(r"\bec2|instance|aws\b", task) and not re.search(
                 r"\bpod|pods|node|nodes\b", task
             ):
-                if not _aws_configured(context):
+                if aws is None:
                     return self._no_data_result(
                         context,
-                        "AWS not connected. Connect AWS before listing EC2 instances.",
+                        "AWS not connected — add AWS credentials in Tool Registry "
+                        "under Settings → Tool Registry → AWS to inspect EC2 instances.",
                         missing_tools=["AWS"],
                     )
                 resource_type = "ec2"
-                items = await AWSConnector(_ACCOUNT).list_instances(region)
-                # Empty list after a real call is live (zero instances), but
-                # connector swallows auth errors as [] — treat empty without
-                # credentials path already handled; empty with creds = live.
+                items = await aws.list_instances(region)
                 aws_ok = True
                 grounding = "live"
                 for inst in (items or [])[:30]:
@@ -145,8 +132,8 @@ class InfraAgent(BaseAgent):
                 aws_items: list = []
                 k8s_pods: list = []
                 if wants_aws or (not wants_k8s):
-                    if _aws_configured(context):
-                        aws_items = await AWSConnector(_ACCOUNT).list_instances(region)
+                    if aws is not None:
+                        aws_items = await aws.list_instances(region)
                         aws_ok = True
                         for inst in aws_items[:20]:
                             evidence.append(
