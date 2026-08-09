@@ -163,6 +163,42 @@ class CodeReviewAgent(BaseAgent):
                             snippet=str(finding)[:500],
                         )
                     )
+                review_body = str(
+                    parsed.get("summary")
+                    or f"Automated review for PR #{pr_number}"
+                )
+                if findings:
+                    review_body += "\n\nFindings:\n" + "\n".join(
+                        f"- {f}" for f in findings[:20]
+                    )
+                if bool(params.get("propose", True)):
+                    return self._propose_artifact_result(
+                        context,
+                        connector="github",
+                        method="add_pr_review",
+                        params={
+                            "repo": f"{owner}/{repo_name}",
+                            "pr_number": int(pr_number),
+                            "body": review_body,
+                            "event": params.get("review_event") or "COMMENT",
+                        },
+                        preview={
+                            "type": "github_pr_review",
+                            "repo": f"{owner}/{repo_name}",
+                            "pr_number": int(pr_number),
+                            "body": review_body[:4000],
+                            "event": params.get("review_event") or "COMMENT",
+                        },
+                        grounding="live",
+                        summary=f"Propose PR review comments on #{pr_number} ({owner}/{repo_name})",
+                        details={
+                            "github_facts": facts,
+                            "findings": findings,
+                            "pr_number": pr_number,
+                            "repo": f"{owner}/{repo_name}",
+                        },
+                        evidence=evidence,
+                    )
                 return self._result(
                     context,
                     status="success",

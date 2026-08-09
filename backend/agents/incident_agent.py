@@ -175,6 +175,59 @@ class IncidentAgent(BaseAgent):
             # Defensive: write paths should already have returned pending_approval above.
             pass
 
+        if action == "list_open" and bool(params.get("propose", True)) and incidents:
+            slack = await self._ground_slack(context, db)
+            if slack is None:
+                return self._no_data_result(
+                    context,
+                    "Slack not connected — cannot propose incident thread reply. "
+                    "Add Slack in Settings → Tool Registry.",
+                    missing_tools=["Slack"],
+                    details={"action_taken": action_taken, "incidents": incidents, "count": len(incidents)},
+                )
+            channel = params.get("channel") or "incidents"
+            thread_ts = params.get("thread_ts") or ""
+            summary_text = (
+                f"Incident triage summary: {len(incidents)} open\n"
+                + "\n".join(
+                    f"- {i.get('title') or i.get('id')}" for i in incidents[:10]
+                )
+            )
+            return self._propose_artifact_result(
+                context,
+                connector="slack",
+                method="post_thread_reply" if thread_ts else "post_approval_request",
+                params=(
+                    {
+                        "channel": channel,
+                        "thread_ts": thread_ts,
+                        "text": summary_text,
+                    }
+                    if thread_ts
+                    else {
+                        "channel": channel,
+                        "approval_id": "incident-triage",
+                        "summary": summary_text[:500],
+                        "risk": "high",
+                        "detail_url": params.get("detail_url") or "https://localhost/incidents",
+                    }
+                ),
+                preview={
+                    "type": "slack_message",
+                    "channel": channel,
+                    "text": summary_text[:4000],
+                    "thread_ts": thread_ts or None,
+                },
+                grounding="live",
+                summary=f"Propose Slack post for {len(incidents)} incident(s) in #{channel}",
+                details={
+                    "incidents": incidents,
+                    "action_taken": action_taken,
+                    "count": len(incidents),
+                },
+                evidence=evidence,
+            )
+
         return self._result(
             context,
             status="success",

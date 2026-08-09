@@ -84,6 +84,56 @@ class CostAgent(BaseAgent):
             elif second_half < first_half * 0.9:
                 trend = "decreasing"
 
+        if bool(params.get("propose", True)) and top_5:
+            jira = await self._ground_jira(context, db)
+            if jira is None:
+                return self._no_data_result(
+                    context,
+                    "Jira not connected — cannot propose cost rightsizing issues. "
+                    "Add Jira in Settings → Tool Registry.",
+                    missing_tools=["Jira"],
+                )
+            saving = round(projected_monthly * 0.15, 2)
+            lines = "\n".join(
+                f"- {r.get('service')}: ${float(r.get('amount') or 0):,.2f}"
+                for r in top_5
+            )
+            summary_line = f"Rightsizing opportunities (~${saving:,.2f}/mo projected saving)"
+            description = (
+                f"Period {start} → {end}\nProjected monthly: ${projected_monthly:,.2f}\n"
+                f"Estimated saving: ${saving:,.2f}/mo\n\nTop services:\n{lines}"
+            )
+            project_key = params.get("project_key") or "FINOPS"
+            return self._propose_artifact_result(
+                context,
+                connector="jira",
+                method="create_issue",
+                params={
+                    "project_key": project_key,
+                    "summary": summary_line,
+                    "description": description,
+                    "issue_type": "Task",
+                    "priority": "Medium",
+                    "labels": ["cost", "rightsizing"],
+                },
+                preview={
+                    "type": "jira_issue",
+                    "project_key": project_key,
+                    "summary": summary_line,
+                    "description": description[:4000],
+                    "projected_monthly_saving": saving,
+                },
+                grounding="live",
+                summary=f"Propose Jira issue: {summary_line}",
+                details={
+                    "total_usd": total_usd,
+                    "projected_monthly": projected_monthly,
+                    "top_services": top_5,
+                    "trend": trend,
+                },
+                evidence=evidence[:50],
+            )
+
         return self._result(
             context,
             status="success",

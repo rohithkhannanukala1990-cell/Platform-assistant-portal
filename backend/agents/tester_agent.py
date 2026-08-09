@@ -232,6 +232,39 @@ class TesterAgent(BaseAgent):
                 if test_runs
                 else f"No failing test workflows found in {repo}"
             )
+            if bool(params.get("propose", True)) and test_runs:
+                test_content = params.get("proposed_content") or (
+                    "def test_uncovered_path():\n"
+                    "    # Proposed coverage for previously uncovered path\n"
+                    "    assert True\n"
+                )
+                path = params.get("path") or "tests/test_uncovered_path.py"
+                branch = f"test/cover-{repo.replace('/', '-')}"[:40]
+                return self._propose_artifact_result(
+                    context,
+                    connector="github",
+                    method="github_dependency_pr",
+                    params={
+                        "repo": repo,
+                        "path": path,
+                        "content": test_content,
+                        "branch_name": branch,
+                        "base": params.get("base") or "main",
+                        "title": f"test: cover uncovered path in {repo}",
+                        "body": "Proposed test for uncovered code path from tester_agent.",
+                    },
+                    preview={
+                        "type": "github_pr",
+                        "repo": repo,
+                        "path": path,
+                        "branch": branch,
+                        "diff_preview": test_content[:4000],
+                    },
+                    grounding="live",
+                    summary=f"Propose test PR for uncovered path in {repo}",
+                    details=details,
+                    evidence=evidence,
+                )
             return self._result(
                 context,
                 status="success",

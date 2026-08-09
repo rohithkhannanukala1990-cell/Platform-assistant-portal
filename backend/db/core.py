@@ -64,6 +64,7 @@ def _import_models():
         terminal,
         editor,
     )
+    from backend.services import artifact_service  # noqa: F401 — ArtifactApproval table
 
     # User / AuditLog live in auth — ensure auth models registered:
     from backend import auth as _auth  # noqa: F401
@@ -200,7 +201,7 @@ def _seed_command_policies() -> None:
 
 
 def _seed_github_editor_policy() -> None:
-    """Ensure GitHub write actions require approval (idempotent by rule name)."""
+    """Ensure connector write actions require approval (idempotent by rule name)."""
     from backend.db.models.policy import CommandPolicyRule
 
     rules = [
@@ -211,6 +212,7 @@ def _seed_github_editor_policy() -> None:
             ["github create_branch", "create_branch"],
             r"\bcreate_branch\b",
             "Creating a GitHub branch requires HITL approval",
+            '["github", "shell", "*"]',
         ),
         (
             "approval-github-commit-file",
@@ -219,6 +221,7 @@ def _seed_github_editor_policy() -> None:
             ["github commit_file", "commit_file"],
             r"\bcommit_file\b",
             "Committing a file to GitHub requires HITL approval",
+            '["github", "shell", "*"]',
         ),
         (
             "approval-github-create-pull-request",
@@ -227,10 +230,128 @@ def _seed_github_editor_policy() -> None:
             ["github create_pull_request", "create_pull_request"],
             r"\bcreate_pull_request\b",
             "Opening a GitHub pull request requires HITL approval",
+            '["github", "shell", "*"]',
+        ),
+        (
+            "approval-github-add-pr-review",
+            50,
+            "require_approval",
+            ["github add_pr_review", "add_pr_review"],
+            r"\badd_pr_review\b",
+            "Posting a GitHub PR review requires HITL approval",
+            '["github", "shell", "*"]',
+        ),
+        (
+            "approval-jira-create-issue",
+            50,
+            "require_approval",
+            ["jira create_issue", "create_issue"],
+            r"\bcreate_issue\b",
+            "Creating a Jira issue requires HITL approval",
+            '["jira", "shell", "*"]',
+        ),
+        (
+            "approval-jira-transition-issue",
+            50,
+            "require_approval",
+            ["jira transition_issue", "transition_issue"],
+            r"\btransition_issue\b",
+            "Transitioning a Jira issue requires HITL approval",
+            '["jira", "shell", "*"]',
+        ),
+        (
+            "approval-jira-comment-on-issue",
+            50,
+            "require_approval",
+            ["jira comment_on_issue", "comment_on_issue"],
+            r"\bcomment_on_issue\b",
+            "Commenting on a Jira issue requires HITL approval",
+            '["jira", "shell", "*"]',
+        ),
+        (
+            "approval-jira-link-issues",
+            50,
+            "require_approval",
+            ["jira link_issues", "link_issues"],
+            r"\blink_issues\b",
+            "Linking Jira issues requires HITL approval",
+            '["jira", "shell", "*"]',
+        ),
+        (
+            "approval-slack-post-thread-reply",
+            50,
+            "require_approval",
+            ["slack post_thread_reply", "post_thread_reply"],
+            r"\bpost_thread_reply\b",
+            "Posting a Slack thread reply requires HITL approval",
+            '["slack", "shell", "*"]',
+        ),
+        (
+            "approval-slack-post-approval-request",
+            50,
+            "require_approval",
+            ["slack post_approval_request", "post_approval_request"],
+            r"\bpost_approval_request\b",
+            "Posting a Slack approval request requires HITL approval",
+            '["slack", "shell", "*"]',
+        ),
+        (
+            "approval-slack-update-message",
+            50,
+            "require_approval",
+            ["slack update_message", "update_message"],
+            r"\bupdate_message\b",
+            "Updating a Slack message requires HITL approval",
+            '["slack", "shell", "*"]',
+        ),
+        (
+            "approval-servicenow-create-change-request",
+            50,
+            "require_approval",
+            ["servicenow create_change_request", "create_change_request"],
+            r"\bcreate_change_request\b",
+            "Creating a ServiceNow change request requires HITL approval",
+            '["servicenow", "shell", "*"]',
+        ),
+        (
+            "approval-servicenow-update-change-state",
+            50,
+            "require_approval",
+            ["servicenow update_change_state", "update_change_state"],
+            r"\bupdate_change_state\b",
+            "Updating a ServiceNow change state requires HITL approval",
+            '["servicenow", "shell", "*"]',
+        ),
+        (
+            "approval-servicenow-create-incident",
+            50,
+            "require_approval",
+            ["servicenow create_incident", "create_incident"],
+            r"\bcreate_incident\b",
+            "Creating a ServiceNow incident requires HITL approval",
+            '["servicenow", "shell", "*"]',
+        ),
+        (
+            "approval-confluence-create-page",
+            50,
+            "require_approval",
+            ["confluence create_page", "create_page"],
+            r"\bcreate_page\b",
+            "Creating a Confluence page requires HITL approval",
+            '["confluence", "shell", "*"]',
+        ),
+        (
+            "approval-confluence-update-page",
+            50,
+            "require_approval",
+            ["confluence update_page", "update_page"],
+            r"\bupdate_page\b",
+            "Updating a Confluence page requires HITL approval",
+            '["confluence", "shell", "*"]',
         ),
     ]
     with Session(engine) as session:
-        for name, priority, effect, prefixes, regex, description in rules:
+        for name, priority, effect, prefixes, regex, description, tools in rules:
             exists = session.exec(
                 select(CommandPolicyRule).where(CommandPolicyRule.name == name)
             ).first()
@@ -243,7 +364,7 @@ def _seed_github_editor_policy() -> None:
                     enabled=True,
                     match_roles='["*"]',
                     match_environments='["*"]',
-                    match_tools='["github", "shell", "*"]',
+                    match_tools=tools,
                     match_command_prefixes=json.dumps(prefixes),
                     match_regex=regex,
                     effect=effect,

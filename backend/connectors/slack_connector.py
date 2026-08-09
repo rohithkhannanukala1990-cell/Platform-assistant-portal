@@ -133,6 +133,174 @@ class SlackConnector(_BaseSlack):
         except Exception as exc:
             return {"ok": False, "error": str(exc)[:200]}
 
+    async def post_thread_reply(
+        self,
+        channel: str,
+        thread_ts: str,
+        text: str,
+        blocks: list | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        from .idempotency import ConnectorNotConfigured, recall_idempotent, store_idempotent
+
+        cached = recall_idempotent(idempotency_key)
+        if cached:
+            return {**cached, "reused": True}
+        token = self._bot_token()
+        if not token:
+            raise ConnectorNotConfigured("Slack")
+        payload: dict[str, Any] = {
+            "channel": channel,
+            "thread_ts": thread_ts,
+            "text": text or "",
+        }
+        if blocks:
+            payload["blocks"] = blocks
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://slack.com/api/chat.postMessage",
+                headers={"Authorization": f"Bearer {token}"},
+                json=payload,
+            )
+            data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        if not isinstance(data, dict) or not data.get("ok"):
+            return {
+                "ok": False,
+                "error": (data.get("error") if isinstance(data, dict) else "post failed"),
+            }
+        ts = data.get("ts")
+        out = {
+            "ok": True,
+            "channel": data.get("channel") or channel,
+            "ts": ts,
+            "thread_ts": thread_ts,
+            "url": f"https://slack.com/archives/{channel}/p{str(ts or '').replace('.', '')}",
+            "reused": False,
+        }
+        store_idempotent(idempotency_key, out)
+        return out
+
+    async def post_approval_request(
+        self,
+        channel: str,
+        approval_id: str,
+        summary: str,
+        risk: str,
+        detail_url: str,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        from .idempotency import ConnectorNotConfigured, recall_idempotent, store_idempotent
+        from ..services.ssrf import assert_safe_outbound_url
+
+        cached = recall_idempotent(idempotency_key)
+        if cached:
+            return {**cached, "reused": True}
+        if not self._bot_token():
+            raise ConnectorNotConfigured("Slack")
+        if detail_url:
+            assert_safe_outbound_url(detail_url)
+        risk_label = (risk or "medium").upper()
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "Approval required"},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Summary*\n{summary or '(none)'}\n\n*Risk:* `{risk_label}`",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Approve"},
+                        "style": "primary",
+                        "action_id": "approve_request",
+                        "value": str(approval_id),
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Reject"},
+                        "style": "danger",
+                        "action_id": "reject_request",
+                        "value": str(approval_id),
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Open in portal"},
+                        "url": detail_url or "https://example.invalid",
+                        "action_id": "open_detail",
+                    },
+                ],
+            },
+        ]
+        token = self._bot_token()
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://slack.com/api/chat.postMessage",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "channel": channel,
+                    "text": f"Approval request: {summary}",
+                    "blocks": blocks,
+                },
+            )
+            data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        if not isinstance(data, dict) or not data.get("ok"):
+            return {
+                "ok": False,
+                "error": (data.get("error") if isinstance(data, dict) else "post failed"),
+            }
+        ts = data.get("ts")
+        out = {
+            "ok": True,
+            "channel": data.get("channel") or channel,
+            "ts": ts,
+            "approval_id": approval_id,
+            "url": f"https://slack.com/archives/{channel}/p{str(ts or '').replace('.', '')}",
+            "reused": False,
+        }
+        store_idempotent(idempotency_key, out)
+        return out
+
+    async def update_message(
+        self,
+        channel: str,
+        ts: str,
+        text: str,
+        blocks: list | None = None,
+    ) -> dict[str, Any]:
+        from .idempotency import ConnectorNotConfigured
+
+        token = self._bot_token()
+        if not token:
+            raise ConnectorNotConfigured("Slack")
+        payload: dict[str, Any] = {"channel": channel, "ts": ts, "text": text or ""}
+        if blocks:
+            payload["blocks"] = blocks
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://slack.com/api/chat.update",
+                headers={"Authorization": f"Bearer {token}"},
+                json=payload,
+            )
+            data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        if not isinstance(data, dict) or not data.get("ok"):
+            return {
+                "ok": False,
+                "error": (data.get("error") if isinstance(data, dict) else "update failed"),
+            }
+        return {
+            "ok": True,
+            "channel": channel,
+            "ts": ts,
+            "url": f"https://slack.com/archives/{channel}/p{str(ts or '').replace('.', '')}",
+        }
+
     async def execute_action(self, action: str, params: dict) -> dict[str, Any]:
         try:
             if action == "ping":
@@ -145,6 +313,33 @@ class SlackConnector(_BaseSlack):
                 result = await self.notify_channel(
                     text=str(params.get("text") or params.get("message") or ""),
                     channel=params.get("channel"),
+                )
+                return {"ok": bool(result.get("ok")), "tool": "slack", "action": action, "result": result}
+            if action == "post_thread_reply":
+                result = await self.post_thread_reply(
+                    params.get("channel", ""),
+                    params.get("thread_ts", ""),
+                    params.get("text", ""),
+                    blocks=params.get("blocks"),
+                    idempotency_key=params.get("idempotency_key"),
+                )
+                return {"ok": bool(result.get("ok")), "tool": "slack", "action": action, "result": result}
+            if action == "post_approval_request":
+                result = await self.post_approval_request(
+                    params.get("channel", ""),
+                    params.get("approval_id", ""),
+                    params.get("summary", ""),
+                    params.get("risk", "medium"),
+                    params.get("detail_url", ""),
+                    idempotency_key=params.get("idempotency_key"),
+                )
+                return {"ok": bool(result.get("ok")), "tool": "slack", "action": action, "result": result}
+            if action == "update_message":
+                result = await self.update_message(
+                    params.get("channel", ""),
+                    params.get("ts", ""),
+                    params.get("text", ""),
+                    blocks=params.get("blocks"),
                 )
                 return {"ok": bool(result.get("ok")), "tool": "slack", "action": action, "result": result}
         except Exception as exc:

@@ -668,9 +668,51 @@ class GitHubConnector(_BaseGitHub):
             "ok": True,
             "number": data.get("number"),
             "html_url": data.get("html_url"),
+            "url": data.get("html_url"),
             "title": data.get("title"),
             "reused": False,
         }
+
+    async def add_pr_review(
+        self,
+        repo: str,
+        *,
+        pr_number: int,
+        body: str,
+        event: str = "COMMENT",
+        comments: list[dict] | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit a pull request review (COMMENT / APPROVE / REQUEST_CHANGES)."""
+        from .idempotency import recall_idempotent, store_idempotent
+
+        cached = recall_idempotent(idempotency_key)
+        if cached:
+            return {**cached, "reused": True}
+        owner_repo = repo.strip("/")
+        payload: dict[str, Any] = {
+            "body": body or "",
+            "event": (event or "COMMENT").upper(),
+        }
+        if comments:
+            payload["comments"] = comments
+        data = await self._request(
+            "POST",
+            f"/repos/{owner_repo}/pulls/{int(pr_number)}/reviews",
+            json_body=payload,
+            operation="add_pr_review",
+        )
+        html = (data or {}).get("html_url")
+        out = {
+            "ok": True,
+            "id": (data or {}).get("id"),
+            "html_url": html,
+            "url": html or f"https://github.com/{owner_repo}/pull/{pr_number}",
+            "state": (data or {}).get("state"),
+            "reused": False,
+        }
+        store_idempotent(idempotency_key, out)
+        return out
 
     # TODO: Wrap connector actions in try/except and return:
     # - ok: bool
@@ -757,6 +799,16 @@ class GitHubConnector(_BaseGitHub):
                     idempotency_key=params.get("idempotency_key"),
                 )
                 return {"ok": True, "tool": "github", "action": action, "result": result}
+            if action == "add_pr_review":
+                result = await self.add_pr_review(
+                    repo,
+                    pr_number=int(params.get("pr_number") or params.get("number") or 0),
+                    body=str(params.get("body") or ""),
+                    event=str(params.get("event") or "COMMENT"),
+                    comments=params.get("comments"),
+                    idempotency_key=params.get("idempotency_key"),
+                )
+                return {"ok": bool(result.get("ok")), "tool": "github", "action": action, "result": result}
             # TODO(S3-P3.1): Implement a lightweight 'ping' action for use by health probes
             if action in ("ping", "test_connection"):
                 # Prefer /rate_limit — cheap auth check without mutating state.

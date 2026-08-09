@@ -106,6 +106,62 @@ class SecurityAgent(BaseAgent):
             "source": source,
         }
 
+        propose = bool(params.get("propose", True))
+        if propose and (critical or high or findings):
+            jira = await self._ground_jira(context, db)
+            if jira is None:
+                return self._no_data_result(
+                    context,
+                    "Jira not connected — cannot propose security issues. "
+                    "Add Jira in Settings → Tool Registry.",
+                    missing_tools=["Jira"],
+                    details=details,
+                )
+
+            sev_map = {
+                "CRITICAL": "Highest",
+                "HIGH": "High",
+                "MEDIUM": "Medium",
+                "LOW": "Low",
+            }
+            target = (critical or high or findings)[:1]
+            f0 = target[0]
+            sev = str(f0.get("severity") or f0.get("Severity") or "MEDIUM").upper()
+            priority = sev_map.get(sev, "Medium")
+            title = str(f0.get("title") or f0.get("Title") or "Security finding")[:180]
+            arn = f0.get("arn") or f0.get("Id") or f0.get("id") or ""
+            remediation = f0.get("remediation") or f0.get("description") or ""
+            project_key = params.get("project_key") or "SEC"
+            description = (
+                f"Severity: {sev}\nFinding ARN/Id: {arn}\n\n"
+                f"Remediation guidance:\n{remediation}"
+            )
+            return self._propose_artifact_result(
+                context,
+                connector="jira",
+                method="create_issue",
+                params={
+                    "project_key": project_key,
+                    "summary": f"[{sev}] {title}",
+                    "description": description,
+                    "issue_type": "Bug",
+                    "priority": priority,
+                    "labels": ["security", "guardduty"],
+                },
+                preview={
+                    "type": "jira_issue",
+                    "project_key": project_key,
+                    "summary": f"[{sev}] {title}",
+                    "priority": priority,
+                    "description": description[:4000],
+                    "severity_mapped_from": sev,
+                },
+                grounding="live",
+                summary=f"Propose Jira issue for {sev} finding: {title}",
+                details={**details, "proposed_priority": priority},
+                evidence=evidence,
+            )
+
         if critical_count > 0:
             return self._result(
                 context,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone, timedelta
 
@@ -105,6 +106,85 @@ class DocumentationAgent(BaseAgent):
                     draft = self._parse_llm_json(raw)
                 except Exception:
                     draft = None
+            # Propose docs write-back (GitHub PR or Confluence page)
+            target = str(params.get("target") or "github").strip().lower()
+            draft_html = ""
+            if isinstance(draft, dict):
+                draft_html = f"<h1>{repo or 'Service'}</h1><pre>{json.dumps(draft, indent=2)[:3000]}</pre>"
+            elif draft:
+                draft_html = f"<pre>{str(draft)[:3000]}</pre>"
+            else:
+                draft_html = f"<h1>Documentation</h1><p>Generated for {repo or 'catalog'}.</p>"
+
+            if bool(params.get("propose", True)):
+                if target == "confluence":
+                    conf = await self._ground_confluence(context, db)
+                    if conf is None:
+                        return self._no_data_result(
+                            context,
+                            "Confluence not connected — add Confluence in Settings → Tool Registry.",
+                            missing_tools=["Confluence"],
+                        )
+                    space = params.get("space_key") or "ENG"
+                    title = params.get("title") or f"Docs: {repo or 'service'}"
+                    return self._propose_artifact_result(
+                        context,
+                        connector="confluence",
+                        method="create_page",
+                        params={
+                            "space_key": space,
+                            "title": title,
+                            "body_html": draft_html,
+                        },
+                        preview={
+                            "type": "confluence_page",
+                            "space_key": space,
+                            "title": title,
+                            "body_html": draft_html[:4000],
+                        },
+                        grounding=grounding if grounding != "none" else "partial",
+                        summary=f"Propose Confluence page '{title}' in {space}",
+                        details={"action": "generate", "target": "confluence", "draft": draft},
+                        evidence=evidence,
+                    )
+                if connector is None:
+                    return self._no_data_result(
+                        context,
+                        "GitHub not connected — cannot propose docs PR. "
+                        "Add GitHub in Settings → Tool Registry.",
+                        missing_tools=["GitHub"],
+                    )
+                path = params.get("path") or "docs/README.md"
+                branch = f"docs/{(repo or 'service').replace('/', '-')}"
+                content = params.get("proposed_content") or (
+                    f"# Documentation\n\n{json.dumps(draft, indent=2) if draft else 'TBD'}\n"
+                )
+                return self._propose_artifact_result(
+                    context,
+                    connector="github",
+                    method="github_dependency_pr",
+                    params={
+                        "repo": str(repo or ""),
+                        "path": path,
+                        "content": content,
+                        "branch_name": branch,
+                        "base": params.get("base") or "main",
+                        "title": f"docs: update {path}",
+                        "body": "Automated documentation update proposal.",
+                    },
+                    preview={
+                        "type": "github_pr",
+                        "repo": repo,
+                        "path": path,
+                        "branch": branch,
+                        "diff_preview": content[:4000],
+                    },
+                    grounding=grounding if grounding != "none" else "partial",
+                    summary=f"Propose docs PR for {repo or path}",
+                    details={"action": "generate", "target": "github", "draft": draft},
+                    evidence=evidence,
+                )
+
             # read_only — never pending_approval for shell; propose via recommended_actions.
             return self._result(
                 context,

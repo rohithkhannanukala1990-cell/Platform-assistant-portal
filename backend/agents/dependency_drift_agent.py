@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 
 from sqlmodel import Session
 
@@ -147,13 +148,61 @@ class DependencyDriftAgent(BaseAgent):
         critical = [p for p in packages if p["drift"] == "major"]
         outdated = [p for p in packages if p["drift"] in ("major", "minor", "patch")]
 
+        propose = params.get("propose", True)
+        if propose and outdated and content:
+            if connector is None:
+                return self._no_data_result(
+                    context,
+                    "GitHub not connected — cannot propose dependency bump PR. "
+                    "Add GitHub in Settings → Tool Registry.",
+                    missing_tools=["GitHub"],
+                )
+            bumped = content
+            branch = f"deps/bump-{uuid.uuid4().hex[:8]}"
+            title = f"chore(deps): bump {len(outdated)} outdated packages"
+            new_content = str(params.get("proposed_content") or bumped)
+            return self._propose_artifact_result(
+                context,
+                connector="github",
+                method="github_dependency_pr",
+                params={
+                    "repo": repo,
+                    "path": used_manifest,
+                    "content": new_content,
+                    "branch_name": branch,
+                    "base": params.get("base") or "main",
+                    "title": title,
+                    "body": f"Automated dependency bump proposal for {len(outdated)} packages.",
+                },
+                preview={
+                    "type": "github_pr",
+                    "repo": repo,
+                    "path": used_manifest,
+                    "branch": branch,
+                    "title": title,
+                    "diff_preview": new_content[:4000],
+                    "outdated": outdated[:30],
+                },
+                grounding="live",
+                summary=f"Propose PR to bump {len(outdated)} outdated dependencies in {repo}",
+                details={
+                    "repo": repo,
+                    "manifest": used_manifest,
+                    "total_deps": total,
+                    "outdated": len(outdated),
+                    "critical_count": len(critical),
+                    "packages": packages[:100],
+                },
+                evidence=evidence[:80],
+            )
+
         return self._result(
             context,
             status="success",
             summary=f"{len(outdated)} outdated dependencies in {repo}",
             details={
                 "repo": repo,
-                "manifest": manifest,
+                "manifest": used_manifest,
                 "total_deps": total,
                 "outdated": len(outdated),
                 "critical_count": len(critical),

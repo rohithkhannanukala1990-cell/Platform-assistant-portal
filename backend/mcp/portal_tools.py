@@ -149,6 +149,19 @@ WRITE_TOOLS = {
     "portal_github_create_branch",
     "portal_github_commit_file",
     "portal_github_create_pull_request",
+    "portal_github_add_pr_review",
+    "portal_jira_create_issue",
+    "portal_jira_transition_issue",
+    "portal_jira_comment_on_issue",
+    "portal_jira_link_issues",
+    "portal_slack_post_thread_reply",
+    "portal_slack_post_approval_request",
+    "portal_slack_update_message",
+    "portal_servicenow_create_change_request",
+    "portal_servicenow_update_change_state",
+    "portal_servicenow_create_incident",
+    "portal_confluence_create_page",
+    "portal_confluence_update_page",
 }
 
 

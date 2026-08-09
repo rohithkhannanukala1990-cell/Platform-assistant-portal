@@ -477,13 +477,34 @@ function ApprovalCard({ incident, onApprove, onReject }) {
 
 function AgentPipelineApprovalCard({ run, authFetch, onDone, toast }) {
   const [busy, setBusy] = useState(false)
+  const [resultUrl, setResultUrl] = useState(null)
+  const details = run.details || {}
+  const payload = run.approval_payload || {}
+  const preview = details.preview || payload.preview || null
+  const isArtifact = details.source === 'artifact' || Boolean(payload.artifact_approval_id)
+  const grounding = details.grounding || preview?.grounding || '—'
+  const connector = details.connector || payload.connector
+  const method = details.method || payload.method
 
   async function approve() {
     setBusy(true)
     try {
       const res = await authFetch(`/api/agents/${run.run_id}/approve`, { method: 'POST' })
-      if (!res.ok) throw new Error(await res.text())
-      toast.success('Agent run approved')
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(typeof body === 'string' ? body : (body.detail || JSON.stringify(body)))
+      const url =
+        body?.execution_log && String(body.execution_log).includes('url')
+          ? (() => {
+              try {
+                const parsed = JSON.parse(body.execution_log)
+                return parsed.url || parsed.pr_url || parsed.html_url || null
+              } catch {
+                return null
+              }
+            })()
+          : null
+      if (url) setResultUrl(url)
+      toast.success(url ? `Approved — ${url}` : 'Agent run approved')
       onDone(run.run_id)
     } catch (e) {
       toast.error(e.message || 'Approve failed')
@@ -513,6 +534,33 @@ function AgentPipelineApprovalCard({ run, authFetch, onDone, toast }) {
         <span className="text-[10px] text-slate-500">{run.environment}</span>
       </div>
       <p className="text-sm text-slate-200">{run.summary}</p>
+      {isArtifact ? (
+        <div className="rounded-lg border border-slate-700/80 bg-slate-950/50 p-3 space-y-2">
+          <div className="flex flex-wrap gap-2 text-[10px]">
+            <span className="rounded border border-slate-600 px-2 py-0.5 text-slate-300">
+              {connector}.{method}
+            </span>
+            <span className="rounded border border-emerald-500/40 px-2 py-0.5 text-emerald-300">
+              grounding: {grounding}
+            </span>
+          </div>
+          {preview ? (
+            <pre className="text-[10px] font-mono text-slate-400 whitespace-pre-wrap max-h-48 overflow-auto">
+              {typeof preview === 'string' ? preview : JSON.stringify(preview, null, 2)}
+            </pre>
+          ) : null}
+        </div>
+      ) : null}
+      {resultUrl ? (
+        <a
+          href={resultUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-indigo-300 hover:text-indigo-200 underline"
+        >
+          Open artifact
+        </a>
+      ) : null}
       <p className="text-[10px] text-slate-500">
         By {run.triggered_by} · {run.timestamp ? new Date(run.timestamp).toLocaleString() : '—'}
       </p>

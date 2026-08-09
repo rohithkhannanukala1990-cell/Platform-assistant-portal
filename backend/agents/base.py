@@ -267,6 +267,80 @@ class BaseAgent(ABC):
 
         return try_aws_connector_from_context(context, db=session)
 
+    async def _ground_jira(self, context: PlatformContext, session: Session | None = None):
+        from ..services.jira_access import try_jira_connector_from_context
+
+        return try_jira_connector_from_context(context, db=session)
+
+    async def _ground_slack(self, context: PlatformContext, session: Session | None = None):
+        from ..services.slack_access import try_slack_connector_from_context
+
+        return try_slack_connector_from_context(context, db=session)
+
+    async def _ground_servicenow(self, context: PlatformContext, session: Session | None = None):
+        from ..services.servicenow_access import try_servicenow_connector_from_context
+
+        return try_servicenow_connector_from_context(context, db=session)
+
+    async def _ground_confluence(self, context: PlatformContext, session: Session | None = None):
+        from ..services.confluence_access import try_confluence_connector_from_context
+
+        return try_confluence_connector_from_context(context, db=session)
+
+    def _propose_artifact_result(
+        self,
+        context: PlatformContext,
+        *,
+        connector: str,
+        method: str,
+        params: dict,
+        preview: dict,
+        grounding: str,
+        summary: str,
+        details: dict | None = None,
+        evidence: list | None = None,
+    ):
+        """Create a DB-frozen artifact proposal and return pending_approval AgentResult."""
+        from ..services.artifact_service import propose_artifact
+
+        proposal = propose_artifact(
+            tenant_id=context.tenant_id or "default",
+            username=context.user_id or "system",
+            agent=self.name,
+            connector=connector,
+            method=method,
+            params=params,
+            preview=preview,
+            grounding=grounding,
+            summary=summary,
+            environment=context.environment or "development",
+            workspace_id=context.workspace_id,
+        )
+        return self._result(
+            context,
+            status="pending_approval",
+            summary=summary,
+            details={
+                **(details or {}),
+                "source": "artifact",
+                "artifact_approval_id": proposal.get("id"),
+                "connector": connector,
+                "method": method,
+                "preview": preview,
+                "commands": [],
+            },
+            requires_approval=True,
+            approval_payload={
+                "artifact_approval_id": proposal.get("id"),
+                "connector": connector,
+                "method": method,
+                "preview": preview,
+            },
+            grounding=grounding,
+            evidence=evidence,
+            run_id=proposal.get("agent_run_id"),
+        )
+
     # ── Policy ────────────────────────────────────────────────────────────────
 
     def _apply_command_policy(self, commands: list[str], context: PlatformContext):

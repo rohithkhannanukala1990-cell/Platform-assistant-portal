@@ -38,6 +38,11 @@ CONNECTOR_MAP: dict[str, dict[str, Any]] = {
         "required_fields": ["instance_url", "account_identifier"],
         "optional_fields": [],
     },
+    "confluence": {
+        "auth_types": ["api_token", "basic"],
+        "required_fields": ["instance_url", "account_identifier"],
+        "optional_fields": [],
+    },
     "slack": {
         "auth_types": ["bot_token", "oauth2", "webhook"],
         "required_fields": [],
@@ -340,6 +345,14 @@ def get_connector(tool_id: str, account: dict[str, Any]) -> BaseConnector:
         from .servicenow_connector import ServiceNowConnector as RealSnowConnector
 
         return RealSnowConnector(account)
+    if tool_id == "jira":
+        from .jira_connector import JiraConnector as RealJiraConnector
+
+        return RealJiraConnector(account)
+    if tool_id == "confluence":
+        from .confluence_connector import ConfluenceConnector as RealConfluenceConnector
+
+        return RealConfluenceConnector(account)
     connector_class = CONNECTOR_CLASSES.get(tool_id, BaseConnector)
     return connector_class(account)
 

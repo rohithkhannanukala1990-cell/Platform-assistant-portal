@@ -351,6 +351,28 @@ async def approve_run(
             except HTTPException as exc:
                 exec_log = str(exc.detail)
                 final_status = "failed"
+    elif details.get("source") == "artifact" or (payload or {}).get("artifact_approval_id"):
+        from ..services.artifact_service import fulfill_artifact_approval
+
+        approval_id = details.get("artifact_approval_id") or (
+            (payload or {}).get("artifact_approval_id")
+        )
+        if not approval_id:
+            final_status = "failed"
+            exec_log = "Missing artifact_approval_id"
+        else:
+            try:
+                art_out = await fulfill_artifact_approval(
+                    approval_id=str(approval_id),
+                    tenant_id=run_tenant or tenant_id,
+                    decided_by=current_user.username,
+                    user=current_user,
+                )
+                exec_log = json.dumps(art_out, default=str)[:4000]
+                final_status = "success" if art_out.get("ok") else "failed"
+            except HTTPException as exc:
+                exec_log = str(exc.detail)
+                final_status = "failed"
     elif commands:
         exec_ctx = {
             "role": current_user.role,
@@ -466,6 +488,17 @@ def reject_run(
                         "reason": "Rejected via approvals UI",
                         "decided_by": current_user.username,
                     }
+                )
+        elif details.get("source") == "artifact" or details.get("artifact_approval_id"):
+            from ..services.artifact_service import reject_artifact_approval
+
+            approval_id = details.get("artifact_approval_id")
+            if approval_id:
+                reject_artifact_approval(
+                    approval_id=str(approval_id),
+                    tenant_id=tenant_id,
+                    decided_by=current_user.username,
+                    reason=f"Rejected by {current_user.username}",
                 )
         write_audit(
             current_user.username,
