@@ -61,6 +61,7 @@ def _import_models():
         tools,
         workspace,
         workflows,
+        terminal,
     )
 
     # User / AuditLog live in auth — ensure auth models registered:

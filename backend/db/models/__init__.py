@@ -41,6 +41,7 @@ from .ai_models import (
 from .alerts import AlertGroupBucket, AlertRule
 from .catalog_actions import CatalogAction
 from .workflows import WorkflowDefinition, WorkflowRun
+from .terminal import TerminalApproval, TerminalHistory
 
 __all__ = [
     "Incident",
@@ -82,6 +83,8 @@ __all__ = [
     "CatalogAction",
     "WorkflowDefinition",
     "WorkflowRun",
+    "TerminalHistory",
+    "TerminalApproval",
     "MCPServer",
     "MCPToolCall",
     "CommandPolicyRule",

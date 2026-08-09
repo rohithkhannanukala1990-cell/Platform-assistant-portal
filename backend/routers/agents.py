@@ -305,6 +305,30 @@ async def approve_run(
             final_status = "failed"
         else:
             final_status = "success"
+    elif agent_name == "terminal" or details.get("source") == "terminal":
+        # Terminal executes the stored command in the WS session (anti-TOCTOU).
+        # Do not shell-exec here — publish decision only.
+        from ..services.terminal_service import mark_approval_status, publish_approval_decision
+
+        approval_id = details.get("terminal_approval_id") or (
+            (payload or {}).get("terminal_approval_id")
+        )
+        if approval_id:
+            mark_approval_status(
+                str(approval_id),
+                status="approved",
+                decided_by=current_user.username,
+            )
+            publish_approval_decision(
+                {
+                    "type": "approval_granted",
+                    "approval_id": str(approval_id),
+                    "agent_run_id": run_id,
+                    "decided_by": current_user.username,
+                }
+            )
+        exec_log = "[terminal] approval granted — execution deferred to terminal session"
+        final_status = "success"
     elif commands:
         exec_ctx = {
             "role": current_user.role,
@@ -397,6 +421,30 @@ def reject_run(
         session.commit()
         session.refresh(row)
         result = _run_to_dict(row)
+        try:
+            details = json.loads(row.details_json or "{}")
+        except json.JSONDecodeError:
+            details = {}
+        if row.agent == "terminal" or details.get("source") == "terminal":
+            from ..services.terminal_service import mark_approval_status, publish_approval_decision
+
+            approval_id = details.get("terminal_approval_id")
+            if approval_id:
+                mark_approval_status(
+                    str(approval_id),
+                    status="denied",
+                    decided_by=current_user.username,
+                    reason="Rejected via approvals UI",
+                )
+                publish_approval_decision(
+                    {
+                        "type": "approval_denied",
+                        "approval_id": str(approval_id),
+                        "agent_run_id": run_id,
+                        "reason": "Rejected via approvals UI",
+                        "decided_by": current_user.username,
+                    }
+                )
         write_audit(
             current_user.username,
             current_user.role,
