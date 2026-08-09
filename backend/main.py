@@ -68,6 +68,7 @@ from .routers.webhooks_api import router as webhooks_api_router
 from .routers.workspaces import router as workspaces_router
 from .routers.workflows import router as workflows_router
 from .routers.workflows import runs_router as workflow_runs_router
+from .routers.editor import router as editor_router
 
 load_dotenv()
 
@@ -205,6 +206,7 @@ app.include_router(alert_rules_router)
 app.include_router(policies_router)
 app.include_router(workflows_router)
 app.include_router(workflow_runs_router)
+app.include_router(editor_router)
 
 from .ws_portal import router as ws_portal_router
 

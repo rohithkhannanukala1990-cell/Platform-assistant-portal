@@ -329,6 +329,28 @@ async def approve_run(
             )
         exec_log = "[terminal] approval granted — execution deferred to terminal session"
         final_status = "success"
+    elif agent_name == "editor_pr" or details.get("source") == "editor":
+        from ..services.editor_service import fulfill_editor_pr_approval
+
+        approval_id = details.get("editor_approval_id") or (
+            (payload or {}).get("editor_approval_id")
+        )
+        if not approval_id:
+            final_status = "failed"
+            exec_log = "Missing editor_approval_id"
+        else:
+            try:
+                pr_out = await fulfill_editor_pr_approval(
+                    approval_id=str(approval_id),
+                    tenant_id=run_tenant or tenant_id,
+                    decided_by=current_user.username,
+                    user=current_user,
+                )
+                exec_log = json.dumps(pr_out, default=str)[:4000]
+                final_status = "success" if pr_out.get("ok") else "failed"
+            except HTTPException as exc:
+                exec_log = str(exc.detail)
+                final_status = "failed"
     elif commands:
         exec_ctx = {
             "role": current_user.role,

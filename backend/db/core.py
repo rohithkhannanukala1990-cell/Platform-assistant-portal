@@ -62,6 +62,7 @@ def _import_models():
         workspace,
         workflows,
         terminal,
+        editor,
     )
 
     # User / AuditLog live in auth — ensure auth models registered:
@@ -95,6 +96,7 @@ def create_db_and_tables():
     _seed_templates()
     _seed_rbac()
     _seed_command_policies()
+    _seed_github_editor_policy()
     with Session(engine) as session:
         from backend.routers.standards import seed_production_readiness_standard
 
@@ -195,6 +197,61 @@ def _seed_command_policies() -> None:
         )
         session.commit()
         print(f"[seed] command policy defaults ({len(defaults) + 1} rules)")
+
+
+def _seed_github_editor_policy() -> None:
+    """Ensure GitHub write actions require approval (idempotent by rule name)."""
+    from backend.db.models.policy import CommandPolicyRule
+
+    rules = [
+        (
+            "approval-github-create-branch",
+            50,
+            "require_approval",
+            ["github create_branch", "create_branch"],
+            r"\bcreate_branch\b",
+            "Creating a GitHub branch requires HITL approval",
+        ),
+        (
+            "approval-github-commit-file",
+            50,
+            "require_approval",
+            ["github commit_file", "commit_file"],
+            r"\bcommit_file\b",
+            "Committing a file to GitHub requires HITL approval",
+        ),
+        (
+            "approval-github-create-pull-request",
+            50,
+            "require_approval",
+            ["github create_pull_request", "create_pull_request"],
+            r"\bcreate_pull_request\b",
+            "Opening a GitHub pull request requires HITL approval",
+        ),
+    ]
+    with Session(engine) as session:
+        for name, priority, effect, prefixes, regex, description in rules:
+            exists = session.exec(
+                select(CommandPolicyRule).where(CommandPolicyRule.name == name)
+            ).first()
+            if exists:
+                continue
+            session.add(
+                CommandPolicyRule(
+                    name=name,
+                    priority=priority,
+                    enabled=True,
+                    match_roles='["*"]',
+                    match_environments='["*"]',
+                    match_tools='["github", "shell", "*"]',
+                    match_command_prefixes=json.dumps(prefixes),
+                    match_regex=regex,
+                    effect=effect,
+                    description=description,
+                    tenant_id=None,
+                )
+            )
+        session.commit()
 
 
 def _seed_tools() -> None:

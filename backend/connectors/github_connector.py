@@ -450,6 +450,228 @@ class GitHubConnector(_BaseGitHub):
         except Exception:
             return None
 
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        operation: str | None = None,
+    ) -> Any:
+        token = self._token()
+        op = operation or method.lower()
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.request(
+                    method.upper(),
+                    f"{_API_BASE}{path}",
+                    headers=self._headers(),
+                    params=params or {},
+                    json=json_body,
+                )
+        except httpx.HTTPError as exc:
+            self._record_api(op, "network_error")
+            raise GitHubAPIError(
+                "network_error",
+                _mask_secret(f"GitHub network error: {exc}", token),
+            ) from exc
+        if resp.status_code >= 400:
+            err = _map_status_to_error(resp.status_code, resp.text, token=token)
+            self._record_api(op, err.error_type)
+            raise err
+        if resp.status_code == 204 or not (resp.content or b""):
+            self._record_api(op, "ok")
+            return {}
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            self._record_api(op, "network_error")
+            raise GitHubAPIError(
+                "network_error",
+                "GitHub returned a non-JSON response",
+                status_code=resp.status_code,
+            ) from exc
+        self._record_api(op, "ok")
+        return data
+
+    async def get_file_meta(self, repo: str, path: str, *, ref: str | None = None) -> dict[str, Any]:
+        """Return content + sha for conflict detection."""
+        params = {"ref": ref} if ref else None
+        data = await self._get(f"/repos/{repo}/contents/{path}", params=params)
+        if isinstance(data, list):
+            raise GitHubAPIError("invalid_request", "Path is a directory, not a file")
+        if not isinstance(data, dict):
+            raise GitHubAPIError("not_found", "File not found")
+        content = self._decode_content(data) or ""
+        return {
+            "content": content,
+            "sha": data.get("sha"),
+            "path": data.get("path") or path,
+            "name": data.get("name"),
+            "html_url": data.get("html_url"),
+            "encoding": data.get("encoding"),
+        }
+
+    async def list_tree(
+        self, repo: str, *, ref: str = "main", path: str = ""
+    ) -> list[dict[str, Any]]:
+        """List directory entries via Contents API."""
+        rel = (path or "").strip("/")
+        api_path = f"/repos/{repo}/contents"
+        if rel:
+            api_path = f"{api_path}/{rel}"
+        data = await self._get(api_path, params={"ref": ref})
+        if isinstance(data, dict):
+            # Single file
+            return [
+                {
+                    "path": data.get("path") or rel,
+                    "name": data.get("name"),
+                    "type": data.get("type") or "file",
+                    "sha": data.get("sha"),
+                    "size": data.get("size"),
+                }
+            ]
+        out: list[dict[str, Any]] = []
+        for item in data or []:
+            if not isinstance(item, dict):
+                continue
+            out.append(
+                {
+                    "path": item.get("path"),
+                    "name": item.get("name"),
+                    "type": item.get("type"),
+                    "sha": item.get("sha"),
+                    "size": item.get("size"),
+                }
+            )
+        return out
+
+    async def create_branch(
+        self,
+        repo: str,
+        *,
+        branch_name: str,
+        from_ref: str = "main",
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a branch from from_ref. Idempotent if branch already exists."""
+        _ = idempotency_key
+        owner_repo = repo.strip("/")
+        # Resolve base SHA
+        ref_data = await self._get(f"/repos/{owner_repo}/git/ref/heads/{from_ref}")
+        sha = ((ref_data or {}).get("object") or {}).get("sha")
+        if not sha:
+            raise GitHubAPIError("not_found", f"Base ref '{from_ref}' not found")
+        try:
+            created = await self._request(
+                "POST",
+                f"/repos/{owner_repo}/git/refs",
+                json_body={"ref": f"refs/heads/{branch_name}", "sha": sha},
+                operation="create_branch",
+            )
+            return {"ok": True, "ref": created.get("ref"), "sha": sha, "created": True}
+        except GitHubAPIError as exc:
+            # Already exists → treat as success for idempotency
+            if exc.status_code == 422 or "already exists" in (exc.message or "").lower():
+                return {"ok": True, "ref": f"refs/heads/{branch_name}", "sha": sha, "created": False}
+            raise
+
+    async def commit_file(
+        self,
+        repo: str,
+        *,
+        path: str,
+        content: str,
+        message: str,
+        branch: str,
+        base_sha: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Create or update a file on a branch (Contents API)."""
+        _ = idempotency_key
+        owner_repo = repo.strip("/")
+        encoded = base64.b64encode((content or "").encode("utf-8")).decode("ascii")
+        body: dict[str, Any] = {
+            "message": message or f"Update {path}",
+            "content": encoded,
+            "branch": branch,
+        }
+        if base_sha:
+            body["sha"] = base_sha
+        else:
+            # Try to fetch existing sha on branch for update
+            try:
+                meta = await self.get_file_meta(owner_repo, path, ref=branch)
+                if meta.get("sha"):
+                    body["sha"] = meta["sha"]
+            except GitHubAPIError:
+                pass
+        data = await self._request(
+            "PUT",
+            f"/repos/{owner_repo}/contents/{path.lstrip('/')}",
+            json_body=body,
+            operation="commit_file",
+        )
+        commit = (data or {}).get("commit") if isinstance(data, dict) else {}
+        content_meta = (data or {}).get("content") if isinstance(data, dict) else {}
+        return {
+            "ok": True,
+            "sha": (content_meta or {}).get("sha"),
+            "commit_sha": (commit or {}).get("sha"),
+            "html_url": (content_meta or {}).get("html_url") or (commit or {}).get("html_url"),
+        }
+
+    async def create_pull_request(
+        self,
+        repo: str,
+        *,
+        title: str,
+        body: str = "",
+        head: str,
+        base: str = "main",
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Open a pull request. Idempotency: reuse open PR with same head/base if present."""
+        _ = idempotency_key
+        owner_repo = repo.strip("/")
+        # Idempotent: find existing open PR for this head
+        try:
+            existing = await self._get(
+                f"/repos/{owner_repo}/pulls",
+                params={"state": "open", "head": f"{owner_repo.split('/')[0]}:{head}", "base": base},
+            )
+            if isinstance(existing, list) and existing:
+                pr = existing[0]
+                return {
+                    "ok": True,
+                    "number": pr.get("number"),
+                    "html_url": pr.get("html_url"),
+                    "title": pr.get("title"),
+                    "reused": True,
+                }
+        except GitHubAPIError:
+            pass
+        data = await self._request(
+            "POST",
+            f"/repos/{owner_repo}/pulls",
+            json_body={
+                "title": title,
+                "body": body or "",
+                "head": head,
+                "base": base,
+            },
+            operation="create_pull_request",
+        )
+        return {
+            "ok": True,
+            "number": data.get("number"),
+            "html_url": data.get("html_url"),
+            "title": data.get("title"),
+            "reused": False,
+        }
+
     # TODO: Wrap connector actions in try/except and return:
     # - ok: bool
     # - tool: "github"
@@ -491,6 +713,49 @@ class GitHubConnector(_BaseGitHub):
                 }
             if action == "get_latest_tag":
                 result = await self.get_latest_tag(repo)
+                return {"ok": True, "tool": "github", "action": action, "result": result}
+            if action == "list_tree":
+                result = await self.list_tree(
+                    repo,
+                    ref=str(params.get("ref") or params.get("branch") or "main"),
+                    path=str(params.get("path") or ""),
+                )
+                return {"ok": True, "tool": "github", "action": action, "result": result}
+            if action == "get_file_meta":
+                result = await self.get_file_meta(
+                    repo,
+                    str(params.get("path") or ""),
+                    ref=params.get("ref"),
+                )
+                return {"ok": True, "tool": "github", "action": action, "result": result}
+            if action == "create_branch":
+                result = await self.create_branch(
+                    repo,
+                    branch_name=str(params.get("branch_name") or params.get("branch") or ""),
+                    from_ref=str(params.get("from_ref") or params.get("base") or "main"),
+                    idempotency_key=params.get("idempotency_key"),
+                )
+                return {"ok": True, "tool": "github", "action": action, "result": result}
+            if action == "commit_file":
+                result = await self.commit_file(
+                    repo,
+                    path=str(params.get("path") or ""),
+                    content=str(params.get("content") or ""),
+                    message=str(params.get("message") or "Update file"),
+                    branch=str(params.get("branch") or "main"),
+                    base_sha=params.get("base_sha") or params.get("sha"),
+                    idempotency_key=params.get("idempotency_key"),
+                )
+                return {"ok": True, "tool": "github", "action": action, "result": result}
+            if action == "create_pull_request":
+                result = await self.create_pull_request(
+                    repo,
+                    title=str(params.get("title") or "Update"),
+                    body=str(params.get("body") or ""),
+                    head=str(params.get("head") or params.get("branch") or ""),
+                    base=str(params.get("base") or "main"),
+                    idempotency_key=params.get("idempotency_key"),
+                )
                 return {"ok": True, "tool": "github", "action": action, "result": result}
             # TODO(S3-P3.1): Implement a lightweight 'ping' action for use by health probes
             if action in ("ping", "test_connection"):

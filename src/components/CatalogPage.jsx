@@ -669,6 +669,27 @@ export default function CatalogPage() {
                   <DetailRow label="Language" value={selectedEntity.language || '—'} />
                   <DetailRow label="Health" value={selectedEntity.health_status} />
                   <DetailRow label="Repository" value={selectedEntity.repo_url || '—'} link={selectedEntity.repo_url} />
+                  {selectedEntity.repo_url ? (
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            const m = String(selectedEntity.repo_url).match(
+                              /github\.com[:/]([^/]+)\/([^/.]+)/
+                            )
+                            const repo = m ? `${m[1]}/${m[2]}` : ''
+                            navigate(repo ? `/editor?repo=${encodeURIComponent(repo)}&ref=main` : '/editor')
+                          } catch {
+                            navigate('/editor')
+                          }
+                        }}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white"
+                      >
+                        Open in Editor
+                      </button>
+                    </div>
+                  ) : null}
                   <DetailRow label="Tags" value={tagsToDisplay(selectedEntity.tags) || '—'} />
                   <div>
                     <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Description</p>

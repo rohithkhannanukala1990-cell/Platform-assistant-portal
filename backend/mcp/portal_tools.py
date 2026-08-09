@@ -143,7 +143,13 @@ PORTAL_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
-WRITE_TOOLS = {"portal_propose_remediation", "portal_run_agent"}
+WRITE_TOOLS = {
+    "portal_propose_remediation",
+    "portal_run_agent",
+    "portal_github_create_branch",
+    "portal_github_commit_file",
+    "portal_github_create_pull_request",
+}
 
 
 def mcp_enabled() -> bool:

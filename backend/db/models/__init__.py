@@ -42,6 +42,7 @@ from .alerts import AlertGroupBucket, AlertRule
 from .catalog_actions import CatalogAction
 from .workflows import WorkflowDefinition, WorkflowRun
 from .terminal import TerminalApproval, TerminalHistory
+from .editor import EditorFile, EditorPRApproval
 
 __all__ = [
     "Incident",
@@ -85,6 +86,8 @@ __all__ = [
     "WorkflowRun",
     "TerminalHistory",
     "TerminalApproval",
+    "EditorFile",
+    "EditorPRApproval",
     "MCPServer",
     "MCPToolCall",
     "CommandPolicyRule",
