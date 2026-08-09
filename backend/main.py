@@ -142,6 +142,12 @@ async def lifespan(app: FastAPI):
     seed_default_llm_config()
     start_scheduler()
     try:
+        from .services.workflow_triggers import reload_schedule_jobs
+
+        reload_schedule_jobs()
+    except Exception:
+        pass
+    try:
         yield
     finally:
         shutdown_scheduler()

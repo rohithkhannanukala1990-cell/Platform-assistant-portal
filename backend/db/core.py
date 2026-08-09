@@ -695,6 +695,8 @@ def _migrate():
         ("scorecard_checks", "weight", "REAL", "0"),
         ("incident_postmortems", "action_items_json", "TEXT", "'[]'"),
         ("incident_postmortems", "template_variant", "TEXT", "'SEV2'"),
+        ("workflow_definitions", "on_concurrent_limit", "TEXT", "'drop'"),
+        ("workflow_definitions", "first_live_run_approved_at", "TIMESTAMP", "NULL"),
     ]
     with Session(engine) as session:
         for table, col, col_type, default in migrations:

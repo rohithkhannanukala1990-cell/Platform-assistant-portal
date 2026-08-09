@@ -66,7 +66,24 @@ def save_incident(data: dict) -> Incident:
         session.add(incident)
         session.commit()
         session.refresh(incident)
-    return incident
+        out = incident
+    try:
+        from backend.services.workflow_triggers import safe_fire_event
+
+        safe_fire_event(
+            "incident_created",
+            {
+                "source": "incident_created",
+                "incident_id": out.id,
+                "severity": out.severity,
+                "summary": out.summary,
+                "ingest_source": out.source,
+            },
+            out.tenant_id or "default",
+        )
+    except Exception:
+        pass
+    return out
 
 
 def list_incidents(

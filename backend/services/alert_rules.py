@@ -196,6 +196,24 @@ def evaluate_alert_ingest(
             )
 
         rule = matched
+        try:
+            from .workflow_triggers import safe_fire_event
+
+            safe_fire_event(
+                "alert_rule_match",
+                {
+                    "source": "alert_rule_match",
+                    "severity": getattr(fields, "severity", "") or "",
+                    "service": getattr(fields, "service", "") or "",
+                    "title": getattr(fields, "title", "") or "",
+                    "rule_id": rule.id,
+                    "rule_name": rule.name,
+                    "ingest_source": source,
+                },
+                tenant_id,
+            )
+        except Exception:
+            pass
         fingerprint = _fingerprint(tenant_id, rule.id, fields)
         bucket = _get_bucket(session, fingerprint)
         window = max(0, int(rule.group_window_sec or 0))

@@ -355,7 +355,24 @@ def create_catalog(
         session.add(row)
         session.commit()
         session.refresh(row)
-        return _serialize(row)
+        out = _serialize(row)
+    try:
+        from ..services.workflow_triggers import safe_fire_event
+
+        safe_fire_event(
+            "catalog_entity_changed",
+            {
+                "source": "catalog_entity_changed",
+                "action": "create",
+                "entity_id": out.get("id"),
+                "name": out.get("name"),
+                "kind": out.get("kind"),
+            },
+            tenant_id,
+        )
+    except Exception:
+        pass
+    return out
 
 
 @router.get("/{entity_id}/dependencies")
@@ -424,7 +441,24 @@ def update_catalog(
         session.add(row)
         session.commit()
         session.refresh(row)
-        return _serialize(row)
+        out = _serialize(row)
+    try:
+        from ..services.workflow_triggers import safe_fire_event
+
+        safe_fire_event(
+            "catalog_entity_changed",
+            {
+                "source": "catalog_entity_changed",
+                "action": "update",
+                "entity_id": entity_id,
+                "name": out.get("name"),
+                "kind": out.get("kind"),
+            },
+            tenant_id,
+        )
+    except Exception:
+        pass
+    return out
 
 
 # TODO: Protect catalog mutations with require_permission("catalog", "write")
@@ -440,8 +474,9 @@ def delete_catalog(
     current_user: User = Depends(get_current_user),
     _perm: None = Depends(require_permission("catalog", "write")),
 ):
+    tenant_id = require_tenant(request)
     with Session(engine) as session:
-        row = _get_active(session, entity_id, tenant_id=require_tenant(request))
+        row = _get_active(session, entity_id, tenant_id=tenant_id)
         dependencies = list(
             session.exec(
                 select(ServiceDependency).where(
@@ -460,7 +495,26 @@ def delete_catalog(
         row.is_active = 0
         session.add(row)
         session.commit()
+        dep_count = len(dependencies)
+        name = row.name
+        kind = row.kind
+    try:
+        from ..services.workflow_triggers import safe_fire_event
+
+        safe_fire_event(
+            "catalog_entity_changed",
+            {
+                "source": "catalog_entity_changed",
+                "action": "delete",
+                "entity_id": entity_id,
+                "name": name,
+                "kind": kind,
+            },
+            tenant_id,
+        )
+    except Exception:
+        pass
     return {
         "deleted": True,
-        "dependencies_deleted": len(dependencies),
+        "dependencies_deleted": dep_count,
     }

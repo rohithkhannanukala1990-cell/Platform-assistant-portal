@@ -23,6 +23,7 @@ import MCPServersPanel from './MCPServersPanel'
 import MCPToolsCatalog from './MCPToolsCatalog'
 import CommandPolicyPanel from './CommandPolicyPanel'
 import AlertRulesPanel from './AlertRulesPanel'
+import WorkflowTriggersKillSwitch from './WorkflowTriggersKillSwitch'
 
 const CLOUD_OPTIONS    = ['GCP', 'AWS', 'Azure', 'DigitalOcean']
 const CICD_OPTIONS     = ['GitHub Actions', 'GitLab CI', 'Jenkins']
@@ -110,6 +111,8 @@ export default function SettingsModal({ onClose, embedded = false }) {
 
           {/* Alert correlation rules (Phase G4) */}
           <AlertRulesPanel />
+
+          <WorkflowTriggersKillSwitch />
 
           {/* Slack */}
           <Section title="Slack Integration" icon={Webhook} iconColor="text-violet-400">

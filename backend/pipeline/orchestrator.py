@@ -511,6 +511,22 @@ class OrchestratorAgent:
                 resource=final.agent,
                 detail=f"{task[:200]} → pending_approval",
             )
+            try:
+                from ..services.workflow_triggers import safe_fire_event
+
+                safe_fire_event(
+                    "agent_run_completed",
+                    {
+                        "source": "agent_run_completed",
+                        "agent": final.agent,
+                        "status": final.status,
+                        "grounding": final.grounding,
+                        "run_id": getattr(final, "run_id", None),
+                    },
+                    context.tenant_id or "default",
+                )
+            except Exception:
+                pass
             return final
 
         commands: list[str] = []
@@ -553,6 +569,23 @@ class OrchestratorAgent:
             detail=f"{task[:200]} → {final.status} grounding={final.grounding}",
         )
         _notify(db, f"Agent run completed: {final.agent} — {final.status}", "info")
+
+        try:
+            from ..services.workflow_triggers import safe_fire_event
+
+            safe_fire_event(
+                "agent_run_completed",
+                {
+                    "source": "agent_run_completed",
+                    "agent": final.agent,
+                    "status": final.status,
+                    "grounding": final.grounding,
+                    "run_id": getattr(final, "run_id", None),
+                },
+                context.tenant_id or "default",
+            )
+        except Exception:
+            pass
 
         return final
 
@@ -616,4 +649,24 @@ async def run_agent_for_workflow(
         result = _validate_commands_in_result(result, context)
         _complete_run(run_id, result)
         result.run_id = run_id
+        try:
+            from ..services.workflow_triggers import safe_fire_event
+
+            parent_depth = params.get("_workflow_trigger_depth")
+            safe_fire_event(
+                "agent_run_completed",
+                {
+                    "source": "agent_run_completed",
+                    "agent": agent_name,
+                    "status": result.status,
+                    "grounding": result.grounding,
+                    "run_id": run_id,
+                },
+                context.tenant_id or "default",
+                parent_trigger_depth=(
+                    int(parent_depth) if parent_depth is not None else None
+                ),
+            )
+        except Exception:
+            pass
         return result

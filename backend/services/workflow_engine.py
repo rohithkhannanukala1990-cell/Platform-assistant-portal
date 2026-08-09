@@ -434,6 +434,12 @@ def serialize_definition(row: WorkflowDefinition) -> dict[str, Any]:
         "risk": row.risk,
         "max_runs_per_hour": row.max_runs_per_hour,
         "max_concurrent_runs": row.max_concurrent_runs,
+        "on_concurrent_limit": getattr(row, "on_concurrent_limit", None) or "drop",
+        "first_live_run_approved_at": (
+            row.first_live_run_approved_at.isoformat()
+            if getattr(row, "first_live_run_approved_at", None)
+            else None
+        ),
         "created_by": row.created_by,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -578,6 +584,10 @@ async def _execute_agent_step(
         resolved = {"task": str(resolved)}
     if dry_run:
         resolved = {**resolved, "dry_run": True}
+    resolved = {
+        **resolved,
+        "_workflow_trigger_depth": int(context.get("trigger_depth") or 0),
+    }
     agent_name = str(step.get("agent") or "").strip()
     result = await run_agent_for_workflow(agent_name, resolved, platform_ctx)
     details = dict(result.details or {})
@@ -659,7 +669,15 @@ async def start_workflow(
     triggered_by: str,
     initial_context: dict[str, Any] | None = None,
     dry_run: bool = False,
+    *,
+    automatic: bool = False,
 ) -> WorkflowRun:
+    raw = dict(initial_context or {})
+    trigger_depth = int(raw.pop("trigger_depth", 0) or 0)
+    forced_first = bool(raw.pop("_forced_first_dry_run", False))
+    if automatic and forced_first:
+        dry_run = True
+
     with Session(engine) as session:
         wf = _load_definition(session, workflow_id, tenant_id)
         if not wf.enabled and not dry_run:
@@ -690,8 +708,22 @@ async def start_workflow(
         if len(active) >= int(wf.max_concurrent_runs or 1):
             raise HTTPException(status_code=429, detail="max_concurrent_runs exceeded")
 
-        trigger = dict(initial_context or {})
-        ctx = {"trigger": trigger, "steps": {}}
+        # Payload becomes context["trigger"]; depth/flags live at top level.
+        if (
+            "trigger" in raw
+            and isinstance(raw.get("trigger"), dict)
+            and set(raw.keys()) <= {"trigger"}
+        ):
+            trigger = dict(raw["trigger"])
+        else:
+            trigger = dict(raw)
+        ctx: dict[str, Any] = {
+            "trigger": trigger,
+            "steps": {},
+            "trigger_depth": trigger_depth,
+        }
+        if forced_first:
+            ctx["forced_first_dry_run"] = True
         run = WorkflowRun(
             id=str(uuid.uuid4()),
             tenant_id=tenant_id,
@@ -714,7 +746,7 @@ async def start_workflow(
         actor=triggered_by,
         event_type="workflow_run_started",
         resource=f"workflow_run:{run_id}",
-        detail=f"workflow_id={workflow_id} dry_run={dry_run}",
+        detail=f"workflow_id={workflow_id} dry_run={dry_run} automatic={automatic}",
         tenant_id=tenant_id,
         status="pending",
     )
@@ -909,6 +941,12 @@ async def advance_workflow(run_id: str, tenant_id: str) -> WorkflowRun:
                     context_json=_dumps(context),
                     grounding=run_grounding,
                 )
+                try:
+                    from .workflow_triggers import drain_queued_for_workflow
+
+                    await drain_queued_for_workflow(run.workflow_id)
+                except Exception:
+                    logger.debug("drain_queued_for_workflow failed", exc_info=True)
                 return run
 
             run = _persist_run_fields(
@@ -951,6 +989,12 @@ async def advance_workflow(run_id: str, tenant_id: str) -> WorkflowRun:
             tenant_id=tenant_id,
             status="completed",
         )
+        try:
+            from .workflow_triggers import drain_queued_for_workflow
+
+            await drain_queued_for_workflow(run.workflow_id)
+        except Exception:
+            logger.debug("drain_queued_for_workflow failed", exc_info=True)
         return run
 
     # Should not hang without pending_approval — mark failed if stuck
@@ -962,6 +1006,12 @@ async def advance_workflow(run_id: str, tenant_id: str) -> WorkflowRun:
         steps_state_json=_dumps(steps_state),
         context_json=_dumps(context),
     )
+    try:
+        from .workflow_triggers import drain_queued_for_workflow
+
+        await drain_queued_for_workflow(run.workflow_id)
+    except Exception:
+        logger.debug("drain_queued_for_workflow failed", exc_info=True)
     return run
 
 
@@ -1135,13 +1185,29 @@ async def cancel_workflow(
 
 
 def list_definitions(tenant_id: str) -> list[dict[str, Any]]:
+    from .workflow_triggers import humanize_cron, next_fire_times
+
     with Session(engine) as session:
         rows = session.exec(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.tenant_id == tenant_id)
             .order_by(col(WorkflowDefinition.updated_at).desc())
         ).all()
-        return [serialize_definition(r) for r in rows]
+        out = []
+        for r in rows:
+            item = serialize_definition(r)
+            if item.get("trigger_type") == "schedule":
+                cfg = item.get("trigger_config") or {}
+                cron = str(cfg.get("cron") or "").strip()
+                tz_name = str(cfg.get("timezone") or "UTC")
+                times = next_fire_times(cron, timezone_name=tz_name, count=1) if cron else []
+                item["next_run"] = times[0] if times else None
+                item["cron_human"] = humanize_cron(cron) if cron else ""
+            else:
+                item["next_run"] = None
+                item["cron_human"] = ""
+            out.append(item)
+        return out
 
 
 def list_runs(

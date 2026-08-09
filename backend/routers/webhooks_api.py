@@ -312,6 +312,28 @@ async def inbound_webhook_gateway(request: Request):
         task_id = "local-fallback"
 
     mark_delivery_status(delivery_id, "accepted")
+    try:
+        from ..services.workflow_triggers import safe_fire_event
+        from ..context import DEFAULT_TENANT_ID
+
+        tenant_id = str(
+            headers.get("x-tenant-id")
+            or data.get("tenant_id")
+            or DEFAULT_TENANT_ID
+        )
+        safe_fire_event(
+            "webhook_inbound",
+            {
+                "source": "webhook_inbound",
+                "webhook_source": source,
+                "event_type": event_type,
+                "delivery_id": delivery_id,
+                "payload": payload,
+            },
+            tenant_id,
+        )
+    except Exception:
+        pass
     return {
         "status":         "accepted",
         "task_id":        task_id,

@@ -10,6 +10,7 @@ from sqlmodel import Field, SQLModel
 
 VALID_TRIGGER_TYPES = frozenset({"manual", "schedule", "event"})
 VALID_RISKS = frozenset({"low", "medium", "high"})
+VALID_CONCURRENT_LIMITS = frozenset({"drop", "queue"})
 VALID_RUN_STATUSES = frozenset(
     {
         "pending",
@@ -100,6 +101,8 @@ class WorkflowDefinition(SQLModel, table=True):
     risk: str = Field(default="medium")
     max_runs_per_hour: int = Field(default=12)
     max_concurrent_runs: int = Field(default=1)
+    on_concurrent_limit: str = Field(default="drop")  # drop | queue
+    first_live_run_approved_at: Optional[datetime] = Field(default=None)
     created_by: str = Field(default="")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
