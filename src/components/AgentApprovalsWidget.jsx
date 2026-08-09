@@ -478,6 +478,7 @@ function ApprovalCard({ incident, onApprove, onReject }) {
 function AgentPipelineApprovalCard({ run, authFetch, onDone, toast }) {
   const [busy, setBusy] = useState(false)
   const [resultUrl, setResultUrl] = useState(null)
+  const [confirmText, setConfirmText] = useState('')
   const details = run.details || {}
   const payload = run.approval_payload || {}
   const preview = details.preview || payload.preview || null
@@ -485,13 +486,37 @@ function AgentPipelineApprovalCard({ run, authFetch, onDone, toast }) {
   const grounding = details.grounding || preview?.grounding || '—'
   const connector = details.connector || payload.connector
   const method = details.method || payload.method
+  const destroyCount = Number(preview?.destroy_count || 0)
+  const requireTyped =
+    Boolean(preview?.require_typed_confirm) || destroyCount > 0
+  const confirmPhrase = String(preview?.confirm_phrase || preview?.workspace || '')
+  const typedOk = !requireTyped || confirmText.trim() === confirmPhrase
+  const blast = preview?.blast_radius
+  const isTf = preview?.type === 'terraform_plan'
+  const isMig = preview?.type === 'sql_migration'
+  const isSec = preview?.type === 'security_remediation'
+  const isCost = preview?.type === 'cost_rightsizing'
+  const isPd = preview?.type === 'pagerduty_override' || preview?.type === 'pagerduty_escalation'
 
   async function approve() {
+    if (!typedOk) {
+      toast.error(`Type the workspace name "${confirmPhrase}" to approve`)
+      return
+    }
     setBusy(true)
     try {
-      const res = await authFetch(`/api/agents/${run.run_id}/approve`, { method: 'POST' })
+      const res = await authFetch(`/api/agents/${run.run_id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requireTyped ? { confirmation: confirmText.trim() } : {}),
+      })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(typeof body === 'string' ? body : (body.detail || JSON.stringify(body)))
+      if (body?.status === 'pending_approval') {
+        toast.info(body?.execution_log ? String(body.execution_log).slice(0, 160) : 'Awaiting additional approval')
+        onDone(run.run_id)
+        return
+      }
       const url =
         body?.execution_log && String(body.execution_log).includes('url')
           ? (() => {
@@ -543,11 +568,75 @@ function AgentPipelineApprovalCard({ run, authFetch, onDone, toast }) {
             <span className="rounded border border-emerald-500/40 px-2 py-0.5 text-emerald-300">
               grounding: {grounding}
             </span>
+            {destroyCount > 0 ? (
+              <span className="rounded border border-red-500/50 px-2 py-0.5 text-red-300 font-bold">
+                DESTROY {destroyCount}
+              </span>
+            ) : null}
+            {preview?.approvals_required > 1 ? (
+              <span className="rounded border border-amber-500/40 px-2 py-0.5 text-amber-200">
+                needs {preview.approvals_required} approvers
+              </span>
+            ) : null}
           </div>
-          {preview ? (
+          {isTf ? (
+            <div className="space-y-1 text-[11px] text-slate-300">
+              <p>Workspace: <span className="font-mono text-white">{preview.workspace}</span></p>
+              <p>+{preview.resources_to_add?.length || 0} ~{preview.resources_to_change?.length || 0} -{destroyCount}</p>
+              {preview.plan_text ? (
+                <pre className="text-[10px] font-mono text-slate-400 whitespace-pre-wrap max-h-40 overflow-auto">{preview.plan_text}</pre>
+              ) : null}
+            </div>
+          ) : null}
+          {isMig ? (
+            <div className="space-y-1 text-[11px] text-slate-300">
+              <p>Shadow: {preview.shadow_run?.success ? 'ok' : 'FAILED'} · rows {preview.estimated_row_impact ?? '—'}</p>
+              <p>Rollback: {preview.reversible ? 'yes' : 'manual / missing'}</p>
+              <pre className="text-[10px] font-mono text-slate-400 whitespace-pre-wrap max-h-28 overflow-auto">{preview.forward_sql}</pre>
+              <pre className="text-[10px] font-mono text-slate-500 whitespace-pre-wrap max-h-20 overflow-auto">{preview.rollback_sql}</pre>
+            </div>
+          ) : null}
+          {isSec && blast ? (
+            <div className="rounded border border-amber-500/30 bg-amber-950/20 p-2 text-[11px] text-amber-100 space-y-1">
+              <p className="font-semibold">Blast radius</p>
+              <p>{blast.risk_note}</p>
+              <p className="font-mono text-[10px] text-amber-200/80">{(blast.affected_resources || []).join(', ')}</p>
+              {preview.instances_using_sg?.length ? (
+                <p>Instances: {preview.instances_using_sg.join(', ')}</p>
+              ) : null}
+            </div>
+          ) : null}
+          {isCost ? (
+            <div className="text-[11px] text-slate-300 space-y-1">
+              <p>{preview.instance_id}: {preview.current_type} → {preview.proposed_type}</p>
+              <p>Saving ~${preview.projected_monthly_saving}/mo · mode {preview.mode}</p>
+            </div>
+          ) : null}
+          {isPd ? (
+            <div className="text-[11px] text-slate-300">
+              <pre className="text-[10px] font-mono text-slate-400 whitespace-pre-wrap max-h-32 overflow-auto">
+                {JSON.stringify(preview, null, 2)}
+              </pre>
+            </div>
+          ) : null}
+          {!isTf && !isMig && !isSec && !isCost && !isPd && preview ? (
             <pre className="text-[10px] font-mono text-slate-400 whitespace-pre-wrap max-h-48 overflow-auto">
               {typeof preview === 'string' ? preview : JSON.stringify(preview, null, 2)}
             </pre>
+          ) : null}
+          {requireTyped ? (
+            <div className="space-y-1">
+              <label className="text-[10px] text-red-300 font-semibold">
+                Type workspace name &quot;{confirmPhrase}&quot; to enable Approve
+              </label>
+              <input
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                className="w-full rounded-md border border-red-500/40 bg-slate-900 px-2 py-1.5 text-xs text-white font-mono"
+                placeholder={confirmPhrase}
+                autoComplete="off"
+              />
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -567,7 +656,7 @@ function AgentPipelineApprovalCard({ run, authFetch, onDone, toast }) {
       <div className="flex gap-2 mt-1">
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || !typedOk}
           onClick={() => void approve()}
           className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold disabled:opacity-50"
         >

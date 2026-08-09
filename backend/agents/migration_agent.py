@@ -1,4 +1,4 @@
-"""Migration agent — plans infra/DB migrations with HITL and command policy."""
+"""Migration agent — SQL shadow validation + HITL production apply."""
 
 from __future__ import annotations
 
@@ -21,6 +21,128 @@ class MigrationAgent(BaseAgent):
 
     async def run(self, params: dict, context: PlatformContext, db: Session) -> AgentResult:
         params = params if isinstance(params, dict) else {}
+        forward_sql = (
+            params.get("forward_sql")
+            or params.get("sql")
+            or params.get("migration_sql")
+            or ""
+        ).strip()
+        migration_type = (params.get("migration_type") or params.get("type") or "generic").lower()
+
+        # SQL path with shadow validation
+        if forward_sql or migration_type in {"sql", "database", "db"}:
+            return await self._sql_shadow_propose(params, context, db)
+
+        return await self._legacy_command_plan(params, context, db)
+
+    async def _sql_shadow_propose(
+        self, params: dict, context: PlatformContext, db: Session
+    ) -> AgentResult:
+        from ..services.migration_service import (
+            generate_rollback_sql,
+            is_destructive_sql,
+            run_shadow_migration,
+            shadow_url_configured,
+        )
+
+        forward_sql = (
+            params.get("forward_sql")
+            or params.get("sql")
+            or params.get("migration_sql")
+            or ""
+        ).strip()
+        if not forward_sql:
+            # Generate a conservative placeholder from params when LLM not forced
+            service = params.get("service_name") or params.get("service") or "service"
+            forward_sql = (
+                params.get("generated_sql")
+                or f"-- migration for {service}\nSELECT 1;"
+            )
+
+        rollback_sql = (params.get("rollback_sql") or "").strip() or generate_rollback_sql(
+            forward_sql
+        )
+        allow_destructive = bool(params.get("allow_destructive"))
+        destructive = is_destructive_sql(forward_sql)
+
+        if destructive and not allow_destructive:
+            return self._result(
+                context,
+                status="failed",
+                summary="Destructive migration rejected — set allow_destructive=true to propose",
+                details={
+                    "destructive": True,
+                    "forward_sql": forward_sql,
+                    "reason": "DROP TABLE/COLUMN, TRUNCATE, or DELETE without WHERE detected",
+                },
+                grounding="none",
+                confidence=0.0,
+            )
+
+        if not shadow_url_configured():
+            return self._no_data_result(
+                context,
+                "Shadow validation requires SHADOW_DATABASE_URL. "
+                "Set the env var to a non-production database DSN and retry — "
+                "validation will not be skipped.",
+                missing_tools=["SHADOW_DATABASE_URL"],
+                details={"forward_sql": forward_sql, "rollback_sql": rollback_sql},
+            )
+
+        shadow = await run_shadow_migration(forward_sql)
+        if shadow.get("missing_shadow"):
+            return self._no_data_result(
+                context,
+                "Shadow validation requires SHADOW_DATABASE_URL.",
+                missing_tools=["SHADOW_DATABASE_URL"],
+            )
+
+        approvals_required = 2 if destructive else 1
+        preview = {
+            "type": "sql_migration",
+            "forward_sql": forward_sql,
+            "rollback_sql": rollback_sql,
+            "reversible": bool(rollback_sql) and "MANUAL" not in rollback_sql.upper(),
+            "destructive": destructive,
+            "allow_destructive": allow_destructive,
+            "approvals_required": approvals_required,
+            "shadow_run": {
+                "success": bool(shadow.get("success") or shadow.get("ok")),
+                "error": shadow.get("error"),
+                "duration_ms": shadow.get("duration_ms"),
+                "affected_rows": shadow.get("affected_rows"),
+            },
+            "estimated_row_impact": shadow.get("affected_rows"),
+        }
+        params_frozen = {
+            "forward_sql": forward_sql,
+            "rollback_sql": rollback_sql,
+            "destructive": destructive,
+            "shadow_run": preview["shadow_run"],
+        }
+        return self._propose_artifact_result(
+            context,
+            connector="sql",
+            method="execute_migration",
+            params=params_frozen,
+            preview=preview,
+            grounding="live",
+            summary=(
+                f"SQL migration ready "
+                f"(shadow={'ok' if preview['shadow_run']['success'] else 'FAILED'}, "
+                f"destructive={destructive})"
+            ),
+            details={
+                "shadow_run": preview["shadow_run"],
+                "destructive": destructive,
+                "approvals_required": approvals_required,
+            },
+            approvals_required=approvals_required,
+        )
+
+    async def _legacy_command_plan(
+        self, params: dict, context: PlatformContext, db: Session
+    ) -> AgentResult:
         service_name = (
             params.get("service_name")
             or params.get("service")
@@ -52,7 +174,6 @@ class MigrationAgent(BaseAgent):
             )
         ]
 
-        # Optional k8s grounding when cluster context is available.
         k8s = await self._ground_k8s(context, db)
         grounding = "partial"
         if k8s is not None:
@@ -134,33 +255,18 @@ class MigrationAgent(BaseAgent):
             "dry_run": dry_run,
         }
 
-        # Dry-run or production: never execute — finalize with policy / HITL.
-        if dry_run or self._should_require_approval(context) or context.is_production():
-            return self._finalize_with_policy(
-                context,
-                summary=(
-                    f"Migration plan for {service_name} ({source} → {target}). "
-                    f"Estimated downtime: {plan.get('estimated_downtime', 'unknown')}. "
-                    "Backup reminder: snapshot before execute."
-                ),
-                details=details,
-                commands=commands,
-                evidence=evidence,
-                grounding=grounding,
-                confidence=0.65 if grounding == "live" else 0.45,
-                task=f"migrate {service_name}",
-                recommended_actions=recommended,
-            )
-
-        # Non-prod + dry_run=False: still must pass command policy; never bypass.
         return self._finalize_with_policy(
             context,
-            summary=f"Migration ready for {service_name} ({source} → {target})",
+            summary=(
+                f"Migration plan for {service_name} ({source} → {target}). "
+                f"Estimated downtime: {plan.get('estimated_downtime', 'unknown')}. "
+                "Backup reminder: snapshot before execute."
+            ),
             details=details,
             commands=commands,
             evidence=evidence,
             grounding=grounding,
-            confidence=0.6,
+            confidence=0.65 if grounding == "live" else 0.45,
             task=f"migrate {service_name}",
             recommended_actions=recommended,
         )

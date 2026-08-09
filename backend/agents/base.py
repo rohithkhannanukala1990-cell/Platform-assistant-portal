@@ -299,6 +299,7 @@ class BaseAgent(ABC):
         summary: str,
         details: dict | None = None,
         evidence: list | None = None,
+        approvals_required: int = 1,
     ):
         """Create a DB-frozen artifact proposal and return pending_approval AgentResult."""
         from ..services.artifact_service import propose_artifact
@@ -315,6 +316,7 @@ class BaseAgent(ABC):
             summary=summary,
             environment=context.environment or "development",
             workspace_id=context.workspace_id,
+            approvals_required=approvals_required,
         )
         return self._result(
             context,
@@ -327,6 +329,7 @@ class BaseAgent(ABC):
                 "connector": connector,
                 "method": method,
                 "preview": preview,
+                "approvals_required": approvals_required,
                 "commands": [],
             },
             requires_approval=True,
@@ -335,6 +338,7 @@ class BaseAgent(ABC):
                 "connector": connector,
                 "method": method,
                 "preview": preview,
+                "approvals_required": approvals_required,
             },
             grounding=grounding,
             evidence=evidence,

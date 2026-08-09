@@ -162,6 +162,15 @@ WRITE_TOOLS = {
     "portal_servicenow_create_incident",
     "portal_confluence_create_page",
     "portal_confluence_update_page",
+    "portal_terraform_apply_plan",
+    "portal_sql_execute_migration",
+    "portal_aws_update_security_group_ingress",
+    "portal_aws_put_public_access_block",
+    "portal_aws_update_access_key_status",
+    "portal_aws_enable_ebs_encryption",
+    "portal_aws_modify_instance_type",
+    "portal_pagerduty_create_schedule_override",
+    "portal_pagerduty_update_escalation_policy",
 }
 
 

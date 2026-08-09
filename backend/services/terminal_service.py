@@ -44,6 +44,7 @@ AGENT_ALIASES = {
     "onboard": "onboarding_agent",
     "migrate": "migration_agent",
     "drift": "dependency_drift_agent",
+    "oncall": "oncall_agent",
 }
 
 KNOWN_BINARIES = ["kubectl", "helm", "terraform", "git", "aws", "npm", "pip"]

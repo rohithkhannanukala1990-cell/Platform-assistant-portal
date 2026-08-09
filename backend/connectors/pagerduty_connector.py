@@ -224,6 +224,203 @@ class PagerDutyConnector(_BasePd):
         except Exception:
             return {"success": False}
 
+    async def list_schedules(self, limit: int = 50) -> list[dict[str, Any]]:
+        def _sync() -> list[dict[str, Any]]:
+            client = self._client()
+            if not client:
+                return []
+            rows = client.list_all("schedules", params={"limit": limit})
+            out = []
+            for s in rows:
+                out.append(
+                    {
+                        "id": s.get("id"),
+                        "name": s.get("name") or s.get("summary"),
+                        "html_url": s.get("html_url"),
+                        "time_zone": s.get("time_zone"),
+                    }
+                )
+            return out[:limit]
+
+        try:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, _sync)
+        except Exception:
+            return []
+
+    async def get_schedule_with_rotations(
+        self,
+        schedule_id: str,
+        *,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> dict[str, Any]:
+        def _sync() -> dict[str, Any]:
+            client = self._client()
+            if not client:
+                return {}
+            params: dict[str, Any] = {}
+            if since:
+                params["since"] = since
+            if until:
+                params["until"] = until
+            resp = client.rget(f"/schedules/{schedule_id}", params=params or None)
+            sched = resp if isinstance(resp, dict) else {}
+            # Prefer final_schedule rendered entries when present
+            final = (sched.get("final_schedule") or {}).get("rendered_schedule_entries") or []
+            coverage = []
+            for e in final:
+                user = e.get("user") or {}
+                coverage.append(
+                    {
+                        "user_id": user.get("id"),
+                        "user": user.get("summary"),
+                        "start": e.get("start"),
+                        "end": e.get("end"),
+                    }
+                )
+            return {
+                "id": sched.get("id") or schedule_id,
+                "name": sched.get("name") or sched.get("summary"),
+                "schedule_layers": sched.get("schedule_layers") or [],
+                "rendered_coverage": coverage,
+                "final_schedule": coverage,
+            }
+
+        try:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, _sync)
+        except Exception:
+            return {"id": schedule_id, "rendered_coverage": [], "final_schedule": []}
+
+    async def list_escalation_policies(self, limit: int = 50) -> list[dict[str, Any]]:
+        def _sync() -> list[dict[str, Any]]:
+            client = self._client()
+            if not client:
+                return []
+            rows = client.list_all("escalation_policies", params={"limit": limit})
+            out = []
+            for p in rows:
+                rules = []
+                for r in p.get("escalation_rules") or []:
+                    targets = []
+                    for t in r.get("targets") or []:
+                        targets.append(
+                            {
+                                "id": t.get("id"),
+                                "type": t.get("type"),
+                                "summary": t.get("summary"),
+                            }
+                        )
+                    rules.append(
+                        {
+                            "id": r.get("id"),
+                            "escalation_delay_in_minutes": r.get("escalation_delay_in_minutes"),
+                            "targets": targets,
+                        }
+                    )
+                out.append(
+                    {
+                        "id": p.get("id"),
+                        "name": p.get("name") or p.get("summary"),
+                        "rules": rules,
+                        "escalation_rules": rules,
+                    }
+                )
+            return out[:limit]
+
+        try:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, _sync)
+        except Exception:
+            return []
+
+    async def get_current_oncall(
+        self, *, schedule_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        return await self.list_oncalls(limit=limit, schedule_id=schedule_id)
+
+    async def create_schedule_override(
+        self,
+        schedule_id: str,
+        user_id: str,
+        start: str,
+        end: str,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        from .idempotency import ConnectorNotConfigured, recall_idempotent, store_idempotent
+
+        cached = recall_idempotent(idempotency_key)
+        if cached:
+            return {**cached, "reused": True}
+        if not self.configured:
+            raise ConnectorNotConfigured("pagerduty")
+
+        def _sync() -> dict[str, Any]:
+            client = self._client()
+            if not client:
+                raise ConnectorNotConfigured("pagerduty")
+            body = {
+                "override": {
+                    "start": start,
+                    "end": end,
+                    "user": {"id": user_id, "type": "user_reference"},
+                }
+            }
+            resp = client.rpost(f"/schedules/{schedule_id}/overrides", json=body)
+            return {
+                "ok": True,
+                "id": resp.get("id"),
+                "schedule_id": schedule_id,
+                "user_id": user_id,
+                "start": start,
+                "end": end,
+                "url": resp.get("html_url"),
+            }
+
+        loop = asyncio.get_event_loop()
+        out = await loop.run_in_executor(None, _sync)
+        store_idempotent(idempotency_key, out)
+        return out
+
+    async def update_escalation_policy(
+        self,
+        policy_id: str,
+        rules: list[dict[str, Any]],
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        from .idempotency import ConnectorNotConfigured, recall_idempotent, store_idempotent
+
+        cached = recall_idempotent(idempotency_key)
+        if cached:
+            return {**cached, "reused": True}
+        if not self.configured:
+            raise ConnectorNotConfigured("pagerduty")
+
+        def _sync() -> dict[str, Any]:
+            client = self._client()
+            if not client:
+                raise ConnectorNotConfigured("pagerduty")
+            body = {
+                "escalation_policy": {
+                    "id": policy_id,
+                    "type": "escalation_policy",
+                    "escalation_rules": rules,
+                }
+            }
+            resp = client.rput(f"/escalation_policies/{policy_id}", json=body)
+            return {
+                "ok": True,
+                "id": resp.get("id") or policy_id,
+                "rules": rules,
+                "url": resp.get("html_url"),
+            }
+
+        loop = asyncio.get_event_loop()
+        out = await loop.run_in_executor(None, _sync)
+        store_idempotent(idempotency_key, out)
+        return out
+
     async def execute_action(self, action: str, params: dict) -> dict[str, Any]:
         try:
             if action == "ping":
@@ -239,6 +436,25 @@ class PagerDutyConnector(_BasePd):
             if action == "list_oncalls":
                 result = await self.list_oncalls(limit=int(params.get("limit", 20)))
                 return {"ok": True, "tool": "pagerduty", "action": action, "result": result}
+            if action == "list_schedules":
+                result = await self.list_schedules(limit=int(params.get("limit", 50)))
+                return {"ok": True, "tool": "pagerduty", "action": action, "result": result}
+            if action == "create_schedule_override":
+                result = await self.create_schedule_override(
+                    params.get("schedule_id", ""),
+                    params.get("user_id", ""),
+                    params.get("start", ""),
+                    params.get("end", ""),
+                    idempotency_key=params.get("idempotency_key"),
+                )
+                return {"ok": bool(result.get("ok")), "tool": "pagerduty", "action": action, "result": result}
+            if action == "update_escalation_policy":
+                result = await self.update_escalation_policy(
+                    params.get("policy_id", ""),
+                    params.get("rules") or [],
+                    idempotency_key=params.get("idempotency_key"),
+                )
+                return {"ok": bool(result.get("ok")), "tool": "pagerduty", "action": action, "result": result}
             if action == "create_incident":
                 result = await self.create_incident(
                     params.get("title", ""),

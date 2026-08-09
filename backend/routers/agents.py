@@ -244,6 +244,10 @@ def get_agent_meta(
     }
 
 
+class ApproveRunBody(BaseModel):
+    confirmation: Optional[str] = None
+
+
 @router.post("/{run_id}/approve")
 @limiter.limit("10/minute")
 async def approve_run(
@@ -252,6 +256,13 @@ async def approve_run(
     current_user: User = Depends(require_admin),
 ):
     tenant_id = require_tenant(request)
+    confirmation = None
+    try:
+        raw = await request.json()
+        if isinstance(raw, dict):
+            confirmation = raw.get("confirmation")
+    except Exception:
+        confirmation = None
     with Session(engine) as session:
         row = session.get(AgentRun, run_id)
         if not row:
@@ -367,12 +378,23 @@ async def approve_run(
                     tenant_id=run_tenant or tenant_id,
                     decided_by=current_user.username,
                     user=current_user,
+                    confirmation=confirmation,
                 )
                 exec_log = json.dumps(art_out, default=str)[:4000]
-                final_status = "success" if art_out.get("ok") else "failed"
+                if art_out.get("partial"):
+                    final_status = "pending_approval"
+                else:
+                    final_status = "success" if art_out.get("ok") else "failed"
             except HTTPException as exc:
                 exec_log = str(exc.detail)
-                final_status = "failed"
+                # State lock / typed-confirm leave run pending when detail says so
+                detail_l = str(exc.detail or "").lower()
+                if exc.status_code == 409 and "locked" in detail_l:
+                    final_status = "pending_approval"
+                elif exc.status_code == 400 and "confirmation" in detail_l:
+                    final_status = "pending_approval"
+                else:
+                    final_status = "failed"
     elif commands:
         exec_ctx = {
             "role": current_user.role,
@@ -423,20 +445,22 @@ async def approve_run(
             row.details_json = json.dumps(details_out, default=str)
             if catalog_result.get("message"):
                 row.summary = str(catalog_result.get("message"))[:500]
-        row.requires_approval = False
+        row.requires_approval = final_status == "pending_approval"
         row.updated_at = datetime.now(timezone.utc)
         session.add(row)
         session.commit()
         session.refresh(row)
         result = _run_to_dict(row)
 
-    write_audit(
-        current_user.username,
-        current_user.role,
-        "agent_approved",
-        resource=agent_name,
-        detail=run_id,
-    )
+    # Don't audit as approved when still pending (partial / lock / confirm fail)
+    if final_status != "pending_approval":
+        write_audit(
+            current_user.username,
+            current_user.role,
+            "agent_approved",
+            resource=agent_name,
+            detail=run_id,
+        )
     return result
 
 

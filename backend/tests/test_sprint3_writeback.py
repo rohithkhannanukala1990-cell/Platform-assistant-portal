@@ -118,6 +118,7 @@ async def test_dependency_drift_proposes_without_creating_pr(client, admin_heade
 async def test_approve_creates_one_pr_idempotent(client, admin_headers):
     from backend.auth import User
     from sqlmodel import select as sel
+    import time
 
     with Session(engine) as session:
         admin = session.exec(sel(User).where(User.username == "admin")).first()
@@ -136,6 +137,7 @@ async def test_approve_creates_one_pr_idempotent(client, admin_headers):
             "base": "main",
             "title": "bump",
             "body": "body",
+            "nonce": f"s3-idem-{time.time()}",
         },
         preview={"type": "github_pr", "diff_preview": '{"dependencies":{"x":"1.0.0"}}'},
         grounding="live",
@@ -338,6 +340,7 @@ async def test_agents_no_data_when_connector_missing():
 async def test_execute_uses_db_content_not_request():
     from backend.auth import User
     from sqlmodel import select as sel
+    import time
 
     with Session(engine) as session:
         admin = session.exec(sel(User).where(User.username == "admin")).first()
@@ -356,6 +359,7 @@ async def test_execute_uses_db_content_not_request():
             "base": "main",
             "title": "t",
             "body": "b",
+            "nonce": f"s3-freeze-{time.time()}",
         },
         preview={"diff_preview": "FROZEN_FROM_DB"},
         grounding="live",

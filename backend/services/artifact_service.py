@@ -38,6 +38,8 @@ class ArtifactApproval(SQLModel, table=True):
     grounding: str = Field(default="none")
     decided_by: Optional[str] = Field(default=None)
     error: Optional[str] = Field(default=None)
+    approvers_json: str = Field(default="[]", sa_column=Column(Text))
+    approvals_required: int = Field(default=1)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     decided_at: Optional[datetime] = Field(default=None)
 
@@ -73,6 +75,13 @@ def serialize_artifact_approval(row: ArtifactApproval) -> dict[str, Any]:
         result = json.loads(row.result_json) if row.result_json else None
     except Exception:
         result = None
+    approvers: list[str] = []
+    try:
+        raw_appr = json.loads(getattr(row, "approvers_json", None) or "[]")
+        if isinstance(raw_appr, list):
+            approvers = [str(x) for x in raw_appr]
+    except Exception:
+        approvers = []
     return {
         "id": row.id,
         "tenant_id": row.tenant_id,
@@ -90,6 +99,8 @@ def serialize_artifact_approval(row: ArtifactApproval) -> dict[str, Any]:
         "grounding": row.grounding,
         "decided_by": row.decided_by,
         "error": row.error,
+        "approvers": approvers,
+        "approvals_required": int(getattr(row, "approvals_required", 1) or 1),
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "decided_at": row.decided_at.isoformat() if row.decided_at else None,
     }
@@ -108,6 +119,7 @@ def propose_artifact(
     summary: str = "",
     environment: str = "development",
     workspace_id: str | None = None,
+    approvals_required: int = 1,
 ) -> dict[str, Any]:
     """Freeze artifact params in DB and open a pending AgentRun for HITL."""
     safe_params = dict(params or {})
@@ -123,6 +135,7 @@ def propose_artifact(
         method=method,
         params=safe_params,
     )
+    req = max(1, int(approvals_required or 1))
 
     with Session(engine) as session:
         existing = session.exec(
@@ -150,6 +163,8 @@ def propose_artifact(
             status="pending",
             agent_run_id=run_id,
             grounding=(grounding or "none"),
+            approvers_json="[]",
+            approvals_required=req,
         )
         run = AgentRun(
             id=run_id,
@@ -206,6 +221,7 @@ async def fulfill_artifact_approval(
     tenant_id: str,
     decided_by: str,
     user: User,
+    confirmation: str | None = None,
 ) -> dict[str, Any]:
     """Execute connector write using DB-frozen params only."""
     with Session(engine) as session:
@@ -221,23 +237,143 @@ async def fulfill_artifact_approval(
             }
         if row.status not in {"pending", "approved"}:
             raise HTTPException(status_code=409, detail=f"Approval status is {row.status}")
-        connector = row.connector
-        method = row.method
+
+        try:
+            preview = json.loads(row.preview_json or "{}")
+        except Exception:
+            preview = {}
         try:
             params = json.loads(row.params_json or "{}")
         except Exception:
             params = {}
+
+        # Typed confirmation for destructive terraform plans
+        require_typed = bool(preview.get("require_typed_confirm")) or int(
+            preview.get("destroy_count") or params.get("destroy_count") or 0
+        ) > 0
+        if require_typed:
+            expected = str(
+                preview.get("confirm_phrase")
+                or params.get("workspace")
+                or preview.get("workspace")
+                or ""
+            ).strip()
+            if not expected or str(confirmation or "").strip() != expected:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Typed confirmation required: enter the exact workspace name "
+                        f"'{expected}' to approve a plan that destroys resources."
+                    ),
+                )
+
+        # Multi-approver gate (destructive migrations)
+        required = max(1, int(getattr(row, "approvals_required", 1) or 1))
+        try:
+            approvers = json.loads(getattr(row, "approvers_json", None) or "[]")
+            if not isinstance(approvers, list):
+                approvers = []
+        except Exception:
+            approvers = []
+        if decided_by in approvers:
+            raise HTTPException(
+                status_code=400,
+                detail="Same user cannot approve twice — a distinct second approver is required",
+            )
+        approvers = [*approvers, decided_by]
+        row.approvers_json = json.dumps(approvers)
+        session.add(row)
+        session.commit()
+
+        if len(approvers) < required:
+            # Keep pending — do not execute yet; restore agent run after claim.
+            if row.agent_run_id:
+                run = session.get(AgentRun, row.agent_run_id)
+                if run:
+                    run.status = "pending_approval"
+                    run.requires_approval = True
+                    session.add(run)
+                    session.commit()
+            session.refresh(row)
+            out = serialize_artifact_approval(row)
+            out["ok"] = True
+            out["partial"] = True
+            out["message"] = (
+                f"Recorded approval {len(approvers)}/{required}. "
+                "Awaiting a distinct second approver."
+            )
+            return out
+
+        connector = row.connector
+        method = row.method
         idem = row.idempotency_key
         session.expunge(row)
 
-    result = await _execute_connector_write(
-        connector=connector,
-        method=method,
-        params=params,
-        idempotency_key=idem,
-        user=user,
-        tenant_id=tenant_id,
-    )
+    try:
+        result = await _execute_connector_write(
+            connector=connector,
+            method=method,
+            params=params,
+            idempotency_key=idem,
+            user=user,
+            tenant_id=tenant_id,
+        )
+    except Exception as exc:
+        # State lock: leave approval pending so it can be retried
+        from .terraform_service import TerraformStateLocked
+
+        is_lock = isinstance(exc, TerraformStateLocked) or (
+            isinstance(exc, HTTPException)
+            and "state is locked" in str(getattr(exc, "detail", "")).lower()
+        )
+        with Session(engine) as session:
+            row = session.get(ArtifactApproval, approval_id)
+            if row:
+                try:
+                    appr = json.loads(row.approvers_json or "[]")
+                    if isinstance(appr, list) and decided_by in appr:
+                        # Only drop this actor for single-approver retries / lock.
+                        # Keep prior approvers for multi-approver flows.
+                        if is_lock or int(getattr(row, "approvals_required", 1) or 1) <= 1:
+                            appr = [a for a in appr if a != decided_by]
+                            row.approvers_json = json.dumps(appr)
+                except Exception:
+                    pass
+                if is_lock:
+                    holder = getattr(exc, "holder", None) or "unknown"
+                    detail = (
+                        str(getattr(exc, "detail", None) or exc)
+                        if not isinstance(exc, TerraformStateLocked)
+                        else str(exc)
+                    )
+                    row.status = "pending"
+                    row.error = f"state_locked:{holder}: {detail}"[:1000]
+                    row.decided_by = None
+                    row.decided_at = None
+                    row.result_url = None
+                    row.result_json = None
+                    session.add(row)
+                    if row.agent_run_id:
+                        run = session.get(AgentRun, row.agent_run_id)
+                        if run:
+                            run.status = "pending_approval"
+                            session.add(run)
+                    session.commit()
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Terraform state is locked by {holder}. "
+                            "Approval left pending for retry."
+                        ),
+                    ) from exc
+                row.status = "failed"
+                row.error = str(getattr(exc, "detail", None) or exc)[:1000]
+                row.decided_by = decided_by
+                row.decided_at = datetime.now(timezone.utc)
+                session.add(row)
+                session.commit()
+        raise
+
     url = (
         (result or {}).get("url")
         or (result or {}).get("html_url")
@@ -347,6 +483,20 @@ async def _execute_connector_write(
             conn = try_confluence_connector_for_user(user, tenant_id=tenant_id)
             if conn is None:
                 raise HTTPException(status_code=400, detail="Confluence not connected")
+        elif connector == "aws":
+            from .aws_access import try_aws_connector_for_user
+
+            conn = try_aws_connector_for_user(user, tenant_id=tenant_id)
+            if conn is None:
+                raise HTTPException(status_code=400, detail="AWS not connected")
+        elif connector == "pagerduty":
+            from .pagerduty_access import try_pagerduty_connector_for_user
+
+            conn = try_pagerduty_connector_for_user(user, tenant_id=tenant_id)
+            if conn is None:
+                raise HTTPException(status_code=400, detail="PagerDuty not connected")
+        elif connector in {"terraform", "sql"}:
+            conn = None
         else:
             conn = get_connector(connector, account)
     except HTTPException:
@@ -354,12 +504,46 @@ async def _execute_connector_write(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)[:300]) from exc
 
-    fn = getattr(conn, method, None)
+    call_params = dict(params)
+    call_params["idempotency_key"] = idempotency_key
+
+    # Non-connector executors (frozen plan / SQL from DB)
+    if connector == "terraform" and method == "apply_plan":
+        from .terraform_service import TerraformStateLocked, apply_stored_plan
+
+        try:
+            result = await apply_stored_plan(
+                working_directory=str(call_params.get("working_directory") or ""),
+                plan_b64=str(call_params.get("plan_b64") or ""),
+                workspace=str(call_params.get("workspace") or "default"),
+            )
+        except TerraformStateLocked:
+            raise
+        if not isinstance(result, dict):
+            result = {"ok": True, "result": result}
+        return result
+
+    if connector == "sql" and method == "execute_migration":
+        from .migration_service import execute_production_migration
+
+        # CRITICAL: forward SQL from frozen DB params only
+        result = await execute_production_migration(str(call_params.get("forward_sql") or ""))
+        if not isinstance(result, dict):
+            result = {"ok": True, "result": result}
+        return result
+
+    if connector == "github" and method == "cost_rightsizing_pr":
+        result = await _fulfill_github_pr_bundle(conn, call_params, idempotency_key)
+        if not isinstance(result, dict):
+            result = {"ok": True, "result": result}
+        if "ok" not in result:
+            result["ok"] = True
+        return result
+
+    fn = getattr(conn, method, None) if conn is not None else None
     if not callable(fn):
         raise HTTPException(status_code=400, detail=f"Unknown method {connector}.{method}")
 
-    call_params = dict(params)
-    call_params["idempotency_key"] = idempotency_key
     # Map common nested github PR bump params
     if method == "create_branch":
         result = await fn(
@@ -404,12 +588,18 @@ async def _execute_connector_write(
         import inspect
 
         sig = inspect.signature(fn)
+        has_var_kw = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
         kwargs = {}
         for name, val in call_params.items():
-            if name in sig.parameters:
+            if has_var_kw or name in sig.parameters:
                 kwargs[name] = val
-        if "idempotency_key" in sig.parameters:
+        if "idempotency_key" in sig.parameters or has_var_kw:
             kwargs["idempotency_key"] = idempotency_key
+        # Prefer binding known positional-or-keyword params; drop unknown when no **kwargs
+        if not has_var_kw:
+            kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
         result = await fn(**kwargs)
 
     if not isinstance(result, dict):

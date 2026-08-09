@@ -1,4 +1,4 @@
-"""Infra agent — EC2, pods, and nodes inventory (grounded)."""
+"""Infra agent — inventory plus Terraform plan/apply HITL (frozen plan artifact)."""
 
 from __future__ import annotations
 
@@ -23,6 +23,14 @@ class InfraAgent(BaseAgent):
         namespace = params.get("namespace") or "default"
         region = params.get("region")
         env = (context.environment or "development").lower()
+
+        wants_tf = bool(
+            params.get("working_directory")
+            or params.get("terraform")
+            or re.search(r"\bterraform\b|\btf\s*plan\b|\btf\s*apply\b|\binfra\s*apply\b", task)
+        )
+        if wants_tf:
+            return await self._terraform_plan_propose(params, context, db)
 
         wants_k8s = bool(
             re.search(r"\bpod|pods|node|nodes|scale|delete|k8s|kubernetes\b", task)
@@ -185,7 +193,6 @@ class InfraAgent(BaseAgent):
                 errors=[str(exc)[:300]],
             )
 
-        # Mutating intents (scale/delete) — plan commands via policy, never raw execute.
         commands: list[str] = []
         if wants_mutate and k8s_ok:
             target = params.get("deployment") or params.get("name") or params.get("pod_name")
@@ -233,6 +240,83 @@ class InfraAgent(BaseAgent):
             grounding=grounding or "live",
             confidence=0.8,
             errors=errors,
+        )
+
+    async def _terraform_plan_propose(
+        self, params: dict, context: PlatformContext, db: Session
+    ) -> AgentResult:
+        from ..services.terraform_service import run_terraform_plan
+
+        workdir = str(params.get("working_directory") or params.get("workdir") or "").strip()
+        workspace = str(params.get("workspace") or "default").strip() or "default"
+        if not workdir:
+            return self._no_data_result(
+                context,
+                "Terraform plan requires working_directory (path to the Terraform root module).",
+                missing_tools=["Terraform"],
+            )
+
+        # Allow tests / callers to inject a precomputed plan artifact
+        if params.get("plan_result") and isinstance(params["plan_result"], dict):
+            plan_out = params["plan_result"]
+        else:
+            plan_out = await run_terraform_plan(
+                working_directory=workdir,
+                workspace=workspace,
+                runner=params.get("_tf_runner"),
+            )
+
+        if not plan_out.get("ok"):
+            return self._result(
+                context,
+                status="failed",
+                summary="Terraform plan failed",
+                details={"error": plan_out.get("error"), "plan_text": plan_out.get("plan_text")},
+                grounding="none",
+                confidence=0.0,
+            )
+
+        diff = plan_out.get("diff") or {}
+        destroy_count = int(diff.get("destroy_count") or plan_out.get("destroy_count") or 0)
+        plan_text = str(plan_out.get("plan_text") or "")
+        preview = {
+            "type": "terraform_plan",
+            "workspace": workspace,
+            "working_directory": workdir,
+            "destroy_count": destroy_count,
+            "require_typed_confirm": destroy_count > 0,
+            "confirm_phrase": workspace if destroy_count > 0 else None,
+            "resources_to_add": diff.get("resources_to_add") or [],
+            "resources_to_change": diff.get("resources_to_change") or [],
+            "resources_to_destroy": diff.get("resources_to_destroy") or [],
+            "plan_text": plan_text[:20000],
+        }
+        params_frozen = {
+            "plan_b64": plan_out.get("plan_b64") or "",
+            "workspace": workspace,
+            "working_directory": workdir,
+            "destroy_count": destroy_count,
+            "plan_text": plan_text[:20000],
+            "diff": diff,
+        }
+        return self._propose_artifact_result(
+            context,
+            connector="terraform",
+            method="apply_plan",
+            params=params_frozen,
+            preview=preview,
+            grounding="live",
+            summary=(
+                f"Terraform plan for workspace '{workspace}': "
+                f"+{len(preview['resources_to_add'])} "
+                f"~{len(preview['resources_to_change'])} "
+                f"-{destroy_count}"
+            ),
+            details={
+                "destroy_count": destroy_count,
+                "workspace": workspace,
+                "plan_text_stored": True,
+            },
         )
 
 
