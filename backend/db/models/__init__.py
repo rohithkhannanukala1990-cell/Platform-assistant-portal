@@ -40,6 +40,7 @@ from .ai_models import (
 )
 from .alerts import AlertGroupBucket, AlertRule
 from .catalog_actions import CatalogAction
+from .workflows import WorkflowDefinition, WorkflowRun
 
 __all__ = [
     "Incident",
@@ -79,6 +80,8 @@ __all__ = [
     "AlertRule",
     "AlertGroupBucket",
     "CatalogAction",
+    "WorkflowDefinition",
+    "WorkflowRun",
     "MCPServer",
     "MCPToolCall",
     "CommandPolicyRule",

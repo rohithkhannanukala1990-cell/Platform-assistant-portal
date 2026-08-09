@@ -60,6 +60,7 @@ def _import_models():
         rbac_tables,
         tools,
         workspace,
+        workflows,
     )
 
     # User / AuditLog live in auth — ensure auth models registered:

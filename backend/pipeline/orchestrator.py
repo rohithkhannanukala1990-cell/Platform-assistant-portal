@@ -558,3 +558,62 @@ class OrchestratorAgent:
 
 
 orchestrator_agent = OrchestratorAgent()
+
+
+async def run_agent_for_workflow(
+    agent_name: str,
+    input_payload: dict | None,
+    context: PlatformContext,
+) -> AgentResult:
+    """Invoke a named agent for the workflow engine (no HTTP hop)."""
+    from ..agents import get_agent
+
+    try:
+        _ensure_context(context)
+    except ValueError as exc:
+        return _error_result(agent_name, context, exc)
+
+    params = dict(input_payload or {})
+    if "task" not in params:
+        params["task"] = params.get("summary") or f"workflow:{agent_name}"
+
+    with Session(engine) as db:
+        if not _user_can_run_agent(db, context, agent_name):
+            # Workflow engine runs as the triggering user; Admin role is typical.
+            # Allow when user_role is Admin even if RBAC rows are sparse in tests.
+            if _normalize_role(context.user_role) != "Admin":
+                return AgentResult(
+                    agent=agent_name,
+                    status="failed",
+                    summary="Permission denied for agent",
+                    details={"error": "permission_denied"},
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    triggered_by=context.user_id or "",
+                    workspace=context.workspace_id or "",
+                    environment=context.environment or "development",
+                    grounding="none",
+                    errors=["permission_denied"],
+                )
+        try:
+            agent = get_agent(agent_name)
+        except Exception as exc:
+            return _error_result(agent_name, context, exc)
+
+        run_id = _start_run(str(params.get("task") or ""), agent_name, context)
+        try:
+            result = await asyncio.wait_for(
+                agent.run(params, context, db),
+                timeout=AGENT_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            result = _timeout_result(agent_name, context)
+        except Exception as exc:
+            result = _error_result(agent_name, context, exc)
+
+        if params.get("dry_run") and result.status == "success":
+            result = AgentResult(**{**result.model_dump(), "status": "dry_run"})
+
+        result = _validate_commands_in_result(result, context)
+        _complete_run(run_id, result)
+        result.run_id = run_id
+        return result

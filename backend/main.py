@@ -66,6 +66,8 @@ from .routers.tools import router as tools_router
 from .routers.user_context import router as user_context_router
 from .routers.webhooks_api import router as webhooks_api_router
 from .routers.workspaces import router as workspaces_router
+from .routers.workflows import router as workflows_router
+from .routers.workflows import runs_router as workflow_runs_router
 
 load_dotenv()
 
@@ -201,6 +203,8 @@ app.include_router(servicenow_ops_router)
 app.include_router(oncall_router)
 app.include_router(alert_rules_router)
 app.include_router(policies_router)
+app.include_router(workflows_router)
+app.include_router(workflow_runs_router)
 
 from .ws_portal import router as ws_portal_router
 

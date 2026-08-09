@@ -11,6 +11,7 @@ from sqlmodel import Session
 from ..db.models.ai_models import AIToolExecution, AgentRun
 from ..db.models.mcp_models import MCPToolCall
 from ..db.models.ops import Incident
+from ..db.models.workflows import WorkflowRun
 
 
 def _won(result: Any) -> bool:
@@ -87,6 +88,23 @@ def claim_ai_execution(
         update(AIToolExecution)
         .where(AIToolExecution.id == execution_id, AIToolExecution.status == from_status)
         .values(**values)
+    )
+    session.commit()
+    return _won(result)
+
+
+def claim_workflow_run(
+    session: Session,
+    run_id: str,
+    *,
+    from_status: str = "pending_approval",
+    to_status: str = "running",
+) -> bool:
+    """CAS: exactly one concurrent approve wins (rowcount == 1)."""
+    result = session.execute(
+        update(WorkflowRun)
+        .where(WorkflowRun.id == run_id, WorkflowRun.status == from_status)
+        .values(status=to_status)
     )
     session.commit()
     return _won(result)

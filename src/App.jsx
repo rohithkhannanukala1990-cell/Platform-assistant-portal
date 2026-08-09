@@ -17,6 +17,8 @@ const EntityActionsPage = lazy(() => import('./components/EntityActionsPage'))
 const GoldenPathsPage = lazy(() => import('./components/GoldenPathsPage'))
 const ReportsPage = lazy(() => import('./components/ReportsPage'))
 const ScorecardsPage = lazy(() => import('./components/ScorecardsPage'))
+const WorkflowListPage = lazy(() => import('./components/workflows/WorkflowListPage'))
+const WorkflowRunDetail = lazy(() => import('./components/workflows/WorkflowRunDetail'))
 const DashboardView = lazy(() => import('./components/DashboardView'))
 const TriageView = lazy(() => import('./components/TriageView'))
 const IncidentCommandCenter = lazy(() => import('./components/IncidentCommandCenter'))
@@ -138,6 +140,8 @@ function AuthenticatedRoutes() {
           <Route path="/standards" element={<PrivateRoute><StandardsPage /></PrivateRoute>} />
           <Route path="/entity-actions" element={<PrivateRoute><EntityActionsPage /></PrivateRoute>} />
           <Route path="/golden-paths" element={<PrivateRoute><GoldenPathsPage /></PrivateRoute>} />
+          <Route path="/workflows" element={<PrivateRoute><WorkflowListPage /></PrivateRoute>} />
+          <Route path="/workflows/runs/:runId" element={<PrivateRoute><WorkflowRunDetail /></PrivateRoute>} />
           <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
 
           <Route path="/ai-assistant" element={<PrivateRoute><AIAssistant /></PrivateRoute>} />
