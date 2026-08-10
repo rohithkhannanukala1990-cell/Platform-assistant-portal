@@ -36,7 +36,7 @@ def slack_connector_for_user(user: User, **kwargs) -> SlackConnector:
         connect_message=CONNECT_MSG,
         factory=slack_connector_for_account,
         pin_keys=PIN_KEYS,
-        **props,
+        **kwargs,
     )
 
 
