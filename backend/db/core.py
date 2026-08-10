@@ -63,6 +63,7 @@ def _import_models():
         workflows,
         terminal,
         editor,
+        access,
     )
     from backend.services import artifact_service  # noqa: F401 — ArtifactApproval table
 
@@ -84,6 +85,9 @@ DEFAULT_SETTINGS = {
     "mfa_required_roles": "",
     # Compliance (Phase 16) — days to retain audit log rows before prune job.
     "audit_log_retention_days": "90",
+    # Sprint 5 — when "true", deploy/terraform_apply/migration proposals require
+    # an approved ChangeRecord before they can be executed.
+    "REQUIRE_CHANGE_APPROVAL": "false",
 }
 
 
@@ -430,6 +434,42 @@ def _seed_github_editor_policy() -> None:
             "Updating a PagerDuty escalation policy requires HITL approval",
             '["pagerduty", "shell", "*"]',
         ),
+        (
+            "approval-okta-add-user-to-group",
+            50,
+            "require_approval",
+            ["okta add_user_to_group", "add_user_to_group"],
+            r"\badd_user_to_group\b",
+            "Granting an Okta group membership requires HITL approval",
+            '["okta", "shell", "*"]',
+        ),
+        (
+            "approval-okta-remove-user-from-group",
+            50,
+            "require_approval",
+            ["okta remove_user_from_group", "remove_user_from_group"],
+            r"\bremove_user_from_group\b",
+            "Removing an Okta group membership requires HITL approval",
+            '["okta", "shell", "*"]',
+        ),
+        (
+            "approval-okta-deactivate-user",
+            50,
+            "require_approval",
+            ["okta deactivate_user", "deactivate_user"],
+            r"\bdeactivate_user\b",
+            "Deactivating an Okta user requires HITL approval",
+            '["okta", "shell", "*"]',
+        ),
+        (
+            "approval-compliance-evidence-pack",
+            50,
+            "require_approval",
+            ["compliance generate_evidence_pack", "generate_evidence_pack"],
+            r"\bgenerate_evidence_pack\b",
+            "Producing an evidence pack requires HITL approval",
+            '["compliance", "shell", "*"]',
+        ),
     ]
     with Session(engine) as session:
         for name, priority, effect, prefixes, regex, description, tools in rules:
@@ -475,6 +515,7 @@ def _seed_tools() -> None:
         ("slack", "Slack", "comms", "Slack Messaging", "💬"),
         ("teams", "Teams", "comms", "Microsoft Teams", "💬"),
         ("pagerduty", "PagerDuty", "comms", "PagerDuty Alerting", "🚨"),
+        ("okta", "Okta", "identity", "Okta Identity and Access", "🔐"),
         ("prometheus", "Prometheus", "monitoring", "Prometheus Metrics", "📊"),
         ("datadog", "Datadog", "monitoring", "Datadog Monitoring", "🐶"),
         ("grafana", "Grafana", "monitoring", "Grafana Dashboards", "📈"),

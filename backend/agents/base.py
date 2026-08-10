@@ -287,6 +287,11 @@ class BaseAgent(ABC):
 
         return try_confluence_connector_from_context(context, db=session)
 
+    async def _ground_okta(self, context: PlatformContext, session: Session | None = None):
+        from ..services.okta_access import try_okta_connector_from_context
+
+        return try_okta_connector_from_context(context, db=session)
+
     def _propose_artifact_result(
         self,
         context: PlatformContext,

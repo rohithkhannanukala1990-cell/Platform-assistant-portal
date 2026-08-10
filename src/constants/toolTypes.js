@@ -12,6 +12,7 @@ export const TOOL_TYPES = [
   { id: 'pagerduty', label: 'PagerDuty', category: 'comms' },
   { id: 'kubernetes', label: 'Kubernetes', category: 'infra' },
   { id: 'prometheus', label: 'Prometheus', category: 'monitoring' },
+  { id: 'okta', label: 'Okta', category: 'identity' },
 ]
 
 export default TOOL_TYPES

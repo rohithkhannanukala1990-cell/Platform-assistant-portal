@@ -43,6 +43,13 @@ from .catalog_actions import CatalogAction
 from .workflows import WorkflowDefinition, WorkflowRun
 from .terminal import TerminalApproval, TerminalHistory
 from .editor import EditorFile, EditorPRApproval
+from .access import (
+    AccessRequestRecord,
+    ChangeRecord,
+    ControlEvidence,
+    ResourceOwner,
+    TeamAccessTemplate,
+)
 
 __all__ = [
     "Incident",
@@ -91,4 +98,9 @@ __all__ = [
     "MCPServer",
     "MCPToolCall",
     "CommandPolicyRule",
+    "AccessRequestRecord",
+    "ResourceOwner",
+    "ChangeRecord",
+    "ControlEvidence",
+    "TeamAccessTemplate",
 ]

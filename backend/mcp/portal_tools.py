@@ -171,6 +171,14 @@ WRITE_TOOLS = {
     "portal_aws_modify_instance_type",
     "portal_pagerduty_create_schedule_override",
     "portal_pagerduty_update_escalation_policy",
+    "portal_okta_add_user_to_group",
+    "portal_okta_remove_user_from_group",
+    "portal_okta_deactivate_user",
+    "portal_access_provision_request",
+    "portal_access_revoke_request",
+    "portal_change_submit_request",
+    "portal_change_close_request",
+    "portal_compliance_generate_evidence_pack",
 }
 
 

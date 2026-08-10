@@ -34,6 +34,20 @@ async def run_auto_heal() -> None:
     logger.info("Auto-heal batch finished", extra={"actions": len(results)})
 
 
+async def run_access_expiry_sweep() -> None:
+    """Sprint 5 — revoke provisioned access whose expires_at has passed."""
+    from .services.access_service import run_expiry_sweep
+
+    result = await run_expiry_sweep()
+    logger.info(
+        "Access expiry sweep finished",
+        extra={
+            "revoked": result.get("revoked"),
+            "warned": result.get("warned"),
+        },
+    )
+
+
 def archive_old_logs() -> None:
     """Prune old audit logs (retention setting) and resolved health alerts."""
     from .services.audit_compliance import get_audit_retention_days, prune_audit_logs
@@ -102,9 +116,18 @@ def start_scheduler() -> None:
         id="archive_logs",
         replace_existing=True,
     )
+    scheduler.add_job(
+        run_access_expiry_sweep,
+        "interval",
+        minutes=15,
+        id="access_expiry_sweep",
+        replace_existing=True,
+    )
     scheduler.start()
     _started = True
-    logger.info("APScheduler started (health, expiry, auto-heal, archive)")
+    logger.info(
+        "APScheduler started (health, expiry, auto-heal, archive, access-expiry-sweep)"
+    )
 
 
 def shutdown_scheduler() -> None:

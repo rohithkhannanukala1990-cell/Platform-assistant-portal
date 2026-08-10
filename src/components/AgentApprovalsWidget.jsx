@@ -497,6 +497,9 @@ function AgentPipelineApprovalCard({ run, authFetch, onDone, toast }) {
   const isSec = preview?.type === 'security_remediation'
   const isCost = preview?.type === 'cost_rightsizing'
   const isPd = preview?.type === 'pagerduty_override' || preview?.type === 'pagerduty_escalation'
+  const isAccess = preview?.type === 'access_request' || connector === 'okta' || connector === 'access'
+  const isChange = preview?.type === 'change_record' || connector === 'change'
+  const isCompliance = preview?.type === 'compliance_evidence_pack' || connector === 'compliance'
 
   async function approve() {
     if (!typedOk) {
@@ -619,7 +622,40 @@ function AgentPipelineApprovalCard({ run, authFetch, onDone, toast }) {
               </pre>
             </div>
           ) : null}
-          {!isTf && !isMig && !isSec && !isCost && !isPd && preview ? (
+          {isAccess ? (
+            <div className="text-[11px] text-slate-300 space-y-1">
+              <p>Subject: <span className="font-mono text-white">{preview?.subject_username || '—'}</span></p>
+              <p>Resource: <span className="font-mono text-white">{preview?.resource_type}:{preview?.resource_id}</span></p>
+              <p>
+                Owner: <span className="font-mono text-white">{preview?.owner_username || '—'}</span>
+                {preview?.owner_missing ? (
+                  <span className="ml-2 text-red-300">[NO OWNER — routed to admin]</span>
+                ) : null}
+              </p>
+              {preview?.duration_hours ? (
+                <p>Duration: {preview.duration_hours}h (auto-expires)</p>
+              ) : null}
+            </div>
+          ) : null}
+          {isChange ? (
+            <div className="text-[11px] text-slate-300 space-y-1">
+              <p>Change type: <span className="font-mono text-white">{preview?.change_type}</span> · risk {preview?.risk}</p>
+              <p>Dependents: {preview?.blast_radius?.dependent_count ?? 0}</p>
+              {preview?.rollback_plan ? (
+                <pre className="text-[10px] font-mono text-slate-400 whitespace-pre-wrap max-h-20 overflow-auto">{preview.rollback_plan}</pre>
+              ) : null}
+            </div>
+          ) : null}
+          {isCompliance ? (
+            <div className="text-[11px] text-slate-300 space-y-1">
+              <p className="text-amber-200 font-semibold">
+                Evidence pack — sensitive, HITL required
+              </p>
+              <p>Period: {preview?.period_start} → {preview?.period_end}</p>
+              <p>Controls: {Object.keys(preview?.controls || {}).length}</p>
+            </div>
+          ) : null}
+          {!isTf && !isMig && !isSec && !isCost && !isPd && !isAccess && !isChange && !isCompliance && preview ? (
             <pre className="text-[10px] font-mono text-slate-400 whitespace-pre-wrap max-h-48 overflow-auto">
               {typeof preview === 'string' ? preview : JSON.stringify(preview, null, 2)}
             </pre>

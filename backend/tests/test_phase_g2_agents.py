@@ -187,13 +187,21 @@ def test_orchestrator_requires_user_id():
 def test_all_agents_registered_and_importable():
     listed = list_agents()
     names = {a["name"] for a in listed}
-    assert len(AGENT_REGISTRY) == 17
-    assert len(names) == 17
+    assert len(AGENT_REGISTRY) >= 17
+    assert len(names) == len(AGENT_REGISTRY)
     for name in AGENT_REGISTRY:
         agent = get_agent(name)
         assert isinstance(agent, BaseAgent)
         assert agent.name == name
     assert "migration_agent" in AGENT_REGISTRY
+    # Sprint 4 + Sprint 5 additions must be registered:
+    for required in (
+        "oncall_agent",
+        "access_agent",
+        "change_agent",
+        "compliance_agent",
+    ):
+        assert required in AGENT_REGISTRY
     assert "You must only use facts" in GROUNDING_RULES
 
 

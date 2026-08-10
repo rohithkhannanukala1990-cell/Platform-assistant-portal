@@ -14,6 +14,9 @@ from .incident_agent import incident_agent
 from .infra_agent import infra_agent
 from .onboarding_agent import onboarding_agent
 from .oncall_agent import oncall_agent
+from .access_agent import access_agent
+from .change_agent import change_agent
+from .compliance_agent import compliance_agent
 from .pipeline_monitor_agent import pipeline_monitor_agent
 from .runbook_agent import runbook_agent
 from .scorecard_agent import scorecard_agent
@@ -39,6 +42,9 @@ AGENT_REGISTRY: dict[str, BaseAgent] = {
     "alert_noise_agent": alert_noise_agent,
     "migration_agent": migration_agent,
     "oncall_agent": oncall_agent,
+    "access_agent": access_agent,
+    "change_agent": change_agent,
+    "compliance_agent": compliance_agent,
 }
 
 

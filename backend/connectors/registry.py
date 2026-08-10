@@ -98,6 +98,11 @@ CONNECTOR_MAP: dict[str, dict[str, Any]] = {
         "required_fields": [],
         "optional_fields": ["instance_url"],
     },
+    "okta": {
+        "auth_types": ["api_token"],
+        "required_fields": ["instance_url"],
+        "optional_fields": [],
+    },
 }
 
 
@@ -353,6 +358,10 @@ def get_connector(tool_id: str, account: dict[str, Any]) -> BaseConnector:
         from .confluence_connector import ConfluenceConnector as RealConfluenceConnector
 
         return RealConfluenceConnector(account)
+    if tool_id == "okta":
+        from .okta_connector import OktaConnector as RealOktaConnector
+
+        return RealOktaConnector(account)
     connector_class = CONNECTOR_CLASSES.get(tool_id, BaseConnector)
     return connector_class(account)
 

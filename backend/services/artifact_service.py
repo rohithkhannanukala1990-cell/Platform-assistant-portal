@@ -309,6 +309,46 @@ async def fulfill_artifact_approval(
         idem = row.idempotency_key
         session.expunge(row)
 
+    # REQUIRE_CHANGE_APPROVAL gate (Sprint 5): when this tenant has enabled
+    # change management, deploy/terraform_apply/migration proposals may not
+    # execute unless a linked ChangeRecord has status="approved".
+    if _change_gate_applies(connector, method, preview):
+        from ..db.repositories.settings import get_settings
+
+        if str(get_settings().get("REQUIRE_CHANGE_APPROVAL", "false")).lower() == "true":
+            change_ok, msg = _linked_change_record_approved(
+                tenant_id=tenant_id, approval_id=approval_id
+            )
+            if not change_ok:
+                # Leave the artifact pending, roll back this approval attempt
+                with Session(engine) as session:
+                    row = session.get(ArtifactApproval, approval_id)
+                    if row:
+                        try:
+                            appr = json.loads(row.approvers_json or "[]")
+                            appr = [a for a in appr if a != decided_by]
+                            row.approvers_json = json.dumps(appr)
+                        except Exception:
+                            pass
+                        row.status = "pending"
+                        row.decided_by = None
+                        row.decided_at = None
+                        session.add(row)
+                        if row.agent_run_id:
+                            run = session.get(AgentRun, row.agent_run_id)
+                            if run:
+                                run.status = "pending_approval"
+                                run.requires_approval = True
+                                session.add(run)
+                        session.commit()
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Change management is enabled — {msg}. "
+                        "Proposal left pending for retry after change approval."
+                    ),
+                )
+
     try:
         result = await _execute_connector_write(
             connector=connector,
@@ -495,7 +535,13 @@ async def _execute_connector_write(
             conn = try_pagerduty_connector_for_user(user, tenant_id=tenant_id)
             if conn is None:
                 raise HTTPException(status_code=400, detail="PagerDuty not connected")
-        elif connector in {"terraform", "sql"}:
+        elif connector == "okta":
+            from .okta_access import try_okta_connector_for_user
+
+            conn = try_okta_connector_for_user(user, tenant_id=tenant_id)
+            if conn is None:
+                raise HTTPException(status_code=400, detail="Okta not connected")
+        elif connector in {"terraform", "sql", "compliance"}:
             conn = None
         else:
             conn = get_connector(connector, account)
@@ -531,6 +577,33 @@ async def _execute_connector_write(
         if not isinstance(result, dict):
             result = {"ok": True, "result": result}
         return result
+
+    if connector == "compliance" and method == "generate_evidence_pack":
+        # Regenerate bytes from frozen period stored in DB — leaves the system
+        # in a serializable audit form.
+        from .compliance_service import build_evidence_pack
+
+        period_start = call_params.get("period_start") or ""
+        period_end = call_params.get("period_end") or ""
+        try:
+            ps = datetime.fromisoformat(str(period_start).replace("Z", "+00:00"))
+            pe = datetime.fromisoformat(str(period_end).replace("Z", "+00:00"))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid period: {exc}") from exc
+        pack_bytes = build_evidence_pack(
+            tenant_id=tenant_id,
+            period_start=ps,
+            period_end=pe,
+            collected_by=user.username if user else "system",
+        )
+        import base64 as _b64
+
+        return {
+            "ok": True,
+            "content_type": "application/zip",
+            "size_bytes": len(pack_bytes),
+            "content_base64": _b64.b64encode(pack_bytes).decode("ascii"),
+        }
 
     if connector == "github" and method == "cost_rightsizing_pr":
         result = await _fulfill_github_pr_bundle(conn, call_params, idempotency_key)
@@ -646,3 +719,75 @@ async def _fulfill_github_pr_bundle(conn, params: dict[str, Any], idem: str) -> 
         "number": pr.get("number"),
         "reused": pr.get("reused"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Sprint 5 — Change management gate
+# ---------------------------------------------------------------------------
+
+# (connector, method) combinations that represent a production change and
+# therefore require a linked, approved ChangeRecord when REQUIRE_CHANGE_APPROVAL
+# is enabled for the tenant.
+_CHANGE_GATED_METHODS: set[tuple[str, str]] = {
+    ("terraform", "apply_plan"),
+    ("sql", "execute_migration"),
+    # deploy artifacts (Sprint 3 remediation-driven deploys)
+    ("kubernetes", "deploy"),
+    ("kubernetes", "apply"),
+    ("kubernetes", "rollout"),
+    ("argocd", "sync"),
+    ("aws", "modify_instance_type"),
+}
+
+
+def _change_gate_applies(connector: str, method: str, preview: dict[str, Any]) -> bool:
+    """Return True if the (connector, method) is a change-managed operation."""
+    if (connector, method) in _CHANGE_GATED_METHODS:
+        return True
+    # Preview may carry a hint (e.g. `change_type=deploy`) even when the
+    # underlying connector is generic.
+    change_type = str((preview or {}).get("change_type") or "").strip().lower()
+    return change_type in {"deploy", "terraform_apply", "migration"}
+
+
+def _linked_change_record_approved(
+    *, tenant_id: str, approval_id: str
+) -> tuple[bool, str]:
+    """Return (approved, message). Approved when a ChangeRecord row exists for
+    this artifact/agent-run in tenant with status=approved.
+    """
+    from ..db.models.access import ChangeRecord
+
+    with Session(engine) as session:
+        art = session.get(ArtifactApproval, approval_id)
+        agent_run_id = art.agent_run_id if art else None
+        recs = list(
+            session.exec(
+                select(ChangeRecord).where(
+                    ChangeRecord.tenant_id == tenant_id,
+                    col(ChangeRecord.source_artifact_id) == approval_id,
+                )
+            ).all()
+        )
+        if not recs and agent_run_id:
+            recs = list(
+                session.exec(
+                    select(ChangeRecord).where(
+                        ChangeRecord.tenant_id == tenant_id,
+                        col(ChangeRecord.source_run_id) == agent_run_id,
+                    )
+                ).all()
+            )
+    if not recs:
+        return False, (
+            "no ChangeRecord is linked to this proposal. "
+            "Draft and submit a change request first."
+        )
+    approved = [r for r in recs if (r.status or "").lower() == "approved"]
+    if not approved:
+        first = recs[0]
+        return False, (
+            f"linked ChangeRecord {first.id} is in status '{first.status}', "
+            "not 'approved'"
+        )
+    return True, f"ChangeRecord {approved[0].id} is approved"
