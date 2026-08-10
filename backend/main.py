@@ -160,6 +160,8 @@ metrics_app = make_asgi_app()
 app.router.routes.insert(0, Mount("/metrics", app=metrics_app, name="metrics"))
 
 from .routers.agents import router as agents_router
+from .routers.approvals import router as approvals_router
+from .routers.slack_interactions import router as slack_interactions_router
 from .routers.audit_log import router as audit_router
 from .routers.users import router as users_router
 from .routers.sso import router as sso_router
@@ -174,6 +176,8 @@ app.include_router(ai_router)
 app.include_router(llm_config_router)
 app.include_router(mcp_api_router)
 app.include_router(agents_router)
+app.include_router(approvals_router)
+app.include_router(slack_interactions_router)
 app.include_router(audit_router, prefix="")
 app.include_router(users_router, prefix="")
 app.include_router(sso_router)

@@ -50,6 +50,7 @@ from .access import (
     ResourceOwner,
     TeamAccessTemplate,
 )
+from .slack import SlackLinkCode, SlackUserLink
 
 __all__ = [
     "Incident",
@@ -103,4 +104,6 @@ __all__ = [
     "ChangeRecord",
     "ControlEvidence",
     "TeamAccessTemplate",
+    "SlackUserLink",
+    "SlackLinkCode",
 ]

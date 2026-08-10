@@ -330,6 +330,27 @@ def mark_change_approved(*, change_id: str, tenant_id: str, actor: str) -> dict[
     return {"ok": True}
 
 
+def reject_change_record(*, change_id: str, tenant_id: str, actor: str, reason: str = "") -> dict[str, Any]:
+    """Reject a draft/submitted change — mirrors mark_change_approved's shape."""
+    with Session(engine) as session:
+        record = session.get(ChangeRecord, change_id)
+        if not record or record.tenant_id != tenant_id:
+            return {"ok": False, "error": "not_found"}
+        if record.status not in {"draft", "submitted"}:
+            return {"ok": False, "error": f"status={record.status}"}
+        record.status = "rejected"
+        session.add(record)
+        session.commit()
+    write_audit(
+        actor,
+        "Admin",
+        "change_rejected",
+        resource=f"change:{change_id}",
+        detail=(reason or "rejected")[:500],
+    )
+    return {"ok": True}
+
+
 async def check_change_approved(
     *, change_id: str, tenant_id: str, user: User
 ) -> dict[str, Any]:

@@ -64,6 +64,7 @@ def _import_models():
         terminal,
         editor,
         access,
+        slack,
     )
     from backend.services import artifact_service  # noqa: F401 — ArtifactApproval table
 

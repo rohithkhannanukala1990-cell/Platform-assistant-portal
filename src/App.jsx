@@ -18,6 +18,7 @@ const GoldenPathsPage = lazy(() => import('./components/GoldenPathsPage'))
 const ReportsPage = lazy(() => import('./components/ReportsPage'))
 const ScorecardsPage = lazy(() => import('./components/ScorecardsPage'))
 const WorkflowListPage = lazy(() => import('./components/workflows/WorkflowListPage'))
+const WorkflowBuilder = lazy(() => import('./components/workflows/WorkflowBuilder'))
 const WorkflowRunDetail = lazy(() => import('./components/workflows/WorkflowRunDetail'))
 const DashboardView = lazy(() => import('./components/DashboardView'))
 const TriageView = lazy(() => import('./components/TriageView'))
@@ -29,7 +30,7 @@ const ToolRegistryView = lazy(() => import('./components/ToolRegistryView'))
 const RBACManager = lazy(() => import('./components/RBACManager'))
 const AIAssistant = lazy(() => import('./components/AIAssistant'))
 const HealthDashboard = lazy(() => import('./components/HealthDashboard'))
-const AgentApprovalsWidget = lazy(() => import('./components/AgentApprovalsWidget'))
+const UnifiedApprovalsInbox = lazy(() => import('./components/approvals/UnifiedApprovalsInbox'))
 const AgentRunnerPanel = lazy(() => import('./components/AgentRunnerPanel'))
 const CodeEditor = lazy(() => import('./components/CodeEditor'))
 const Terminal = lazy(() => import('./components/Terminal'))
@@ -141,6 +142,7 @@ function AuthenticatedRoutes() {
           <Route path="/entity-actions" element={<PrivateRoute><EntityActionsPage /></PrivateRoute>} />
           <Route path="/golden-paths" element={<PrivateRoute><GoldenPathsPage /></PrivateRoute>} />
           <Route path="/workflows" element={<PrivateRoute><WorkflowListPage /></PrivateRoute>} />
+          <Route path="/workflows/builder/:workflowId" element={<PrivateRoute><WorkflowBuilder /></PrivateRoute>} />
           <Route path="/workflows/runs/:runId" element={<PrivateRoute><WorkflowRunDetail /></PrivateRoute>} />
           <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
 
@@ -205,7 +207,7 @@ function AuthenticatedRoutes() {
           <Route path="/agent-history" element={<PrivateRoute><AgentRunnerPanel /></PrivateRoute>} />
           <Route path="/editor" element={<PrivateRoute><CodeEditor /></PrivateRoute>} />
           <Route path="/terminal" element={<PrivateRoute><Terminal /></PrivateRoute>} />
-          <Route path="/approvals" element={<PrivateRoute><AgentApprovalsWidget /></PrivateRoute>} />
+          <Route path="/approvals" element={<PrivateRoute><UnifiedApprovalsInbox /></PrivateRoute>} />
           <Route path="/db-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
           <Route path="/query-analyzer" element={<PrivateRoute><QueryAnalyzerView /></PrivateRoute>} />
 

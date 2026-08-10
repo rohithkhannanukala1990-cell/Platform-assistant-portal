@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Check, Loader2, RefreshCw, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Download, Loader2, RefreshCw, X } from 'lucide-react'
 import { authFetch } from '../../utils/api'
 import { PageHeader } from '../ui'
+
+function durationLabel(startedAt, completedAt) {
+  if (!startedAt || !completedAt) return null
+  const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return null
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+  const s = Math.round(ms / 1000)
+  return `${Math.floor(s / 60)}m ${s % 60}s`
+}
 
 function GroundingBadge({ grounding }) {
   const g = (grounding || 'none').toLowerCase()
@@ -42,6 +52,8 @@ export default function WorkflowRunDetail() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+  const [expanded, setExpanded] = useState(() => new Set())
+  const [exporting, setExporting] = useState(false)
 
   const load = useCallback(async () => {
     if (!runId) return
@@ -119,6 +131,36 @@ export default function WorkflowRunDetail() {
     }
   }
 
+  function toggleExpand(id) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function exportPdf() {
+    setExporting(true)
+    try {
+      const res = await authFetch(`/api/workflows/runs/${encodeURIComponent(runId)}/export.pdf`)
+      if (!res.ok) throw new Error(`Export failed (${res.status})`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `workflow-run-${runId}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err?.message || 'Export failed')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 p-6 text-slate-400">
@@ -146,6 +188,15 @@ export default function WorkflowRunDetail() {
         actions={
           <div className="flex items-center gap-3">
             <GroundingBadge grounding={run.grounding} />
+            <button
+              type="button"
+              disabled={exporting}
+              onClick={() => void exportPdf()}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+            >
+              {exporting ? <Loader2 className="animate-spin" size={14} /> : <Download size={14} />}
+              Export PDF
+            </button>
             <button
               type="button"
               onClick={() => void load()}
@@ -176,6 +227,11 @@ export default function WorkflowRunDetail() {
         {steps.map((step) => {
           const st = step.state || {}
           const pending = st.status === 'pending_approval'
+          const duration = durationLabel(st.started_at, st.completed_at)
+          const decidedBy = st.approved_by || st.rejected_by
+          const decision = st.approved_by ? 'Approved' : st.rejected_by ? 'Rejected' : null
+          const decidedAt = st.approved_at || st.completed_at
+          const isExpanded = expanded.has(step.id)
           return (
             <div key={step.id} className="relative pl-8 pb-8">
               <div className="absolute -left-[5px] top-1">
@@ -187,12 +243,32 @@ export default function WorkflowRunDetail() {
                   <span className="text-xs uppercase tracking-wide text-slate-500">{step.type}</span>
                   <span className="text-xs text-slate-400">{st.status || 'pending'}</span>
                   <GroundingBadge grounding={st.grounding || (pending ? 'none' : run.grounding)} />
+                  {duration ? <span className="text-[11px] text-slate-500">· {duration}</span> : null}
                 </div>
                 {st.prompt ? <p className="mt-2 text-sm text-slate-300">{st.prompt}</p> : null}
+                {decidedBy ? (
+                  <p className="mt-1 text-xs text-slate-400">
+                    {decision} by <span className="text-slate-200">{decidedBy}</span>
+                    {decidedAt ? ` at ${new Date(decidedAt).toLocaleString()}` : ''}
+                    {st.reason ? ` — ${st.reason}` : ''}
+                  </p>
+                ) : null}
                 {st.output ? (
-                  <pre className="mt-3 max-h-48 overflow-auto rounded-lg bg-black/30 p-3 text-xs text-slate-300">
-                    {JSON.stringify(st.output, null, 2)}
-                  </pre>
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(step.id)}
+                      className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+                    >
+                      {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                      {isExpanded ? 'Hide output' : 'Show output'}
+                    </button>
+                    {isExpanded ? (
+                      <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-black/30 p-3 text-xs text-slate-300">
+                        {JSON.stringify(st.output, null, 2)}
+                      </pre>
+                    ) : null}
+                  </div>
                 ) : null}
                 {pending ? (
                   <div className="mt-4 flex flex-wrap items-center gap-2">

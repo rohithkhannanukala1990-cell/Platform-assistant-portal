@@ -440,14 +440,16 @@ def get_action_run(
         return _serialize_run(row, action_name=action.name if action else None)
 
 
-@runs_router.post("/{run_id}/approve")
-async def approve_entity_action_run(
-    request: Request,
+async def approve_entity_action_run_core(
     run_id: str,
-    current_user: User = Depends(require_admin),
-):
-    """HITL approve — re-dispatch the real action instead of only flipping status."""
-    tenant_id = require_tenant(request)
+    tenant_id: str,
+    current_user: User,
+) -> dict[str, Any]:
+    """HITL approve — re-dispatch the real action instead of only flipping status.
+
+    Extracted so the unified approvals inbox and Slack receiver can call the
+    exact same logic as ``POST /api/entity-action-runs/{run_id}/approve``.
+    """
     with Session(engine) as session:
         row = session.get(EntityActionRun, run_id)
         if not row:
@@ -499,13 +501,14 @@ async def approve_entity_action_run(
         return _serialize_run(row, action_name=action.name)
 
 
-@runs_router.post("/{run_id}/reject")
-def reject_entity_action_run(
-    request: Request,
+def reject_entity_action_run_core(
     run_id: str,
-    current_user: User = Depends(require_admin),
-):
-    tenant_id = require_tenant(request)
+    tenant_id: str,
+    current_user: User,
+) -> dict[str, Any]:
+    """Extracted so the unified approvals inbox and Slack receiver can call the
+    exact same logic as ``POST /api/entity-action-runs/{run_id}/reject``.
+    """
     with Session(engine) as session:
         row = session.get(EntityActionRun, run_id)
         if not row:
@@ -538,3 +541,23 @@ def reject_entity_action_run(
         if action:
             _audit_action_run(current_user, action, entity, row, inputs)
         return _serialize_run(row, action_name=action.name if action else None)
+
+
+@runs_router.post("/{run_id}/approve")
+async def approve_entity_action_run(
+    request: Request,
+    run_id: str,
+    current_user: User = Depends(require_admin),
+):
+    tenant_id = require_tenant(request)
+    return await approve_entity_action_run_core(run_id, tenant_id, current_user)
+
+
+@runs_router.post("/{run_id}/reject")
+def reject_entity_action_run(
+    request: Request,
+    run_id: str,
+    current_user: User = Depends(require_admin),
+):
+    tenant_id = require_tenant(request)
+    return reject_entity_action_run_core(run_id, tenant_id, current_user)

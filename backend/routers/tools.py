@@ -147,6 +147,23 @@ class ToolAccountUpdateBody(BaseModel):
     requires_hitl: int | None = None
 
 
+@router.get("/api/connectors")
+def api_list_connectors(current_user: User = Depends(get_current_user)):
+    """Connector ids + auth metadata — powers the workflow builder's connector
+    step palette. No per-connector write-method catalog exists yet, so the
+    builder leaves the method field free text."""
+    from ..connectors.registry import CONNECTOR_MAP
+
+    return [
+        {
+            "id": connector_id,
+            "auth_types": meta.get("auth_types", []),
+            "required_fields": meta.get("required_fields", []),
+        }
+        for connector_id, meta in sorted(CONNECTOR_MAP.items())
+    ]
+
+
 @router.get("/api/tools/categories")
 def api_tools_categories(
     request: Request,

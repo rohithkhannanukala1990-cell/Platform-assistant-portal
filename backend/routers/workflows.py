@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
@@ -423,6 +423,31 @@ def api_get_run(
             raise HTTPException(status_code=404, detail="Not found")
         assert_same_tenant(row.tenant_id, tenant_id)
         return serialize_run(row, include_definition=True)
+
+
+@runs_router.get("/{run_id}/export.pdf")
+def api_export_run_pdf(
+    request: Request,
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from ..services.workflow_pdf import build_run_pdf
+    from ..db.models.workflows import WorkflowRun
+
+    tenant_id = require_tenant(request)
+    with Session(engine) as session:
+        row = session.get(WorkflowRun, run_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Not found")
+        assert_same_tenant(row.tenant_id, tenant_id)
+        run = serialize_run(row, include_definition=True)
+    definition = run.pop("workflow", None)
+    pdf_bytes = build_run_pdf(run, definition)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="workflow-run-{run_id}.pdf"'},
+    )
 
 
 @runs_router.post("/{run_id}/approve")

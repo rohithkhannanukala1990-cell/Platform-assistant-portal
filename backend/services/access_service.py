@@ -252,6 +252,35 @@ async def provision_access_request(
     return {"ok": bool((result or {}).get("ok", True)), "request_id": request_id, "result": result}
 
 
+def reject_access_request(
+    *,
+    request_id: str,
+    tenant_id: str,
+    decided_by: str,
+    reason: str = "",
+) -> dict[str, Any]:
+    with Session(engine) as session:
+        row = session.get(AccessRequestRecord, request_id)
+        if not row or row.tenant_id != tenant_id:
+            return {"ok": False, "error": "not_found"}
+        if row.status != "pending_approval":
+            return {"ok": False, "error": f"status={row.status}"}
+        row.status = "rejected"
+        row.approved_by = decided_by
+        row.approved_at = datetime.now(timezone.utc)
+        session.add(row)
+        session.commit()
+
+    write_audit(
+        decided_by,
+        "Admin",
+        "access_rejected",
+        resource=f"access:{request_id}",
+        detail=(reason or "Rejected")[:500],
+    )
+    return {"ok": True, "status": "rejected"}
+
+
 def _map_params_for_connector(
     connector: str, method: str, params: dict, *, user_email: str | None
 ) -> dict:

@@ -24,6 +24,7 @@ import MCPToolsCatalog from './MCPToolsCatalog'
 import CommandPolicyPanel from './CommandPolicyPanel'
 import AlertRulesPanel from './AlertRulesPanel'
 import WorkflowTriggersKillSwitch from './WorkflowTriggersKillSwitch'
+import SlackAccountLinkPanel from './SlackAccountLinkPanel'
 
 const CLOUD_OPTIONS    = ['GCP', 'AWS', 'Azure', 'DigitalOcean']
 const CICD_OPTIONS     = ['GitHub Actions', 'GitLab CI', 'Jenkins']
@@ -124,6 +125,9 @@ export default function SettingsModal({ onClose, embedded = false }) {
               value={localValues.slack_webhook_url ?? ''}
               onChange={(v) => handleChange('slack_webhook_url', v)}
             />
+            <div className="pt-3 mt-3 border-t border-border">
+              <SlackAccountLinkPanel />
+            </div>
           </Section>
 
           {/* Jira */}
