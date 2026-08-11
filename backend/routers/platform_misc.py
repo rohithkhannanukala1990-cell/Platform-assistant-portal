@@ -233,7 +233,7 @@ def unified_search(
                     ),
                 )
                 .limit(5),
-                {"t": term},
+                params={"t": term},
             ).all()
             for c in cats:
                 results.append(
@@ -248,12 +248,63 @@ def unified_search(
         except Exception:
             pass
 
+        try:
+            from ..database import Workspace
+
+            tenant_id = getattr(current_user, "tenant_id", None) or "default"
+            spaces = session.exec(
+                select(Workspace)
+                .where(
+                    Workspace.is_active == 1,
+                    Workspace.tenant_id == tenant_id,
+                    sa_text(
+                        "LOWER(name) LIKE :t OR LOWER(COALESCE(description, '')) LIKE :t"
+                    ),
+                )
+                .limit(5),
+                params={"t": term},
+            ).all()
+            for w in spaces:
+                results.append(
+                    {
+                        "type": "Workspace",
+                        "id": w.id,
+                        "title": w.name,
+                        "subtitle": w.description or w.environment,
+                        "url": "/workspaces",
+                    }
+                )
+        except Exception:
+            pass
+
+        try:
+            from ..agents import list_agents
+
+            needle = q.strip().lower()
+            for agent in list_agents():
+                if needle in (agent.get("name") or "").lower() or needle in (
+                    agent.get("description") or ""
+                ).lower():
+                    results.append(
+                        {
+                            "type": "Agent",
+                            "id": agent["name"],
+                            "title": agent["name"],
+                            "subtitle": (agent.get("description") or "")[:60],
+                            "url": "/agents",
+                        }
+                    )
+                if len([r for r in results if r["type"] == "Agent"]) >= 5:
+                    break
+        except Exception:
+            pass
+
         incidents = session.exec(
             select(Incident)
             .where(sa_text("LOWER(summary) LIKE :t OR LOWER(root_cause) LIKE :t"))
             .order_by(Incident.timestamp.desc())
             .limit(min(limit, 10)),
-            {"t": term},
+            params={"t": term},
         ).all()
         for i in incidents:
             results.append(
@@ -270,7 +321,7 @@ def unified_search(
 
         tools = session.exec(
             select(Tool).where(sa_text("LOWER(name) LIKE :t OR LOWER(category) LIKE :t")).limit(5),
-            {"t": term},
+            params={"t": term},
         ).all()
         for t_row in tools:
             results.append(
@@ -288,7 +339,7 @@ def unified_search(
             .where(sa_text("LOWER(resource_name) LIKE :t"))
             .order_by(InfraGeneration.timestamp.desc())
             .limit(5),
-            {"t": term},
+            params={"t": term},
         ).all()
         for item in infra_rows:
             results.append(
@@ -306,7 +357,7 @@ def unified_search(
             .where(sa_text("LOWER(tool_name) LIKE :t OR LOWER(COALESCE(prompt, '')) LIKE :t"))
             .order_by(CICDPipeline.timestamp.desc())
             .limit(5),
-            {"t": term},
+            params={"t": term},
         ).all()
         for item in cicd_rows:
             results.append(

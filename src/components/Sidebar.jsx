@@ -114,8 +114,10 @@ const NAV_GROUPS = [
   },
   {
     name: 'Developer Tools',
-    defaultOpen: false,
+    defaultOpen: true,
     items: [
+      { label: 'Code Editor', path: '/editor', icon: 'Code2' },
+      { label: 'Terminal', path: '/terminal', icon: 'TerminalSquare' },
       { label: 'Deployments', path: '/deployments', icon: 'Rocket' },
       { label: 'Kubernetes', path: '/k8s', icon: 'Server' },
       { label: 'Runbooks', path: '/runbooks', icon: 'BookMarked' },
@@ -145,14 +147,6 @@ const NAV_GROUPS = [
       { label: 'AI Assistant', path: '/ai-assistant', icon: 'Sparkles' },
       { label: 'Agents', path: '/agents', icon: 'Bot', badgeKey: 'agentApprovals' },
       { label: 'Run History', path: '/agent-history', icon: 'Activity' },
-    ],
-  },
-  {
-    name: 'Labs',
-    defaultOpen: false,
-    items: [
-      { label: 'Code Editor', path: '/editor', icon: 'Code2', preview: true },
-      { label: 'Terminal', path: '/terminal', icon: 'TerminalSquare', preview: true },
     ],
   },
 ]

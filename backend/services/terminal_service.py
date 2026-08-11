@@ -482,6 +482,24 @@ def format_agent_list() -> str:
     return "\r\n".join(lines)
 
 
+def format_capabilities_help() -> str:
+    """Render the advertised-tools line from the real capability probe instead
+    of a hardcoded list — a tool that isn't installed in this deployment is
+    shown as unavailable, not advertised as if it works."""
+    from .terminal_capabilities import get_capabilities
+
+    caps = get_capabilities()
+    parts = []
+    for tool in KNOWN_BINARIES:
+        entry = caps.get(tool) or {"available": False, "version": None}
+        if entry["available"]:
+            label = f"{tool} {entry['version']}" if entry["version"] else tool
+        else:
+            label = f"{tool} (not installed in this deployment)"
+        parts.append(label)
+    return "Available: " + ", ".join(parts)
+
+
 def format_agent_help() -> str:
     return (
         "@ syntax — invoke agents without a shell:\r\n"

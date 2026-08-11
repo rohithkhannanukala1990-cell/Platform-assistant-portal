@@ -207,8 +207,25 @@ export default function WorkspaceBuilderPage() {
   const [accountPick, setAccountPick] = useState({})
   const [canvasTools, setCanvasTools] = useState([])
   const [accountModal, setAccountModal] = useState(null)
+  const [walkthroughDismissed, setWalkthroughDismissed] = useState(true)
 
   const workspaceId = selectedWorkspace?.id || null
+
+  useEffect(() => {
+    authFetch('/api/user-prefs/workspace_walkthrough_dismissed')
+      .then((r) => (r.ok ? r.json() : { value: null }))
+      .then((body) => setWalkthroughDismissed(body.value === '1'))
+      .catch(() => setWalkthroughDismissed(true))
+  }, [authFetch])
+
+  function dismissWalkthrough() {
+    setWalkthroughDismissed(true)
+    void authFetch('/api/user-prefs/workspace_walkthrough_dismissed', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: '1' }),
+    })
+  }
 
   useEffect(() => {
     if (!workspaceId) {
@@ -726,7 +743,25 @@ export default function WorkspaceBuilderPage() {
             <PinOff className="w-4 h-4 text-slate-600 shrink-0 opacity-0 group-hover:opacity-100" aria-hidden />
           )}
         </div>
-        <p className="text-sm text-slate-400 mt-2 line-clamp-2 flex-1">{ws.description || '—'}</p>
+        <p className="text-sm text-slate-400 mt-2 line-clamp-2">{ws.description || '—'}</p>
+        {(ws.tools_preview || []).length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5 mt-2 flex-1">
+            {ws.tools_preview.map((t) => (
+              <span
+                key={t.tool_id}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800/80 text-[10px] text-slate-300"
+              >
+                {t.icon ? <span aria-hidden>{t.icon}</span> : null}
+                {t.name}
+              </span>
+            ))}
+            {ws.tool_count > ws.tools_preview.length ? (
+              <span className="text-[10px] text-slate-500">+{ws.tool_count - ws.tools_preview.length} more</span>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-[10px] text-slate-600 mt-2 flex-1">No tools added yet</p>
+        )}
         <div className="flex items-center justify-between mt-3 text-xs text-slate-500">
           <div className="flex items-center gap-2 flex-wrap">
             <span
@@ -1167,7 +1202,8 @@ export default function WorkspaceBuilderPage() {
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Workspaces</h1>
           <p className="text-sm text-slate-400 mt-1">
-            Saved tool collections for quick context switching
+            A workspace is a curated set of tools and accounts for a specific job — like
+            incident response or data engineering — not a project folder.
           </p>
         </div>
         <PermissionGate resource="workspaces" action="create">
@@ -1180,6 +1216,27 @@ export default function WorkspaceBuilderPage() {
           </button>
         </PermissionGate>
       </div>
+
+      {!walkthroughDismissed ? (
+        <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-sm font-bold text-blue-200">Getting started with workspaces</h2>
+            <button
+              type="button"
+              onClick={dismissWalkthrough}
+              className="text-xs text-blue-300 hover:text-white shrink-0"
+            >
+              Dismiss
+            </button>
+          </div>
+          <ol className="mt-2 space-y-1 text-sm text-slate-300 list-decimal list-inside">
+            <li>Pick a workspace below (or create one) for the job you're doing.</li>
+            <li>Add the tools that job needs from the tool picker.</li>
+            <li>Connect an account to each tool if it isn't connected yet.</li>
+            <li>Open the workspace to switch context with everything in one place.</li>
+          </ol>
+        </div>
+      ) : null}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">

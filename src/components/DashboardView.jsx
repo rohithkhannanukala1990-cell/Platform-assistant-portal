@@ -14,6 +14,7 @@ import OncallWidget from './OncallWidget'
 import DoraStrip from './dashboard/DoraStrip'
 import AwsCostCard from './dashboard/AwsCostCard'
 import LogScannerCard from './dashboard/LogScannerCard'
+import SetupChecklistCard from './dashboard/SetupChecklistCard'
 import { Card, StatCard, PageHeader, EmptyState } from './ui'
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE } from '../config/apiBase'
@@ -235,6 +236,8 @@ export default function DashboardView() {
           </div>
         )}
       />
+
+      <SetupChecklistCard />
 
       {/* Single KPI row — merged catalog / standards / actions / incidents / critical */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">

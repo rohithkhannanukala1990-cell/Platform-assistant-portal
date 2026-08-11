@@ -6,6 +6,21 @@ from datetime import datetime
 from ..command_validator import CommandValidator
 
 
+def _missing_binary_message(cmd: str) -> str | None:
+    """Return a clear message if cmd's binary is a known-but-uninstalled tool,
+    None if the binary is present (or unknown — let subprocess.run surface it)."""
+    from ..services.terminal_capabilities import get_capabilities
+
+    try:
+        binary = shlex.split(cmd)[0]
+    except (ValueError, IndexError):
+        return None
+    entry = get_capabilities().get(binary)
+    if entry is not None and not entry["available"]:
+        return f"'{binary}' is not installed in this deployment."
+    return None
+
+
 def _default_context() -> dict:
     """Conservative context for legacy callers that do not pass one.
 
@@ -146,6 +161,17 @@ class SafeExecutor:
                     "requires_approval": True,
                 }
 
+            missing = _missing_binary_message(cmd)
+            if missing:
+                logs.append(f"[Step {i+1}] ⛔ {missing}")
+                return {
+                    "success": False,
+                    "logs": "\n".join(logs),
+                    "blocked_at": i,
+                    "policy_effect": "missing_binary",
+                    "policy_reasons": [missing],
+                }
+
             logs.append(f"[Step {i+1}/{len(commands)}] Executing: {cmd}")
             try:
                 result = subprocess.run(
@@ -163,6 +189,17 @@ class SafeExecutor:
                 logs.append(f"[Step {i+1}] ⏰ Timed out after {self.MAX_EXECUTION_SECONDS}s")
                 await self._rollback(executed, logs)
                 return {"success": False, "logs": "\n".join(logs), "timeout_at": i}
+            except (FileNotFoundError, OSError) as exc:
+                binary = shlex.split(cmd)[0] if cmd.strip() else str(exc)
+                logs.append(f"[Step {i+1}] ⛔ '{binary}' is not installed in this deployment.")
+                await self._rollback(executed, logs)
+                return {
+                    "success": False,
+                    "logs": "\n".join(logs),
+                    "blocked_at": i,
+                    "policy_effect": "missing_binary",
+                    "policy_reasons": [f"'{binary}' is not installed in this deployment."],
+                }
 
         logs.append(f"[SafeExecutor] ✅ All {len(commands)} steps completed successfully")
         return {"success": True, "logs": "\n".join(logs)}
@@ -183,6 +220,9 @@ class SafeExecutor:
                         logs.append(f"[Rollback] ✅ Success: {rollback_cmd}")
                     else:
                         logs.append(f"[Rollback] ❌ Failed: {result.stderr[:200]}")
+                except (FileNotFoundError, OSError) as exc:
+                    binary = shlex.split(rollback_cmd)[0] if rollback_cmd.strip() else str(exc)
+                    logs.append(f"[Rollback] ⚠️ '{binary}' is not installed in this deployment.")
                 except Exception as exc:
                     logs.append(f"[Rollback] ⚠️ Error: {exc}")
             else:

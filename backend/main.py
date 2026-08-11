@@ -140,6 +140,12 @@ async def lifespan(app: FastAPI):
     SQLModel.metadata.create_all(db_engine_ref)
     seed_default_admin()
     seed_default_llm_config()
+    try:
+        from .services.terminal_capabilities import refresh_capabilities
+
+        refresh_capabilities()
+    except Exception:
+        logger.warning("Terminal capability probe failed at startup", exc_info=True)
     start_scheduler()
     try:
         from .services.workflow_triggers import reload_schedule_jobs
@@ -162,6 +168,8 @@ app.router.routes.insert(0, Mount("/metrics", app=metrics_app, name="metrics"))
 from .routers.agents import router as agents_router
 from .routers.approvals import router as approvals_router
 from .routers.slack_interactions import router as slack_interactions_router
+from .routers.terminal import router as terminal_router
+from .routers.user_prefs import router as user_prefs_router
 from .routers.audit_log import router as audit_router
 from .routers.users import router as users_router
 from .routers.sso import router as sso_router
@@ -178,6 +186,8 @@ app.include_router(mcp_api_router)
 app.include_router(agents_router)
 app.include_router(approvals_router)
 app.include_router(slack_interactions_router)
+app.include_router(terminal_router)
+app.include_router(user_prefs_router)
 app.include_router(audit_router, prefix="")
 app.include_router(users_router, prefix="")
 app.include_router(sso_router)

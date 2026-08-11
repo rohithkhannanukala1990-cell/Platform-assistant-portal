@@ -375,6 +375,55 @@ def api_tool_accounts_list(
         return [_account_to_dict(session, a) for a in rows]
 
 
+# Ordered by impact for the dashboard setup checklist — GitHub and PagerDuty
+# first since the most agents depend on them, then Kubernetes, then the rest.
+SETUP_CHECKLIST_CONNECTORS = [
+    "github",
+    "pagerduty",
+    "kubernetes",
+    "aws",
+    "slack",
+    "datadog",
+    "jira",
+    "gitlab",
+    "prometheus",
+    "grafana",
+    "vault",
+    "argocd",
+]
+
+
+@router.get("/api/tools/connection-summary")
+def api_tools_connection_summary(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Bulk connected/not-connected status across the setup-checklist connector
+    list — one query instead of one round trip per connector."""
+    tenant_id = require_tenant(request)
+    with Session(db_engine) as session:
+        q = select(ToolAccount).where(
+            ToolAccount.tool_id.in_(SETUP_CHECKLIST_CONNECTORS),
+            ToolAccount.is_active == 1,
+            ToolAccount.status == "connected",
+        )
+        q = apply_tenant_filter(q, ToolAccount, tenant_id)
+        role = (current_user.role or "").strip().lower()
+        if role not in {"admin", "superadmin", "platformadmin"}:
+            uid = str(current_user.id) if current_user.id is not None else None
+            ownership = []
+            if uid:
+                ownership.append(ToolAccount.owner_user_id == uid)
+            ownership.append(ToolAccount.created_by == current_user.username)
+            q = q.where(or_(*ownership))
+        connected_ids = {a.tool_id for a in session.exec(q).all()}
+
+    return [
+        {"id": connector_id, "connected": connector_id in connected_ids}
+        for connector_id in SETUP_CHECKLIST_CONNECTORS
+    ]
+
+
 @router.post("/api/tools/{tool_id}/accounts")
 def api_tool_accounts_create(
     tool_id: str,

@@ -77,6 +77,118 @@ def get_owned_file(session: Session, file_id: str, *, tenant_id: str, username: 
     return row
 
 
+_STARTER_SEEDED_PREF = "editor_starter_seeded"
+
+_STARTER_FILES = [
+    {
+        "filename": "example-deployment.yaml",
+        "language": "yaml",
+        "content": (
+            "# Example — edit or delete freely.\n"
+            "# A minimal Kubernetes Deployment manifest.\n"
+            "apiVersion: apps/v1\n"
+            "kind: Deployment\n"
+            "metadata:\n"
+            "  name: my-service\n"
+            "  labels:\n"
+            "    app: my-service\n"
+            "spec:\n"
+            "  replicas: 2\n"
+            "  selector:\n"
+            "    matchLabels:\n"
+            "      app: my-service\n"
+            "  template:\n"
+            "    metadata:\n"
+            "      labels:\n"
+            "        app: my-service\n"
+            "    spec:\n"
+            "      containers:\n"
+            "        - name: my-service\n"
+            "          image: my-service:latest\n"
+            "          ports:\n"
+            "            - containerPort: 8080\n"
+            "          resources:\n"
+            "            requests:\n"
+            "              cpu: 100m\n"
+            "              memory: 128Mi\n"
+            "            limits:\n"
+            "              cpu: 500m\n"
+            "              memory: 512Mi\n"
+        ),
+    },
+    {
+        "filename": "example-module.tf",
+        "language": "hcl",
+        "content": (
+            "# Example — edit or delete freely.\n"
+            "# A minimal Terraform module skeleton.\n"
+            "terraform {\n"
+            "  required_version = \">= 1.5.0\"\n"
+            "}\n\n"
+            "variable \"environment\" {\n"
+            "  description = \"Deployment environment (dev, staging, prod)\"\n"
+            "  type        = string\n"
+            "  default     = \"dev\"\n"
+            "}\n\n"
+            "resource \"null_resource\" \"example\" {\n"
+            "  triggers = {\n"
+            "    environment = var.environment\n"
+            "  }\n"
+            "}\n\n"
+            "output \"environment\" {\n"
+            "  value = var.environment\n"
+            "}\n"
+        ),
+    },
+    {
+        "filename": "example-ci.yml",
+        "language": "yaml",
+        "content": (
+            "# Example — edit or delete freely.\n"
+            "# A minimal GitHub Actions workflow.\n"
+            "name: CI\n\n"
+            "on:\n"
+            "  push:\n"
+            "    branches: [main]\n"
+            "  pull_request:\n"
+            "    branches: [main]\n\n"
+            "jobs:\n"
+            "  test:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - uses: actions/checkout@v4\n"
+            "      - name: Run tests\n"
+            "        run: echo \"add your test command here\"\n"
+        ),
+    },
+]
+
+
+def _seed_starter_files(tenant_id: str, username: str) -> None:
+    from ..services.user_prefs import get_pref, set_pref
+
+    if get_pref(username, _STARTER_SEEDED_PREF):
+        return
+    now = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        for starter in _STARTER_FILES:
+            session.add(
+                EditorFile(
+                    id=str(uuid.uuid4()),
+                    tenant_id=tenant_id or DEFAULT_TENANT_ID,
+                    owner_username=username,
+                    filename=starter["filename"],
+                    language=starter["language"],
+                    content=starter["content"],
+                    source_type="scratch",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        session.commit()
+    set_pref(username, _STARTER_SEEDED_PREF, "1")
+
+
 def list_files(*, tenant_id: str, username: str) -> list[dict[str, Any]]:
     with Session(engine) as session:
         rows = session.exec(
@@ -87,7 +199,20 @@ def list_files(*, tenant_id: str, username: str) -> list[dict[str, Any]]:
             )
             .order_by(col(EditorFile.updated_at).desc())
         ).all()
-        return [serialize_file(r) for r in rows]
+
+    if not rows:
+        _seed_starter_files(tenant_id, username)
+        with Session(engine) as session:
+            rows = session.exec(
+                select(EditorFile)
+                .where(
+                    EditorFile.tenant_id == tenant_id,
+                    EditorFile.owner_username == username,
+                )
+                .order_by(col(EditorFile.updated_at).desc())
+            ).all()
+
+    return [serialize_file(r) for r in rows]
 
 
 def create_file(

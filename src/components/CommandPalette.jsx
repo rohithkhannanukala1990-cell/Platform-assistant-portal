@@ -8,6 +8,8 @@ import {
   Wrench,
   Server,
   GitBranch,
+  Grid,
+  Bot,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -33,6 +35,9 @@ const ALL_COMMANDS = [
   { label: 'Integrations', path: '/integrations', category: 'Admin' },
   { label: 'Settings', path: '/settings', category: 'Admin' },
   { label: 'AI Assistant', path: '/ai-assistant', category: 'AI' },
+  { label: 'Agents', path: '/agents', category: 'AI' },
+  { label: 'Run History', path: '/agent-history', category: 'AI' },
+  { label: 'Workflows', path: '/workflows', category: 'IDP Platform' },
   { label: 'CI/CD Pipelines', path: '/cicd', category: 'DevTools' },
   { label: 'GitHub PRs', path: '/github/prs', category: 'DevTools' },
   { label: 'GitHub Actions', path: '/github/actions', category: 'DevTools' },
@@ -42,15 +47,17 @@ const ALL_COMMANDS = [
   { label: 'Deployments', path: '/deployments', category: 'DevTools' },
   { label: 'Schema Browser', path: '/schema-browser', category: 'DevTools', preview: true },
   { label: 'Data Lineage', path: '/data-lineage', category: 'DevTools', preview: true },
-  { label: 'Code Editor', path: '/editor', category: 'Labs', preview: true },
-  { label: 'Terminal', path: '/terminal', category: 'Labs', preview: true },
+  { label: 'Code Editor', path: '/editor', category: 'DevTools' },
+  { label: 'Terminal', path: '/terminal', category: 'DevTools' },
   { label: 'Runbooks', path: '/runbooks', category: 'DevTools' },
 ]
 
-const TYPE_ORDER = ['Catalog', 'Incident', 'Tool', 'Infra', 'CI/CD']
+const TYPE_ORDER = ['Catalog', 'Workspace', 'Agent', 'Incident', 'Tool', 'Infra', 'CI/CD']
 
 const TYPE_BADGE = {
   Catalog: 'bg-indigo-500/20 text-indigo-300',
+  Workspace: 'bg-violet-500/20 text-violet-300',
+  Agent: 'bg-teal-500/20 text-teal-300',
   Incident: 'bg-rose-500/20 text-rose-300',
   Tool: 'bg-emerald-500/20 text-emerald-300',
   Infra: 'bg-amber-500/20 text-amber-300',
@@ -123,6 +130,8 @@ function groupNavCommands(commands) {
 function TypeIcon({ type }) {
   const cls = 'w-4 h-4 flex-shrink-0 text-slate-400'
   if (type === 'Catalog') return <Hexagon className={cls} />
+  if (type === 'Workspace') return <Grid className={cls} />
+  if (type === 'Agent') return <Bot className={cls} />
   if (type === 'Incident') return <AlertTriangle className={cls} />
   if (type === 'Tool') return <Wrench className={cls} />
   if (type === 'Infra') return <Server className={cls} />

@@ -622,9 +622,11 @@ async def terminal_ws(websocket: WebSocket):
                 continue
 
             if command.lower() == "help":
+                from .services.terminal_service import format_capabilities_help
+
                 await _send_output(
                     websocket,
-                    "\r\nAvailable: kubectl, helm, terraform, git, aws, npm, pip\r\n"
+                    f"\r\n{format_capabilities_help()}\r\n"
                     "Commands are validated before execution.\r\n"
                     "Use @help for agent shortcuts.\r\n",
                 )

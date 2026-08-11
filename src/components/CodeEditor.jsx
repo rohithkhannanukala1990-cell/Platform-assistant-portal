@@ -71,6 +71,10 @@ export default function CodeEditor() {
   const [prMeta, setPrMeta] = useState(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [isFullscreen, setFullscreen] = useState(false)
+  const [githubConnected, setGithubConnected] = useState(null) // null = checking
+  const [templates, setTemplates] = useState([])
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
+  const [hintDismissed, setHintDismissed] = useState(true) // default hidden until we know
   const debounceRef = useRef(null)
   const editorRef = useRef(null)
   const contentCache = useRef({})
@@ -100,6 +104,48 @@ export default function CodeEditor() {
     }
   }, [loadFiles])
 
+  // Check GitHub connection proactively so the sidebar can show a clear CTA
+  // instead of waiting for a tree fetch to fail.
+  useEffect(() => {
+    let cancelled = false
+    authFetch('/api/tools/github/accounts')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((accounts) => {
+        if (cancelled) return
+        const connected = Array.isArray(accounts) && accounts.some((a) => a.status === 'connected')
+        setGithubConnected(connected)
+      })
+      .catch(() => {
+        if (!cancelled) setGithubConnected(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    authFetch('/api/editor/templates')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setTemplates(Array.isArray(data) ? data : []))
+      .catch(() => setTemplates([]))
+  }, [])
+
+  useEffect(() => {
+    authFetch('/api/user-prefs/editor_hint_dismissed')
+      .then((res) => (res.ok ? res.json() : { value: null }))
+      .then((body) => setHintDismissed(body.value === '1'))
+      .catch(() => setHintDismissed(true))
+  }, [])
+
+  function dismissHint() {
+    setHintDismissed(true)
+    void authFetch('/api/user-prefs/editor_hint_dismissed', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: '1' }),
+    })
+  }
+
   useEffect(() => {
     if (searchParams.get('repo')) {
       setRepo(searchParams.get('repo'))
@@ -128,6 +174,21 @@ export default function CodeEditor() {
     const file = await res.json()
     openFile(file)
   }, [openFile])
+
+  const createFromTemplate = useCallback(async (template) => {
+    const content = JSON.stringify(
+      {
+        name: template.name,
+        description: template.description,
+        category: template.category,
+      },
+      null,
+      2
+    )
+    const filename = `${(template.name || 'template').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.json`
+    setTemplatePickerOpen(false)
+    await createScratch(filename, content)
+  }, [createScratch])
 
   const saveFile = useCallback(async (fileId, content, filename) => {
     setSaveState('saving')
@@ -309,6 +370,14 @@ export default function CodeEditor() {
         <button type="button" onClick={() => void createScratch()} className="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded">
           New
         </button>
+        <button
+          type="button"
+          onClick={() => setTemplatePickerOpen(true)}
+          disabled={!templates.length}
+          className="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded disabled:opacity-40"
+        >
+          New from template
+        </button>
         <button type="button" onClick={() => void formatActive()} className="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded">
           Format
         </button>
@@ -340,44 +409,70 @@ export default function CodeEditor() {
             </button>
           ))}
           <div className="text-slate-500 uppercase mt-4 mb-1">GitHub</div>
-          <input
-            value={repo}
-            onChange={(e) => setRepo(e.target.value)}
-            placeholder="org/repo"
-            className="w-full mb-1 bg-slate-900 border border-slate-700 rounded px-2 py-1"
-          />
-          <div className="flex gap-1 mb-1">
-            <input
-              value={refName}
-              onChange={(e) => setRefName(e.target.value)}
-              className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1"
-            />
-            <button type="button" onClick={() => void browseTree()} className="px-2 rounded bg-slate-800">
-              Go
-            </button>
-          </div>
-          {treeError ? <p className="text-rose-300 mb-1">{treeError}</p> : null}
-          {tree.map((e) => (
-            <button
-              key={e.path}
-              type="button"
-              onClick={() => {
-                if (e.type === 'dir') {
-                  setTreePath(e.path)
-                  void browseTree(repo, refName, e.path)
-                } else {
-                  void openGithubFile(e.path)
-                }
-              }}
-              className="block w-full text-left truncate px-2 py-1 rounded hover:bg-slate-800 text-slate-300"
-            >
-              {e.type === 'dir' ? '📁 ' : '📄 '}
-              {e.name}
-            </button>
-          ))}
+          {githubConnected === false ? (
+            <div className="rounded border border-slate-700 bg-slate-900/60 p-2 text-slate-300 space-y-1.5" data-testid="github-not-connected">
+              <p>Repo browsing needs a GitHub connection.</p>
+              <a href="/settings" className="text-indigo-300 underline">
+                Settings → Tool Registry
+              </a>
+              <p className="text-slate-500">Local files above work fully without it.</p>
+            </div>
+          ) : githubConnected === null ? (
+            <p className="text-slate-500">Checking GitHub connection…</p>
+          ) : (
+            <>
+              <input
+                value={repo}
+                onChange={(e) => setRepo(e.target.value)}
+                placeholder="org/repo"
+                className="w-full mb-1 bg-slate-900 border border-slate-700 rounded px-2 py-1"
+              />
+              <div className="flex gap-1 mb-1">
+                <input
+                  value={refName}
+                  onChange={(e) => setRefName(e.target.value)}
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1"
+                />
+                <button type="button" onClick={() => void browseTree()} className="px-2 rounded bg-slate-800">
+                  Go
+                </button>
+              </div>
+              {treeError ? <p className="text-rose-300 mb-1">{treeError}</p> : null}
+              {tree.map((e) => (
+                <button
+                  key={e.path}
+                  type="button"
+                  onClick={() => {
+                    if (e.type === 'dir') {
+                      setTreePath(e.path)
+                      void browseTree(repo, refName, e.path)
+                    } else {
+                      void openGithubFile(e.path)
+                    }
+                  }}
+                  className="block w-full text-left truncate px-2 py-1 rounded hover:bg-slate-800 text-slate-300"
+                >
+                  {e.type === 'dir' ? '📁 ' : '📄 '}
+                  {e.name}
+                </button>
+              ))}
+            </>
+          )}
         </aside>
 
         <div className="flex-1 flex flex-col min-w-0">
+          {!hintDismissed ? (
+            <div className="flex items-center gap-3 border-b border-border bg-indigo-950/40 px-3 py-1.5 text-[11px] text-indigo-200">
+              <span>
+                This editor: <strong>edits &amp; saves files</strong> (autosave on),{' '}
+                <strong>runs agent actions</strong> on a selection (Agents panel), and{' '}
+                <strong>proposes pull requests</strong> from GitHub-linked files.
+              </span>
+              <button type="button" onClick={dismissHint} className="ml-auto text-indigo-300 hover:text-white">
+                Dismiss
+              </button>
+            </div>
+          ) : null}
           <div className="flex overflow-x-auto border-b border-border bg-slate-950">
             {openTabs.map((id) => {
               const f = files.find((x) => x.id === id) || contentCache.current[id]
@@ -500,6 +595,29 @@ export default function CodeEditor() {
                 {label}
               </button>
             ))}
+          </div>
+        </div>
+      ) : null}
+
+      {templatePickerOpen ? (
+        <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center pt-24" onClick={() => setTemplatePickerOpen(false)}>
+          <div className="w-full max-w-md bg-slate-900 border border-border rounded-xl p-2 max-h-[70vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="px-3 py-2 text-xs uppercase text-slate-500">New from template</div>
+            {templates.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-slate-400">No templates available.</p>
+            ) : (
+              templates.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-slate-800 rounded"
+                  onClick={() => void createFromTemplate(t)}
+                >
+                  <div className="text-white">{t.name}</div>
+                  {t.description ? <div className="text-xs text-slate-400 truncate">{t.description}</div> : null}
+                </button>
+              ))
+            )}
           </div>
         </div>
       ) : null}
