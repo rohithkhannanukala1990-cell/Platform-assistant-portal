@@ -262,7 +262,7 @@ def test_p4_code_review_mocked_github_live(client, prod_like_env):
                 "task": "review PR #11 in acme/payments",
                 "context": {"environment": "production"},
                 "override_agents": ["code_review_agent"],
-                "params": {"owner": "acme", "repo": "payments", "pr_number": 11},
+                "params": {"owner": "acme", "repo": "payments", "pr_number": 11, "propose": False},
             },
         )
     assert r.status_code == 200, r.text

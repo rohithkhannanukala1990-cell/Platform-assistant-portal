@@ -12,7 +12,8 @@
     "task": "review PR #7 in acme/payments",
     "owner": "acme",
     "repo": "payments",
-    "pr_number": 7
+    "pr_number": 7,
+    "propose": false
   },
   "mock_tools": {
     "github": {

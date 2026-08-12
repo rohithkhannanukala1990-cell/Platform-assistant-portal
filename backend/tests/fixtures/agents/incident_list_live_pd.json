@@ -10,7 +10,8 @@
     "workspace_id": "ws-eval"
   },
   "params": {
-    "task": "list open incidents"
+    "task": "list open incidents",
+    "propose": false
   },
   "mock_tools": {
     "pagerduty": {
