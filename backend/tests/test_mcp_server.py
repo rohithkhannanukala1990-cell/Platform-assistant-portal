@@ -31,7 +31,24 @@ def test_list_tools_includes_read_and_write(mcp_token):
     assert "portal_list_github_repos" in names
     assert "portal_propose_remediation" in names
     assert "portal_run_agent" in names
-    assert WRITE_TOOLS.issubset(names)
+
+    # WRITE_TOOLS is the portal-wide registry of connector write methods that
+    # must be HITL-gated — it pairs with the `approval-<connector>-<method>`
+    # CommandPolicyRule rows asserted by the sprint 3/4/5 tests. Most of its
+    # entries (Jira/Slack/ServiceNow/Confluence/AWS/Okta/... write-backs) are
+    # reached through agents and connectors, and are deliberately not exposed
+    # as MCP tools, so `WRITE_TOOLS.issubset(names)` is not a real invariant —
+    # an unexposed name is inert (dispatch_tool returns "Unknown tool").
+    #
+    # The invariant that does matter is the reverse: every write tool the MCP
+    # server *does* expose must be classified in WRITE_TOOLS, or server_app
+    # would silently skip its pending-approval annotation on tools/call.
+    mcp_write_tools = {
+        t["name"] for t in tools if not (t.get("annotations") or {}).get("readOnlyHint")
+    }
+    assert mcp_write_tools, "MCP server exposes no write tools"
+    unclassified = mcp_write_tools - WRITE_TOOLS
+    assert not unclassified, f"MCP write tools missing from WRITE_TOOLS: {unclassified}"
     assert len(tools) == len(PORTAL_TOOLS)
 
 
