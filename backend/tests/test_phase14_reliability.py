@@ -6,11 +6,24 @@ import hashlib
 import hmac
 import json
 
+import pytest
 from sqlmodel import Session, select
 
 from backend.database import engine
 from backend.db.models.ops import WebhookDelivery
+from backend.rate_limit import limiter
 from backend.tests.conftest import auth_headers
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """The `client` fixture is module-scoped, so slowapi's in-memory limiter
+    (no Redis in the test environment) accumulates request counts across
+    every test in this file. Without a reset, whichever test runs later
+    inherits quota already spent by an earlier one and gets a spurious 429
+    instead of exercising the duplicate-delivery behavior under test."""
+    limiter.reset()
+    yield
 
 
 def _sign(secret: str, body: bytes) -> str:

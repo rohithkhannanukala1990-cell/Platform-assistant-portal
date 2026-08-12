@@ -11,7 +11,7 @@
   "params": {
     "task": "migrate payments schema",
     "service_name": "payments",
-    "migration_type": "database",
+    "migration_type": "infra",
     "source": "v1",
     "target": "v2",
     "dry_run": true
