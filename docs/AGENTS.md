@@ -1,4 +1,4 @@
-# Agent platform (Phase G2)
+# Agent platform
 
 Quality bar for every specialist agent: **grounding**, **evidence**, **guardrails**, **HITL**.
 
@@ -34,6 +34,10 @@ Every agent must:
 | `cost_agent` | read_only | AWS Cost Explorer | — |
 | `dependency_drift_agent` | read_only | GitHub manifests | — |
 | `catalog_health_agent` | read_only | Catalog DB | — |
+| `access_agent` | mutating | Okta (+ downstream GitHub/AWS/K8s/Jira via access_service) | grant/revoke |
+| `change_agent` | mutating | ServiceNow/Jira via change_service | submit/close |
+| `compliance_agent` | mutating (evidence pack) | Platform DB/services (no external connector) | evidence pack export |
+| `oncall_agent` | mutating | PagerDuty | override/escalation-policy changes |
 
 ## HITL matrix
 
