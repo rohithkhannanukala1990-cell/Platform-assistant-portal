@@ -1,11 +1,17 @@
 import js from '@eslint/js'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
+import reactHooks from 'eslint-plugin-react-hooks'
 
 /** CI-friendly: recommended rules with noisy checks relaxed (no component refactors). */
 export default tseslint.config(
   { ignores: ['dist', 'node_modules'] },
   js.configs.recommended,
+  {
+    files: ['src/**/*.{js,jsx,ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: reactHooks.configs['recommended-latest'].rules,
+  },
   {
     files: ['src/**/*.{js,jsx}'],
     languageOptions: {
