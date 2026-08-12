@@ -12,16 +12,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl unzip \
     && rm -rf /var/lib/apt/lists/*
 
+# Sizes below are approximate (compressed download size) — this build step is
+# the slow part of a full image build (~500MB total across all four tools);
+# these lines exist so that wait looks like progress, not a hang.
+RUN echo "Downloading kubectl ${KUBECTL_VERSION} (~45MB)…"
 RUN curl -fsSL -o /usr/local/bin/kubectl \
     "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
     && chmod +x /usr/local/bin/kubectl
 
+RUN echo "Downloading helm ${HELM_VERSION} (~15MB)…"
 RUN curl -fsSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tar.gz \
     && tar -xzf /tmp/helm.tar.gz -C /tmp \
     && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
     && chmod +x /usr/local/bin/helm \
     && rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
 
+RUN echo "Downloading terraform ${TERRAFORM_VERSION} (~30MB)…"
 RUN curl -fsSL \
     "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
     -o /tmp/terraform.zip \
@@ -29,6 +35,7 @@ RUN curl -fsSL \
     && chmod +x /usr/local/bin/terraform \
     && rm -f /tmp/terraform.zip
 
+RUN echo "Downloading aws-cli v2 ${AWSCLI_VERSION} (~60MB)…"
 RUN curl -fsSL \
     "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWSCLI_VERSION}.zip" \
     -o /tmp/awscliv2.zip \
@@ -36,11 +43,11 @@ RUN curl -fsSL \
     && /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli \
     && rm -rf /tmp/awscliv2.zip /tmp/aws
 
-# ── Stage 2: runtime image ──────────────────────────────────────────────────
+# ── Stage 2: runtime base — everything except the CLI tools and user setup ──
 # Pinned to bookworm rather than the floating `slim` tag (which now resolves
 # to trixie/Debian 13) so a rebuild doesn't silently land on a newer, less-
 # tested Debian release each time this image is built.
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm AS runtime-base
 
 # System deps for psycopg2-binary and python3-saml (xmlsec), plus git for the
 # in-app terminal. libxml2-dev/libxslt1-dev/zlib1g-dev are needed to build
@@ -48,6 +55,55 @@ FROM python:3.12-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev curl libxmlsec1-dev libxml2-dev libxslt1-dev zlib1g-dev libffi-dev pkg-config git \
     && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
+    # Both lxml and xmlsec ship as prebuilt manylinux wheels, and each wheel
+    # independently bundles its own libxml2. Loading two different bundled
+    # libxml2s in one process trips xmlsec's own "lxml & xmlsec libxml2
+    # library version mismatch" check. Force BOTH to build from source
+    # against this container's system libxml2/libxslt (via libxml2-dev/
+    # libxslt1-dev/libxmlsec1-dev) so they link the identical library.
+    && pip install --no-cache-dir --force-reinstall --no-binary lxml,xmlsec lxml xmlsec
+
+COPY . .
+
+# Writable directory for the SQLite dev DB (docker-compose.dev.yml mounts a
+# named volume here). Harmless to create in the full/Postgres image too —
+# ownership is fixed up by the `chown -R appuser:appuser /app` in each leaf
+# stage below, which also covers this directory.
+RUN mkdir -p /app/data
+
+# ── Stage 3a: lean runtime — no kubectl/helm/terraform/aws-cli ─────────────
+# For local development where the in-app terminal doesn't need to actually
+# execute those tools (it degrades to "not installed" messaging instead of
+# crashing — see backend/services/terminal_capabilities.py). Selected with
+# `docker build --target runtime-lean` (docker-compose.dev.yml uses this).
+FROM runtime-base AS runtime-lean
+
+ARG INCLUDE_CLI_TOOLS=false
+LABEL cli_tools=$INCLUDE_CLI_TOOLS
+
+# Symlink lets ``import backend.*`` work in this image (Celery include=backend.tasks).
+RUN ln -sfn /app /app/backend \
+    && useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8000
+
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ── Stage 3b: full runtime — adds kubectl/helm/terraform/aws-cli ───────────
+# This is the default target (the last stage in the file — `docker build`
+# with no `--target` builds this one, matching prior behavior exactly).
+FROM runtime-base AS runtime-full
+
+ARG INCLUDE_CLI_TOOLS=true
+LABEL cli_tools=$INCLUDE_CLI_TOOLS
 
 # Terminal CLI tools advertised by the in-app terminal — copied from the
 # toolchain stage so the final image stays lean (no unzip/download archives).
@@ -64,20 +120,6 @@ RUN chmod -R a+rX /usr/local/aws-cli \
     && chmod +x /usr/local/bin/kubectl /usr/local/bin/helm /usr/local/bin/terraform \
     && ln -sf /usr/local/aws-cli/v2/current/dist/aws /usr/local/bin/aws \
     && ln -sf /usr/local/aws-cli/v2/current/dist/aws_completer /usr/local/bin/aws_completer
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    # Both lxml and xmlsec ship as prebuilt manylinux wheels, and each wheel
-    # independently bundles its own libxml2. Loading two different bundled
-    # libxml2s in one process trips xmlsec's own "lxml & xmlsec libxml2
-    # library version mismatch" check. Force BOTH to build from source
-    # against this container's system libxml2/libxslt (via libxml2-dev/
-    # libxslt1-dev/libxmlsec1-dev) so they link the identical library.
-    && pip install --no-cache-dir --force-reinstall --no-binary lxml,xmlsec lxml xmlsec
-
-COPY . .
 
 # Symlink lets ``import backend.*`` work in this image (Celery include=backend.tasks).
 RUN ln -sfn /app /app/backend \

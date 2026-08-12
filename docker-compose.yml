@@ -15,6 +15,10 @@ x-backend-env: &backend-env
   JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-480}
   DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
   DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-Admin123!}
+  # Without a real OPENAI_API_KEY/ANTHROPIC_API_KEY, agent calls fail with
+  # LLMNotConfiguredError unless this is set — default to mock so a zero-config
+  # `docker compose up` actually produces working (if canned) agent responses.
+  LLM_MOCK: ${LLM_MOCK:-1}
 
 services:
 
@@ -67,6 +71,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: runtime-full
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -110,6 +115,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: runtime-full
     # Override CMD: start Celery instead of uvicorn
     command: >
       celery -A backend.worker.celery_app worker

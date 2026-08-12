@@ -1,0 +1,71 @@
+# ─────────────────────────────────────────────────────────────────────────
+#  AIOps Platform Engineering Assistant — fast local dev stack
+#
+#  Standalone file (not layered on top of docker-compose.yml — Compose has
+#  no "remove a service" merge operation, so a true override can't drop
+#  Postgres/Redis/nginx/Prometheus/Grafana/Loki from the base file). Just
+#  backend (SQLite, no CLI tools) + frontend. Mock LLM by default.
+#
+#  A distinct project `name` is required here: without it, Compose derives
+#  the project name from the directory (same as docker-compose.yml), so
+#  this file's images/containers/volumes/networks would collide with the
+#  full stack's — e.g. `backend` would resolve to whichever image was
+#  built last (runtime-full or runtime-lean), silently running the wrong
+#  one instead of failing loudly.
+#
+#  Usage:  docker compose -f docker-compose.dev.yml up
+# ─────────────────────────────────────────────────────────────────────────
+
+name: platformasistant-dev
+
+services:
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime-lean
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: sqlite:////app/data/dev.db
+      ENV: dev
+      SECRET_KEY: dev_jwt_secret_change_me
+      DEFAULT_ADMIN_USERNAME: admin
+      DEFAULT_ADMIN_PASSWORD: Admin123!
+      LLM_MOCK: "1"
+      FRONTEND_URL: http://localhost:5173
+    ports:
+      - "8000:8000"
+    volumes:
+      - dev_sqlite_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      interval: 10s
+      timeout: 10s
+      retries: 8
+      start_period: 15s
+    networks: [dev-network]
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "apk add --no-cache curl && npm install && npm run dev -- --host 0.0.0.0"
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [dev-network]
+
+volumes:
+  dev_sqlite_data:
+
+networks:
+  dev-network:
+    driver: bridge

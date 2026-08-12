@@ -102,6 +102,41 @@ async def _wait_for_db(retries: int = 30, delay: float = 2.0):
 
 
 @asynccontextmanager
+def _log_startup_configuration() -> None:
+    """Log a short effective-configuration summary so a zero-config start is
+    self-explanatory instead of silent (which database, whether Redis is
+    connected or falling back in-process, mock vs real LLM, which connectors
+    are configured via top-level env vars)."""
+    from .ai.providers.openai_compatible import _mock_enabled
+    from .database import _is_sqlite
+    from .services.readiness import check_redis
+
+    database = "sqlite" if _is_sqlite else "postgresql"
+    redis_status = check_redis()
+    redis = "connected" if redis_status.get("status") == "ok" else "fallback (in-process)"
+    if _mock_enabled():
+        llm_mode = "mock"
+    else:
+        llm_mode = (os.getenv("LLM_DEFAULT_PROVIDER") or "openai").strip() or "openai"
+    connectors = [
+        name
+        for name, env_var in (("slack", "SLACK_WEBHOOK_URL"), ("jira", "JIRA_DOMAIN"))
+        if (os.getenv(env_var) or "").strip()
+    ]
+    connectors_desc = (
+        ", ".join(connectors)
+        if connectors
+        else "none via env (GitHub/AWS/Kubernetes/etc. are configured per-account in Tool Registry, not env vars)"
+    )
+    # Values are embedded directly in the message (not passed via `extra=`) because
+    # the JSON log formatter only serializes keys in `_STRUCTURED_KEYS`, which
+    # doesn't include these — passing them as `extra` would silently drop them.
+    logger.info(
+        "Startup configuration: database=%s redis=%s llm_mode=%s connectors=%s"
+        % (database, redis, llm_mode, connectors_desc)
+    )
+
+
 async def lifespan(app: FastAPI):
     from .cron_jobs import shutdown_scheduler, start_scheduler
 
@@ -146,6 +181,7 @@ async def lifespan(app: FastAPI):
         refresh_capabilities()
     except Exception:
         logger.warning("Terminal capability probe failed at startup", exc_info=True)
+    _log_startup_configuration()
     start_scheduler()
     try:
         from .services.workflow_triggers import reload_schedule_jobs

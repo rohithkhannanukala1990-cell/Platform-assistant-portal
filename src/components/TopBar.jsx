@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Search, ChevronRight } from 'lucide-react'
+import { Search, ChevronRight, FlaskConical } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
@@ -85,6 +85,7 @@ export default function TopBar({ user, onOpenCommandPalette, onMenuOpen }) {
   const { authFetch } = useAuth()
   const { pendingApprovalCount } = usePortalContext()
   const [llmLabel, setLlmLabel] = useState('LLM')
+  const [llmMock, setLlmMock] = useState(false)
 
   const headerToolId = useMemo(
     () => headerToolIdFromPath(location.pathname),
@@ -118,6 +119,7 @@ export default function TopBar({ user, onOpenCommandPalette, onMenuOpen }) {
         if (cancelled) return
         const model = (data.default_model || '').trim()
         setLlmLabel(model || 'LLM')
+        setLlmMock(Boolean(data.mock))
       } catch {
         if (!cancelled) setLlmLabel('LLM')
       }
@@ -172,6 +174,15 @@ export default function TopBar({ user, onOpenCommandPalette, onMenuOpen }) {
         </nav>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
+          {llmMock && (
+            <span
+              title="Agent responses are canned mock output, not a real LLM call. Set LLM_MOCK=0 with a real API key to use a live provider."
+              className="hidden sm:flex items-center gap-1 rounded-full border border-amber-700/50 bg-amber-900/30 px-2 py-1 text-[11px] font-medium text-amber-300 shrink-0"
+            >
+              <FlaskConical className="w-3 h-3" />
+              Mock mode
+            </span>
+          )}
           <div className="hidden sm:flex items-center gap-1.5 shrink-0">
             <WorkspaceSwitcher />
             <ContextSwitcher toolId={headerToolId} />
