@@ -4,11 +4,24 @@ from __future__ import annotations
 
 from sqlmodel import Session, text
 
-from backend.database import engine
+from backend.database import _is_postgres, engine
 from backend.rate_limit import limiter
 from backend.services.pagination import clamp_page
 from backend.services.redis_url import redis_url
 from backend.tests.conftest import auth_headers
+
+
+def _index_names(session: Session, table: str) -> set[str]:
+    """Index names for *table*, working against both SQLite (PRAGMA) and
+    Postgres (pg_indexes) — CI runs this suite against real Postgres."""
+    if _is_postgres:
+        rows = session.exec(
+            text("SELECT indexname FROM pg_indexes WHERE tablename = :table"),
+            params={"table": table},
+        ).all()
+        return {r[0] for r in rows}
+    rows = session.exec(text(f"PRAGMA index_list('{table}')")).all()
+    return {r[1] for r in rows}
 
 
 def test_clamp_page_defaults():
@@ -46,12 +59,10 @@ def test_rate_limiter_uses_redis_storage_when_url_set(monkeypatch):
 def test_scale_indexes_exist(client):
     # Lifespan (via client) runs create_db_and_tables + _migrate/_ensure_scale_indexes
     with Session(engine) as session:
-        rows = session.exec(text("PRAGMA index_list('incident')")).all()
-        names = {r[1] for r in rows}
+        names = _index_names(session, "incident")
         assert "ix_incident_tenant_id" in names
         assert "ix_incident_timestamp" in names
-        rows_wd = session.exec(text("PRAGMA index_list('webhook_delivery')")).all()
-        wd_names = {r[1] for r in rows_wd}
+        wd_names = _index_names(session, "webhook_delivery")
         assert "ix_webhook_delivery_delivery_id" in wd_names or any(
             "webhook_delivery" in n for n in wd_names
         )
