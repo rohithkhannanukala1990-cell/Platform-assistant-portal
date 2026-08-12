@@ -42,7 +42,16 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
+          # lxml and xmlsec both ship prebuilt manylinux wheels, each bundling its own
+          # libxml2. Loading two different bundled libxml2s in one process trips xmlsec's
+          # "lxml & xmlsec libxml2 library version mismatch" check (backend/routers/sso.py
+          # imports onelogin -> xmlsec at collection time, so every test run hit this).
+          # Force both to build from source against the system libxml2/libxslt so they
+          # link the identical library — same fix already applied in backend/Dockerfile.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxml2-dev libxslt1-dev libxmlsec1-dev pkg-config
           pip install -r backend/requirements.txt
+          pip install --no-cache-dir --force-reinstall --no-binary lxml,xmlsec lxml xmlsec
           pip install pytest pytest-asyncio httpx
       - name: Run tests (Postgres)
         run: pytest backend/tests/ -v --tb=short
@@ -107,7 +116,13 @@ jobs:
           node-version: "20"
           cache: npm
       - name: Install backend deps
-        run: pip install -r backend/requirements.txt
+        run: |
+          # Same lxml/xmlsec libxml2 version-mismatch fix as backend-tests — this job
+          # also imports backend.main (which imports the SSO router) to start uvicorn.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxml2-dev libxslt1-dev libxmlsec1-dev pkg-config
+          pip install -r backend/requirements.txt
+          pip install --no-cache-dir --force-reinstall --no-binary lxml,xmlsec lxml xmlsec
       - name: Install frontend deps
         run: npm ci
       - name: Install Playwright browser
