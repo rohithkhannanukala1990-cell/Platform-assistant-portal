@@ -26,7 +26,7 @@ from ..ai.ai_utils import call_llm
 from ..ai.llm_service import llm_service
 from ..agents.base import GROUNDING_RULES
 
-TRIAGE_SYSTEM_PROMPT = """You are a senior DevOps and SRE engineer embedded inside Cursor IDE.
+TRIAGE_SYSTEM_PROMPT = """You are a senior DevOps and SRE engineer in this operations portal.
 Analyze the provided server logs and return ONLY a valid JSON object — no markdown, no explanation, no code fences.
 
 The JSON must have exactly these keys:

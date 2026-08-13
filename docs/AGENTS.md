@@ -77,4 +77,3 @@ Before promoting agent changes:
 
 - [`COMMAND_POLICY.md`](./COMMAND_POLICY.md) — Guardrails v2
 - [`MCP.md`](./MCP.md) — MCP HITL tools
-- [`PRODUCTION_BUG_BACKLOG.md`](./PRODUCTION_BUG_BACKLOG.md) — agent IDs fixed in P3

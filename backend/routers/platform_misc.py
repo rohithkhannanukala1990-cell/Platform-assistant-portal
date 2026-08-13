@@ -460,7 +460,7 @@ async def analyze_query(
             "summary": "Unable to perform AI analysis. Please check your AI provider configuration.",
         }
 
-    # Never return LLM-invented EXPLAIN output (ID-061).
+    # Never return LLM-invented EXPLAIN output.
     result["explain_plan"] = None
     result["explain_note"] = (
         "Live EXPLAIN requires a connected database with query execution rights. "

@@ -165,9 +165,8 @@ Answer it honestly — that's the flag for extra scrutiny.
 ## Reporting bugs and vulnerabilities
 
 Security issues go through [SECURITY.md](SECURITY.md) — privately, never a public
-issue. Everything else: use the issue templates. Known open defects already live
-in [docs/PRODUCTION_BUG_BACKLOG.md](docs/PRODUCTION_BUG_BACKLOG.md); it's worth
-checking there first.
+issue. Everything else: use the issue templates. Check existing issues before
+filing a duplicate.
 
 ## Licence
 

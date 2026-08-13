@@ -128,9 +128,6 @@ Stated so you do not spend time rediscovering them:
 - SOC 2 controls are *mapped and evidenced*, not *certified*. There is no audit
   report. See [COMPLIANCE.md](docs/COMPLIANCE.md).
 
-Open, non-security defects are tracked in
-[PRODUCTION_BUG_BACKLOG.md](docs/PRODUCTION_BUG_BACKLOG.md).
-
 ## Design background
 
 Before reporting, [THREAT_MODEL.md](docs/THREAT_MODEL.md) is worth a read — it

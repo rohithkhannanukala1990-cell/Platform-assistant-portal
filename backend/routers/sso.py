@@ -1,4 +1,4 @@
-"""SSO / SAML + Google OAuth integration stubs."""
+"""SSO — SAML 2.0 and Google OAuth login."""
 
 from __future__ import annotations
 

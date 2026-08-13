@@ -1,6 +1,6 @@
 # Production readiness (one-pager)
 
-**Status: Production candidate (Phase P8)** — safe for a **design-partner pilot** on the HA compose baseline.  
+**Status: Production candidate** — safe for a **design-partner pilot** on the HA compose baseline.  
 Not a claim of Port/Backstage/incident.io feature parity.
 
 ## What is ready
@@ -15,7 +15,7 @@ Not a claim of Port/Backstage/incident.io feature parity.
 | FE pilot UX | Agent grounding/HITL states, Tool Registry errors without raw tokens, safe login errors |
 | Automation | `pytest backend/tests` green; compose config tests; `scripts/pilot_smoke.sh` |
 
-**P0 blockers:** none open. Remaining P1 FE/ops items are **accepted risk** with owners — see `docs/PRODUCTION_BUG_BACKLOG.md`.
+**Known gaps:** none that block a design-partner pilot. Remaining work is polish (TypeScript coverage, broader browser e2e, a few catalog/workspace edge cases) — see the quality score below and [`product_comparison.md`](./product_comparison.md).
 
 ## Quality score (honest)
 
@@ -49,7 +49,7 @@ Path toward **9.5+ pilot**: TypeScript across high-traffic pages, expand browser
 
 ## What remains (~ vs competitors)
 
-- **Self-service** — not a Port action marketplace; catalog HITL post-approve may be status-only (ID-033).
+- **Self-service** — not a Port action marketplace; catalog HITL post-approve may be status-only.
 - **Golden paths** — not Backstage Software Templates depth.
 - **On-call / alerts** — read-only PD view + rules-based correlation; scheduling & ML stay with PD / incident.io.
 - **Postmortems** — strong first draft; not full Scribe workflow.

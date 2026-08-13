@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import text as sa_text
 from sqlmodel import Session, SQLModel, create_engine, select
+
+_log = logging.getLogger(__name__)
 
 # Use DATABASE_URL from env.
 # - Docker / production: set to postgresql://...
@@ -202,7 +205,7 @@ def _seed_command_policies() -> None:
             )
         )
         session.commit()
-        print(f"[seed] command policy defaults ({len(defaults) + 1} rules)")
+        _log.info("command policy defaults seeded (%s rules)", len(defaults) + 1)
 
 
 def _seed_github_editor_policy() -> None:
@@ -955,10 +958,10 @@ def _migrate():
                         )
                     )
                     session.commit()
-                    print(f"[migrate] added {table}.{col}")
+                    _log.info("added %s.%s", table, col)
             except Exception as exc:
                 session.rollback()
-                print(f"[migrate] {table}.{col}: {exc}")
+                _log.warning("%s.%s: %s", table, col, exc)
 
         if _is_postgres:
             try:
@@ -979,16 +982,16 @@ def _migrate():
                         )
                     )
                     session.commit()
-                    print("[migrate] changed golden_path_runs.entity_id to TEXT")
+                    _log.info("changed golden_path_runs.entity_id to TEXT")
             except Exception as exc:
                 session.rollback()
-                print(f"[migrate] golden_path_runs.entity_id type: {exc}")
+                _log.warning("golden_path_runs.entity_id type: %s", exc)
 
         _ensure_scale_indexes(session)
 
 
 def _ensure_scale_indexes(session) -> None:
-    """Idempotent indexes for tenant/workspace filters and hot list columns (Phase 17)."""
+    """Idempotent indexes for tenant/workspace filters and hot list columns."""
     indexes = [
         ("ix_incident_tenant_id", "incident", "tenant_id"),
         ("ix_incident_workspace_id", "incident", "workspace_id"),
@@ -1014,7 +1017,7 @@ def _ensure_scale_indexes(session) -> None:
             session.commit()
         except Exception as exc:
             session.rollback()
-            print(f"[migrate] index {name}: {exc}")
+            _log.warning("index %s: %s", name, exc)
 
 
 def _seed_settings():

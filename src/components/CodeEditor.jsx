@@ -3,6 +3,7 @@ import Editor, { DiffEditor } from '@monaco-editor/react'
 import { useSearchParams } from 'react-router-dom'
 import { authFetch } from '../utils/api'
 import EditorAgentPanel, { SuggestedEditCard } from './editor/EditorAgentPanel'
+import { useToast } from './ToastNotification'
 
 const LANGUAGES = [
   'yaml', 'json', 'python', 'javascript', 'typescript',
@@ -52,6 +53,7 @@ function Tab({ file, active, dirty, onSelect, onClose }) {
 }
 
 export default function CodeEditor() {
+  const { showToast } = useToast()
   const [searchParams] = useSearchParams()
   const [files, setFiles] = useState([])
   const [openTabs, setOpenTabs] = useState([]) // file ids
@@ -298,7 +300,13 @@ export default function CodeEditor() {
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) {
-      window.alert(typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail))
+      const detail =
+        typeof body.detail === 'string'
+          ? body.detail
+          : body.detail
+            ? JSON.stringify(body.detail)
+            : 'Propose PR failed'
+      showToast(detail, 'error')
       return
     }
     setPrDiff(body.diff || '')
@@ -313,7 +321,13 @@ export default function CodeEditor() {
     )
     const body = await res.json().catch(() => ({}))
     if (!res.ok) {
-      window.alert(body.detail || 'Approve failed')
+      const detail =
+        typeof body.detail === 'string'
+          ? body.detail
+          : body.detail
+            ? JSON.stringify(body.detail)
+            : 'Approve failed'
+      showToast(detail, 'error')
       return
     }
     setPrMeta({ ...prMeta, pr_url: body.pr_url, status: 'approved' })

@@ -1,7 +1,7 @@
 /**
  * Browser smoke: login → authenticated shell.
- * Uses Playwright Chromium API (not the test runner) so it works on OneDrive/Windows
- * where `@playwright/test` may hang. CI still runs `playwright test` on Ubuntu.
+ * Uses the Playwright Chromium API directly (not the test runner) for local
+ * Windows smoke checks. CI still runs `playwright test` on Ubuntu.
  */
 import { chromium } from 'playwright'
 

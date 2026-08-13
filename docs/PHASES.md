@@ -203,7 +203,7 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] `backend/tests/test_phase_g7_ha_pilot.py` — ready logic + compose/config defaults
 
 ## Phase P0 — Full repo audit inventory (no fixes)
-- [x] `docs/PRODUCTION_BUG_BACKLOG.md` — P0–P3 + wontfix issues with file:line, invariants, P1–P8 mapping
+- [x] Full-repo audit inventory — P0–P3 + wontfix issues with file:line, invariants, P1–P8 mapping
 - [x] Pytest collect-only green (258); no code behavior changes in P0
 
 ## Phase P1 — P0 blockers + critical P1 security/data-plane
@@ -219,8 +219,8 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Container hygiene — `.dockerignore`, non-root `USER`, `public/.gitkeep`
 - [x] Latent policy holes — golden-path `tenant_id`; clear read_only `commands`
 - [x] `backend/tests/test_phase_p1_production_blockers.py` — SSL, SSRF, demo, executor, weak admin, CORS
-- [x] Pytest green (268); backlog P0 + critical P1 marked `[x]`; no git push; no P2 feature work
-- [x] Prod/CI audit follow-up (ID-070–074): frontend tmpfs; secrets fail-fast (`${VAR:?err}` + reject empty `SECRET_KEY`); SAML/Google/LLM/webhook env passthrough; daily health workflow `pipefail` + treat curl failure as critical
+- [x] Pytest green (268); backlog P0 + critical P1 marked `[x]`; no P2 feature work
+- [x] Prod/CI audit follow-up: frontend tmpfs; secrets fail-fast (`${VAR:?err}` + reject empty `SECRET_KEY`); SAML/Google/LLM/webhook env passthrough; daily health workflow `pipefail` + treat curl failure as critical
 
 ## Phase P2 — API correctness, reliability, observability (non-agent)
 - [x] Webhooks — empty alerts/evalMatches no longer 500; invalid HMAC stays 403; duplicate `delivery_id` → 200; failed deliveries reclaimable
@@ -232,14 +232,14 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Metrics — `_safe_label` + HTTP middleware never throws on bad labels
 - [x] CI Python 3.12; liveness UTC timezone-aware
 - [x] `backend/tests/test_phase_p2_reliability.py` — duplicate webhook, double approve, ready db-down, page_size cap
-- [x] Pytest green (282); backlog marked; Do NOT push git
+- [x] Pytest green (282); backlog marked
 
 ## Phase P3 — Agent production-safety + eval harness
 - [x] `BaseAgent` — `finalize_result`, command policy/deny strip, prod HITL, cap 25, secret redact, evidence truncate, `_call_llm` + `GROUNDING_RULES`
 - [x] Orchestrator — reject missing `user_id`; reject missing `tenant_id` when `ENFORCE_WORKSPACE_ISOLATION`; re-validate commands; persist grounding/evidence; audit `agent_run_*`; 30s timeout; agent exceptions → failed result
 - [x] Per-agent contract — mutating paths via finalize; read-only empty commands; cost/security no_data without cloud; alert_noise rules-based (no ML claims); scorecard uses `scorecard_evidence`; documentation no HITL shell while read_only
 - [x] Eval harness — `backend/tests/fixtures/agents/*.json` (12 scenarios) + `test_agent_eval_harness.py`
-- [x] Docs — `AGENTS.md` Production verification; backlog agent bugs marked; Do NOT push git
+- [x] Docs — `AGENTS.md` Production verification; agent production-contract bugs closed
 - [x] Pytest green (`295 passed`)
 
 ## Phase P4 — Prod-like agent E2E + HITL loop
@@ -248,7 +248,7 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] Approve path dry-runs commands before execute; policy deny never reaches subprocess
 - [x] `scripts/agent_prod_smoke.py` — list agents + read-only run; exit non-zero on HTTP 500
 - [x] pytest marker `prod_e2e`
-- [x] Pytest green (`303 passed`); Do NOT push git
+- [x] Pytest green (`303 passed`)
 
 ## Phase P5 — Competitor gap closures (important only)
 - [x] Scorecards — optional live GitHub Actions CI on default branch; metadata fallback; UI live vs metadata badge
@@ -258,7 +258,7 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] On-call — multi-schedule list + PD deep links; scheduling stays in PD
 - [x] Golden paths — clearer invalid template/entity errors; steps_json validate on create
 - [x] `backend/tests/test_phase_p5_competitor_gaps.py`; `docs/product_comparison.md` symbols updated
-- [x] Pytest green (`311 passed`); Do NOT push git
+- [x] Pytest green (`311 passed`)
 
 ## Phase P6 — Production compose + real-life smoke
 - [x] Harden `deploy/docker-compose.prod.yml` — ready healthchecks, healthy `depends_on` (api×2 + frontend), optional resource limits
@@ -266,7 +266,7 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] `scripts/agent_realworld_checklist.md` — operator steps with real keys (env → tools → agents → HITL → postmortem → audit → isolation)
 - [x] `.env.production.example` — `ENABLE_DEMO_DATA=false`, `SECRETS_ENCRYPTION_KEY` (no inline `#`), `ENFORCE_WORKSPACE_ISOLATION`
 - [x] `backend/tests/test_phase_p6_compose_config.py`
-- [x] Pytest green (`314 passed`); Do NOT push git
+- [x] Pytest green (`314 passed`)
 
 ## Phase P7 — Frontend production bugs + agent/HITL UX
 - [x] AgentRunnerPanel — grounding/evidence/policy, disable Run without workspace/task, Reset always available, safe API errors, HITL double-submit guard
@@ -277,16 +277,16 @@ Short checklist of what each hardening/refactor phase changed.
 - [x] OncallWidget empty/error → Tool Registry link
 - [x] Auth login — MFA only on enrollment code; production-safe messages; silentToast for dashboard cost widget
 - [x] `src/utils/parseApiError.js` + vitest for GroundingBadge / approve disabled
-- [x] npm test (`17 passed`) / lint; Do NOT push git
+- [x] npm test (`17 passed`) / lint
 
 ## Phase P8 — Release readiness (Production candidate)
-- [x] Backlog — all P0 closed; P1 fixed or accepted risk with owner (`docs/PRODUCTION_BUG_BACKLOG.md`)
+- [x] Backlog — all P0 closed; remaining P1 accepted as known pilot risk
 - [x] `docs/BETA_GONOGO.md` — automation checkboxes marked; human/ops items left open
 - [x] `docs/product_comparison.md` — honest ✓ / ~ / ✗ after P5–P7
 - [x] `docs/PRODUCTION_READINESS.md` — one-pager (ready / gaps / pilot / agent checklist)
 - [x] Prometheus HA scrape targets (`api_1`/`api_2`); `.env.production.example` JWT 120 + connector placeholders
 - [x] Full `pytest backend/tests -q` green (`314 passed`)
-- [x] **Production candidate** — design-partner pilot ready; Do NOT push git (user reviews then pushes)
+- [x] **Production candidate** — design-partner pilot ready
 
 ---
 

@@ -3,6 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { detectLanguage } from '../components/CodeEditor'
 import { SuggestedEditCard } from '../components/editor/EditorAgentPanel'
+import { ToastProvider } from '../components/ToastNotification'
 
 vi.mock('../utils/api', () => ({
   authFetch: vi.fn(async (url, opts = {}) => {
@@ -117,7 +118,9 @@ describe('unsaved indicator', () => {
     const { default: CodeEditor } = await import('../components/CodeEditor')
     render(
       <MemoryRouter>
-        <CodeEditor />
+        <ToastProvider>
+          <CodeEditor />
+        </ToastProvider>
       </MemoryRouter>
     )
     expect(screen.getByText('Code Editor')).toBeTruthy()

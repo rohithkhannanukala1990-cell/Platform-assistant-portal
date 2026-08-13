@@ -102,7 +102,6 @@ jobs:
       ENV: test
       ENABLE_DEMO_DATA: "true"
       ENFORCE_WORKSPACE_ISOLATION: "false"
-      SECRETS_ENCRYPTION_KEY: rw5jOUzQ-R3miqZbXHu_UPh8NvzBNWhp-cEpJHGuPRc=
       DEFAULT_ADMIN_USERNAME: admin
       DEFAULT_ADMIN_PASSWORD: Admin123!
       ALLOWED_ORIGINS: http://127.0.0.1:5173,http://localhost:5173
@@ -123,6 +122,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends libxml2-dev libxslt1-dev libxmlsec1-dev pkg-config
           pip install -r backend/requirements.txt
           pip install --no-cache-dir --force-reinstall --no-binary lxml,xmlsec lxml xmlsec
+      - name: Generate test encryption key
+        run: echo "SECRETS_ENCRYPTION_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" >> "$GITHUB_ENV"
       - name: Install frontend deps
         run: npm ci
       - name: Install Playwright browser
@@ -166,7 +167,7 @@ jobs:
           docker compose -f docker-compose.yml up -d
           UP_RC=$?
           set -e
-          # Poll /health/ready so Redis/DB failures fail CI health (ID-016).
+          # Poll /health/ready so Redis/DB failures fail CI.
           for i in $(seq 1 40); do
             if curl -fsS http://localhost:8000/health/ready; then
               echo "Backend healthy"

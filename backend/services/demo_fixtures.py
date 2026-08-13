@@ -64,7 +64,7 @@ CICD_ACTIVE_RUNS = [
         "id": "run-a1b2",
         "repository": "platform/auth-service",
         "branch": "main",
-        "trigger_user": "rohit.k",
+        "trigger_user": "alex.chen",
         "trigger_event": "push",
         "commit": "a3f91bc",
         "commit_message": "fix: token refresh race condition",

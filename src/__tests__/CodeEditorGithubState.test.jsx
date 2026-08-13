@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import CodeEditor from '../components/CodeEditor'
+import { ToastProvider } from '../components/ToastNotification'
 
 function jsonResponse(status, body) {
   return {
@@ -46,7 +47,9 @@ describe('CodeEditor GitHub connection state', () => {
 
     render(
       <MemoryRouter>
-        <CodeEditor />
+        <ToastProvider>
+          <CodeEditor />
+        </ToastProvider>
       </MemoryRouter>
     )
 
@@ -70,7 +73,9 @@ describe('CodeEditor GitHub connection state', () => {
 
     render(
       <MemoryRouter>
-        <CodeEditor />
+        <ToastProvider>
+          <CodeEditor />
+        </ToastProvider>
       </MemoryRouter>
     )
 

@@ -1,11 +1,10 @@
 """Unified approvals inbox — aggregates every pending-human-decision source into
 one normalized shape, and dispatches approve/reject to the existing, per-source
 service function. This module holds no approval logic of its own: every branch
-below calls a function that already exists (or a thin extraction/reject-mirror
-added alongside this file) so the inbox and the Slack receiver share one code
-path with every other approval surface in the app.
+below calls a function that already exists so the inbox and the Slack receiver
+share one code path with every other approval surface in the app.
 
-Sources (confirmed by exploring the codebase — see Sprint 6 plan):
+Sources:
   agent          AgentRun (status=pending_approval) — covers generic agent runs,
                  catalog actions, terminal commands, artifact write-back, editor PRs
   workflow       WorkflowRun (status=pending_approval)

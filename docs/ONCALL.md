@@ -1,11 +1,11 @@
-# On-call visibility (Phase G4)
+# On-call visibility
 
 On-call **scheduling, overrides, and escalations remain in PagerDuty**. Platform Assistant Portal provides read-only visibility for operators.
 
 ## API
 
 - `GET /api/oncall/now?service=&schedule_id=` — tenant-scoped; uses the caller's connected PagerDuty Tool Account via `pagerduty_access`.
-- `GET /api/pagerduty/oncalls` — full roster table (existing Phase 12 route; now supports `schedule_id` and `service` filters).
+- `GET /api/pagerduty/oncalls` — full roster table (supports `schedule_id` and `service` filters).
 
 ## UI
 
