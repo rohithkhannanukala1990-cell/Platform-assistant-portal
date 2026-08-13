@@ -22,8 +22,25 @@ dev-down: ## Stop the fast dev stack
 logs: ## Tail backend + frontend logs from the full stack
 	docker compose logs -f backend frontend
 
+# Two adjustments are needed to make the containerised run match CI, which runs
+# the suite from a full checkout:
+#   1. The compose-config tests resolve repo-root paths via
+#      Path(__file__).resolve().parents[2]. The image's /app/backend -> /app
+#      symlink collapses that to /, and deploy/, scripts/, .github/ and
+#      .env.production.example are not in the image at all (build context is
+#      ./backend). Mounting them read-only at / is what those tests look for.
+#   2. `docker compose run backend` inherits the service environment, so
+#      CELERY_BROKER_URL points at the compose Redis and outranks the
+#      REDIS_URL a test monkeypatches. CI sets neither, so unset them here.
+# Without these, the suite reports 9 failures that CI does not have.
 test-backend: ## Run the backend test suite inside Docker
-	docker compose run --rm -e DATABASE_URL=sqlite:////tmp/test.db backend python -m pytest backend/tests/ -q
+	docker compose run --rm -e DATABASE_URL=sqlite:////tmp/test.db \
+	  -v "$(CURDIR)/deploy:/deploy:ro" \
+	  -v "$(CURDIR)/scripts:/scripts:ro" \
+	  -v "$(CURDIR)/.github:/.github:ro" \
+	  -v "$(CURDIR)/.env.production.example:/.env.production.example:ro" \
+	  backend env -u CELERY_BROKER_URL -u CELERY_RESULT_BACKEND -u RATELIMIT_STORAGE_URL -u REDIS_URL \
+	  python -m pytest backend/tests/ -q
 
 test-frontend: ## Run the frontend test suite
 	npm run test
