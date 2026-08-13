@@ -115,7 +115,6 @@ def _normalize_category(value: str | None) -> str | None:
     cat = str(value).strip()
     if not cat:
         raise HTTPException(status_code=400, detail="category must be a non-empty string")
-    # TODO: enforce against a shared allowed-category registry when one exists.
     return cat
 
 
@@ -132,7 +131,6 @@ def _normalize_golden_path_keys(keys: list[str] | None) -> list[str]:
                 detail="recommended_golden_path_keys entries must be non-empty strings",
             )
         cleaned.append(key)
-    # TODO: cross-check against GoldenPathTemplate.slug via a shared validator when available.
     return cleaned
 
 

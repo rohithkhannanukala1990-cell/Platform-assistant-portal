@@ -97,7 +97,6 @@ class PaginatedCatalogResults(BaseModel):
     pages: int
 
 
-# TODO: Support tag-based filters (contains any of requested tags) for catalog listings
 def _tags_parse(raw: Optional[str]) -> list[str]:
     if not raw:
         return []
@@ -160,7 +159,6 @@ def _serialize_dependency(row: ServiceDependency, names: dict[str, str]) -> dict
 _VALID_DEP_TYPES = frozenset({"calls", "uses", "depends_on"})
 
 
-# TODO: Add filters for owner_team, lifecycle, environment, and tags to the catalog list endpoint
 @router.get("")
 def list_catalog(
     request: Request,
@@ -324,7 +322,6 @@ def search_catalog(
     )
 
 
-# TODO: Protect catalog mutations with require_permission("catalog", "write")
 @router.post("")
 def create_catalog(
     request: Request,
@@ -405,7 +402,6 @@ def get_catalog(
         return _serialize(_get_active(session, entity_id, tenant_id=tenant_id))
 
 
-# TODO: Protect catalog mutations with require_permission("catalog", "write")
 @router.put("/{entity_id}")
 def update_catalog(
     request: Request,
@@ -461,8 +457,6 @@ def update_catalog(
     return out
 
 
-# TODO: Protect catalog mutations with require_permission("catalog", "write")
-# TODO: Prevent deletion of entities that have dependencies in ServiceDependency, or require explicit force flag
 @router.delete("/{entity_id}")
 def delete_catalog(
     request: Request,

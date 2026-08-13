@@ -189,7 +189,6 @@ function envBadgeClass(env) {
 export default function AccountImportView() {
   const { authFetch } = useAuth()
   const { activeWorkspace } = usePortalContext()
-  // TODO(S2-P2.2): Support importing accounts into the currently selected workspace
   const importWorkspaceId = activeWorkspace?.id || null
 
   const [activeTab, setActiveTab] = useState('upload')

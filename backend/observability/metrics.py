@@ -42,11 +42,6 @@ ACTIVE_APPROVALS = Gauge(
     "aiops_active_hitl_approvals",
     "Current incidents awaiting human approval",
 )
-# TODO: Add counters for AI actions:
-# - ai_actions_blocked_total{violation_type}
-# - ai_actions_approved_total
-# - ai_actions_rejected_total
-# - ai_actions_error_total
 AI_ACTIONS_BLOCKED_TOTAL = Counter(
     "ai_actions_blocked_total",
     "AI-proposed actions blocked by guardrails",
@@ -74,7 +69,6 @@ HTTP_REQUEST_DURATION_SECONDS = Histogram(
     "HTTP request duration in seconds",
     ["method", "status_code"],
 )
-# TODO(S3-P3.1): Add metrics for health probes and connector errors
 CONNECTOR_ERRORS_TOTAL = Counter(
     "aiops_connector_errors_total",
     "Total connector errors by type",

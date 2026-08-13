@@ -141,7 +141,6 @@ def _clear_login_failures(username: str, ip: str) -> None:
     _LOGIN_FAILURES.pop(key, None)
 
 
-# TODO: Normalize roles into a single canonical set (e.g. Admin, Operator, Viewer) used across auth, users, RBAC, and SSO
 def normalize_role(role: str | None) -> str:
     """Normalize legacy and RBAC role names to Admin, User, or ReadOnly."""
     value = str(role or "").strip().lower().replace("_", "").replace("-", "")
@@ -172,7 +171,6 @@ class User(SQLModel, table=True):
     last_login: datetime | None = Field(default=None)
     mfa_secret: str | None = Field(default=None)
     mfa_enabled: bool = Field(default=False)
-    # TODO(S2-P2.1): Add tenant_id/org_id fields to support multi-tenant isolation
     tenant_id: Optional[str] = Field(default="default", index=True)
     workspace_id: Optional[str] = Field(default=None, index=True)
 

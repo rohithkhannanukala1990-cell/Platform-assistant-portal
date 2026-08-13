@@ -75,7 +75,6 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
   const [activeAccountId, setActiveAccountId] = useState(null)
   const [pinnedAccountIds, setPinnedAccountIds] = useState([])
   const [isLoading, setIsLoading] = useState(false)
-  // TODO(S2-P2.2): Fetch available workspaces for the current user and render them in a selector
   const [workspaces, setWorkspaces] = useState([])
   const [workspacesLoading, setWorkspacesLoading] = useState(false)
   const [accessModalOpen, setAccessModalOpen] = useState(false)
@@ -233,7 +232,6 @@ export default function AccountSwitcher({ toolId, toolName, onAccountChanged, on
     }
   }
 
-  // TODO(S2-P2.2): On selection, update global WorkspaceContext and trigger data reloads
   async function selectWorkspace(ws) {
     try {
       await setActiveWorkspace(ws)

@@ -638,7 +638,6 @@ export default function HealthDashboard() {
 
           {tab === 'overview' && (
             <>
-              {/* TODO(S3-P3.2): Render overall health status and per-probe cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-10">
                 <ProbeCard
                   title="Database"

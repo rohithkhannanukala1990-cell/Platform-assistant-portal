@@ -76,8 +76,6 @@ export default function CatalogCopilotPanel({
   const [entities, setEntities] = useState([])
   const [entitiesLoading, setEntitiesLoading] = useState(true)
   const [entitiesError, setEntitiesError] = useState(null)
-  // TODO(S1-P1.2): Render AI-recommended golden paths from the AI response:
-  // - name, reason_for_recommendation, estimated_duration, risk_level
   const [recommendedPaths, setRecommendedPaths] = useState([])
   const [pathsLoading, setPathsLoading] = useState(false)
   const [startingId, setStartingId] = useState(null)

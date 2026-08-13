@@ -134,7 +134,6 @@ export function PortalProvider({ children }) {
         activeWorkspaceId: workspace.id,
         activeTenantId: workspace.tenant_id || 'default',
       })
-      // TODO(S2-P2.2): On selection, update global WorkspaceContext and trigger data reloads
       window.dispatchEvent(new CustomEvent('active-workspace-changed', { detail: { workspace } }))
       window.dispatchEvent(
         new CustomEvent('context-changed', {

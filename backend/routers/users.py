@@ -48,7 +48,6 @@ class UserCreateBody(BaseModel):
     email: str = ""
     password: str
     role: str = "User"
-    # TODO(S2-P2.1): Associate users with workspaces/tenants and enforce scoping in list APIs
     tenant_id: Optional[str] = None
     workspace_id: Optional[str] = None
 
@@ -135,7 +134,6 @@ def list_users(
     return [_user_out(u) for u in rows]
 
 
-# TODO: Use normalize_role(...) for role assignments and keep role set consistent with RBAC
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(
     body: UserCreateBody,
@@ -197,7 +195,6 @@ def create_user(
     return _user_out(user)
 
 
-# TODO: Use normalize_role(...) for role assignments and keep role set consistent with RBAC
 @router.patch("/{user_id}", response_model=UserOut)
 def update_user(
     user_id: int,
@@ -399,7 +396,6 @@ async def update_user_role(
     if normalize_role(current_user.role) != "Admin":
         raise HTTPException(status_code=403, detail="Only Admins can change roles")
 
-    # TODO: Use normalize_role(...) for role assignments and keep role set consistent with RBAC
     role = normalize_role(body.role)
     if role not in VALID_ROLES:
         raise HTTPException(

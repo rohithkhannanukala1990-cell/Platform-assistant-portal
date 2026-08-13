@@ -94,7 +94,6 @@ export default function ChatBot() {
   ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  // TODO(S1-P1.2): Render any `errors` from the AI response as non-blocking inline alerts
   const [responseErrors, setResponseErrors] = useState([])
   const bottomRef = useRef(null)
   const inputRef = useRef(null)

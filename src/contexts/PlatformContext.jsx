@@ -49,7 +49,6 @@ export function PlatformContextProvider({ children }) {
     return r === 'Admin' ? 'Admin' : 'User'
   }, [jwtRole, user?.role])
 
-  // TODO(S2-P2.2): Include workspace_id and tenant_id in all API calls from hooks
   const value = useMemo(
     () => ({
       workspace_id: activeWorkspace?.id || null,

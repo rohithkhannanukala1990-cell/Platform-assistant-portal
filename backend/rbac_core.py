@@ -8,7 +8,6 @@ from sqlmodel import Session, select
 
 from .database import Permission, Role, RolePermission, UserRole
 
-# TODO: Align RBAC role IDs and permission sets with the normalized role model
 
 
 def perm_key(resource: str, action: str) -> str:
@@ -107,7 +106,6 @@ def collect_all_grants_for_user(
     return out, sorted(slugs)
 
 
-# TODO: Ensure check_user_permission is used by all critical routes (AI tools, catalog writes, golden path runs)
 def check_user_permission(
     session: Session,
     user_id: str | int,

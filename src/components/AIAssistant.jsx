@@ -237,10 +237,6 @@ export default function AIAssistant() {
         if (!res.ok) throw new Error(await res.text())
         const data = await res.json()
         setActiveConversation(data.conversation?.id || id)
-        // TODO(S1-P1.2): Render AI messages from the `messages` array:
-        // - Group by role ("user", "assistant")
-        // - Show timestamps
-        // - Style assistant vs user bubbles differently
         const raw = (data.messages || []).map((m) => ({
           id: m.id,
           role: m.role,
@@ -287,7 +283,6 @@ export default function AIAssistant() {
   const sendMessage = useCallback(async () => {
     const text = inputValue.trim()
     if (!text || isLoading) return
-    // TODO(S1-P1.2): Show a "typing..." indicator while awaiting backend response
     setIsLoading(true)
     setInputValue('')
     setResponseErrors([])
@@ -713,7 +708,6 @@ export default function AIAssistant() {
                 </div>
               ))
             )}
-            {/* TODO(S1-P1.2): Show a "typing..." indicator while awaiting backend response */}
             {isLoading && (
               <div className="flex items-center gap-2 text-slate-500 text-sm pl-11">
                 <span className="inline-flex gap-1">
