@@ -25,7 +25,17 @@ jobs:
           cache: npm
       - name: Backend tests
         run: |
+          # Same lxml/xmlsec libxml2 version-mismatch fix as ci.yml: both ship
+          # prebuilt manylinux wheels bundling their own libxml2, and loading two
+          # of them in one process trips xmlsec's version check at import time
+          # (conftest -> backend.main -> routers.sso -> onelogin -> xmlsec).
+          # Force both to build from source against the system libxml2/libxslt.
+          # This workflow only runs on pull_request, so it went unnoticed until
+          # the repository's first PR.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxml2-dev libxslt1-dev libxmlsec1-dev pkg-config
           pip install -r backend/requirements.txt
+          pip install --no-cache-dir --force-reinstall --no-binary lxml,xmlsec lxml xmlsec
           pip install pytest httpx pytest-asyncio
           pytest backend/tests/ -v
       - name: Python dependency audit
