@@ -35,8 +35,11 @@ Without `make`:
 ```bash
 docker compose run --rm -e DATABASE_URL=sqlite:////tmp/test.db backend python -m pytest backend/tests/ -q
 npm run test
-python3 scripts/mock_portal_smoke.py
+python3 scripts/mock_portal_smoke.py   # Windows: `python` — `python3` hits the Microsoft Store stub
 ```
+
+`make` is not available on Windows by default, which is why every `make` target
+above has a raw equivalent.
 
 Two things worth knowing before you debug a failure:
 

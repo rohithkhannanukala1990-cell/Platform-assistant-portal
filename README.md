@@ -100,7 +100,7 @@ Pick one; you don't need more than one running at a time (they'd fight over the 
 
 ### Path 1 — Fastest: `make dev` (Docker, SQLite, ~30s warm / a few minutes cold)
 
-Prerequisites: Docker with Compose. No CLI tools, no `.env` file, no Postgres/Redis.
+Prerequisites: Docker with Compose. No CLI tools, no `.env` file, no Postgres/Redis. `make` is optional — it ships with macOS and most Linux distributions but **not** with Windows; every `make` command below is followed by the raw equivalent.
 
 ```bash
 make dev
@@ -117,7 +117,7 @@ Open http://localhost:5173 and log in with `admin` / `Admin123!`.
 
 ### Path 2 — Full stack: `make up` (Docker, Postgres + Redis + real terminal tools, ~5 minutes first build)
 
-Prerequisites: Docker with Compose.
+Prerequisites: Docker with Compose. `make` optional, as above.
 
 ```bash
 # 1. Configure the backend environment
@@ -271,7 +271,7 @@ docker compose run --rm -e DATABASE_URL=sqlite:////tmp/test.db backend python -m
 npm run test
 
 # End-to-end smoke test (needs a server running on :8000)
-python3 scripts/mock_portal_smoke.py
+python3 scripts/mock_portal_smoke.py    # Windows: use `python` — `python3` hits the Microsoft Store stub
 make smoke
 ```
 
