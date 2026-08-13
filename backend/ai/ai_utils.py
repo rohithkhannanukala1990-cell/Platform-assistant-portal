@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .llm_service import llm_service
 
-DEFAULT_SYSTEM_PROMPT = """You are a senior DevOps and SRE engineer embedded inside Cursor IDE.
+DEFAULT_SYSTEM_PROMPT = """You are a senior DevOps and SRE engineer in this operations portal.
 Analyze the provided server logs and return ONLY a valid JSON object — no markdown, no explanation, no code fences.
 
 The JSON must have exactly these keys:

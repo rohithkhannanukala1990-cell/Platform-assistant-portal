@@ -4,8 +4,8 @@ Platform-assistant-portal speaks MCP in **both** directions:
 
 | Role | Package | Purpose |
 |------|---------|---------|
-| **Client** (Phase M1) | `backend/mcp/` registry + `hitl_bridge` | Connect *out* to external MCP servers; tool calls go through auth, tenant scope, and HITL |
-| **Server** (Phase M2) | `backend/mcp/server_app.py` | Expose portal domain tools *in* to IDEs / agents over stdio |
+| **Client** | `backend/mcp/` registry + `hitl_bridge` | Connect *out* to external MCP servers; tool calls go through auth, tenant scope, and HITL |
+| **Server** | `backend/mcp/server_app.py` | Expose portal domain tools *in* to IDEs / agents over stdio |
 
 MCP is an **edge protocol**. It does not replace connectors, agents, or HITL. Every mutating action still ends in a human-approval queue inside the portal.
 

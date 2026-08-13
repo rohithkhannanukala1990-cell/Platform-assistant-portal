@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 _TRIAGE_MAX_RETRIES = 5
 
-# Permanent client/data errors — do not burn retries (ID-046).
+# Permanent client/data errors — do not burn retries.
 _PERMANENT_ERRORS = (ValueError, KeyError, TypeError, json.JSONDecodeError)
 
 
@@ -102,7 +102,7 @@ def process_inbound_webhook(
     """Normalize inbound payload → rules-based correlation → AI triage.
 
     ``delivery_id`` is the idempotency key: already-processed deliveries skip
-    re-ingest so Celery retries do not create duplicate incidents (ID-034).
+    re-ingest so Celery retries do not create duplicate incidents.
     """
     from .main import _map_to_cloud_event, _route_owner
     from .services.incidents_service import ingest_webhook_alert

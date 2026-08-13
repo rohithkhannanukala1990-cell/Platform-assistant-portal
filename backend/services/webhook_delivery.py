@@ -56,7 +56,7 @@ def claim_delivery(delivery_id: str, source: str, *, status: str = "received") -
 
     Returns (is_new, row). is_new=False means duplicate — caller should return 200.
     Rows previously marked ``error``/``failed`` are reclaimed so provider retries
-    are not permanently dropped (ID-056).
+    are not permanently dropped.
     """
     did = (delivery_id or "").strip()
     if not did:

@@ -37,7 +37,6 @@ assignees: ''
 
 <!-- Both of these are worth a look; the answer may already be there. -->
 
-- [ ] I checked [docs/PRODUCTION_BUG_BACKLOG.md](../../docs/PRODUCTION_BUG_BACKLOG.md) for known gaps
 - [ ] I checked [docs/product_comparison.md](../../docs/product_comparison.md), which is candid about what this deliberately doesn't do
 
 ## Anything else

@@ -368,7 +368,7 @@ async def fulfill_catalog_action_after_hitl(
     user: User,
     tenant_id: str,
 ) -> dict[str, Any]:
-    """Re-dispatch a catalog self-service action after AgentRun HITL approval (ID-033)."""
+    """Re-dispatch a catalog self-service action after AgentRun HITL approval."""
     action_id = details.get("catalog_action_id")
     entity_id = details.get("entity_id")
     payload = details.get("payload") if isinstance(details.get("payload"), dict) else {}

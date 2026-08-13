@@ -329,6 +329,8 @@ See `.github/workflows/`.
 | [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Go-live checklist |
 | [SCALING.md](docs/SCALING.md) | Capacity planning and load-testing notes |
 | [RUNBOOK_BACKUP.md](docs/RUNBOOK_BACKUP.md) | Database backup and restore procedure |
+| [MCP.md](docs/MCP.md) | Model Context Protocol client and server, including HITL for mutating tools |
+| [ONCALL.md](docs/ONCALL.md) | On-call visibility via PagerDuty — scheduling stays in PagerDuty |
 | [product_comparison.md](docs/product_comparison.md) | Honest comparison against adjacent tools |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to set up, test, and the safety invariants not to break |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability |

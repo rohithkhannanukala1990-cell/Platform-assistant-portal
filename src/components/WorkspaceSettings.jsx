@@ -34,10 +34,7 @@ const CONNECTOR_OPTIONS = [
   'pagerduty',
 ]
 
-/**
- * Workspace settings panel.
- * TODO(S2-P2.2): HITL mode, allowed connectors, default golden paths, flags.
- */
+/** Workspace settings panel — HITL mode, allowed connectors, golden paths, flags. */
 export default function WorkspaceSettings({ workspaceId, workspaceName }) {
   const { authFetch } = useAuth()
   const { toast } = useToast()

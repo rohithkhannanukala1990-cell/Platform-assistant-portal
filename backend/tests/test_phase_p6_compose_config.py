@@ -79,7 +79,7 @@ def test_env_production_example_defaults_and_secrets():
 
     assert kv.get("ENABLE_DEMO_DATA", "").lower() == "false"
     assert "SECRETS_ENCRYPTION_KEY" in kv
-    # Value line must not embed an inline # comment (ID-025)
+    # Value line must not embed an inline # comment.
     for ln in text.splitlines():
         if ln.strip().startswith("SECRETS_ENCRYPTION_KEY="):
             assert "#" not in ln, f"inline comment on SECRETS_ENCRYPTION_KEY line: {ln!r}"

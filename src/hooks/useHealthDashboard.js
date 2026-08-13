@@ -10,9 +10,7 @@ export function canMutateHealth(role) {
   return role === 'Admin'
 }
 
-/**
- * TODO(S3-P3.2): Fetch summary + full health probes for dashboard cards / drill-downs.
- */
+/** Fetch summary + full health probes for dashboard cards / drill-downs. */
 export default function useHealthDashboard({ enabled = true } = {}) {
   const { authFetch, role } = useAuth()
   const [healthData, setHealthData] = useState(null)

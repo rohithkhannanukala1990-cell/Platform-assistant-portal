@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -26,6 +27,7 @@ from .services.auth_sessions import (
 
 load_dotenv()
 
+_log = logging.getLogger(__name__)
 
 VALID_ROLES = {"Admin", "User", "ReadOnly"}
 CANONICAL_ROLE_TO_RBAC_ROLE_ID = {
@@ -67,7 +69,7 @@ def _redis_client():
         return client
     except Exception as exc:
         if not _REDIS_LOCKOUT_WARNED:
-            print(f"[auth] WARNING: Redis lockout unavailable, using in-process fallback: {exc}")
+            _log.warning("Redis lockout unavailable, using in-process fallback: %s", exc)
             _REDIS_LOCKOUT_WARNED = True
         return None
 
@@ -93,7 +95,7 @@ def _is_login_locked(username: str, ip: str) -> bool:
             count = int(client.llen(rkey) or 0)
             return count >= _LOCKOUT_THRESHOLD
         except Exception as exc:
-            print(f"[auth] WARNING: Redis lockout read failed, using memory: {exc}")
+            _log.warning("Redis lockout read failed, using memory: %s", exc)
 
     recent = _prune_failures(key, time.time())
     return len(recent) >= _LOCKOUT_THRESHOLD
@@ -122,7 +124,7 @@ def _record_login_failure(username: str, ip: str, *, reason: str = "invalid_cred
             pipe.execute()
             return
         except Exception as exc:
-            print(f"[auth] WARNING: Redis lockout write failed, using memory: {exc}")
+            _log.warning("Redis lockout write failed, using memory: %s", exc)
 
     recent = _prune_failures(key, now)
     recent.append(now)
@@ -137,7 +139,7 @@ def _clear_login_failures(username: str, ip: str) -> None:
         try:
             client.delete(rkey)
         except Exception as exc:
-            print(f"[auth] WARNING: Redis lockout clear failed: {exc}")
+            _log.warning("Redis lockout clear failed: %s", exc)
     _LOGIN_FAILURES.pop(key, None)
 
 
@@ -315,7 +317,7 @@ def create_access_token(
                 user_agent=user_agent,
             )
         except Exception as exc:
-            print(f"[auth] WARNING: failed to register session: {exc}")
+            _log.warning("failed to register session: %s", exc)
     return token
 
 
@@ -474,7 +476,7 @@ def write_audit(
             )
             session.commit()
     except Exception as exc:
-        print(f"[audit] WARNING: failed to write audit log: {exc}")
+        _log.warning("failed to write audit log: %s", exc)
 
 
 def sync_user_rbac_role(
@@ -577,9 +579,10 @@ def seed_default_admin() -> None:
         sync_user_rbac_role(session, admin)
         session.commit()
     if not existing_admin:
-        print(
-            f"[auth] WARNING: seeded default admin user ({username}). "
-            "Set strong credentials via DEFAULT_ADMIN_USERNAME / DEFAULT_ADMIN_PASSWORD."
+        _log.warning(
+            "seeded default admin user (%s). "
+            "Set strong credentials via DEFAULT_ADMIN_USERNAME / DEFAULT_ADMIN_PASSWORD.",
+            username,
         )
 
 

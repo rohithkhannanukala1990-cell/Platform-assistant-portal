@@ -20,6 +20,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { usePortalContext } from '../contexts/PortalContext'
 import { PermissionGate } from './PermissionGate'
+import { useToast } from './ToastNotification'
 
 function fieldValue(row, field) {
   if (row[field] != null && row[field] !== '') return row[field]
@@ -188,6 +189,7 @@ function envBadgeClass(env) {
 
 export default function AccountImportView() {
   const { authFetch } = useAuth()
+  const { toast } = useToast()
   const { activeWorkspace } = usePortalContext()
   const importWorkspaceId = activeWorkspace?.id || null
 
@@ -297,11 +299,11 @@ export default function AccountImportView() {
     if (!file) return
     const ext = (file.name.split('.').pop() || '').toLowerCase()
     if (uploadType === 'csv' && ext !== 'csv') {
-      window.alert('Please choose a .csv file for CSV mode.')
+      toast.error('Please choose a .csv file for CSV mode.')
       return
     }
     if (uploadType === 'json' && ext !== 'json') {
-      window.alert('Please choose a .json file for JSON mode.')
+      toast.error('Please choose a .json file for JSON mode.')
       return
     }
     setSelectedFile(file)
@@ -316,7 +318,7 @@ export default function AccountImportView() {
       setImportResult(null)
     }
     reader.readAsText(file)
-  }, [uploadType])
+  }, [toast, uploadType])
 
   const onDrop = useCallback(
     (e) => {
@@ -341,9 +343,9 @@ export default function AccountImportView() {
       a.click()
       URL.revokeObjectURL(url)
     } catch {
-      window.alert('Could not download template.')
+      toast.error('Could not download template.')
     }
-  }, [authFetch])
+  }, [authFetch, toast])
 
   const runParse = useCallback(async () => {
     if (!fileContent.trim() && !selectedFile) return
@@ -367,7 +369,7 @@ export default function AccountImportView() {
         }
         setValidRowCount(validRows.length)
         if (validRows.length === 0) {
-          window.alert('No valid rows to import')
+          toast.error('No valid rows to import')
           return
         }
 
@@ -387,9 +389,9 @@ export default function AccountImportView() {
         setParseResult(await res.json())
       }
     } catch (err) {
-      window.alert(`Parse failed: ${err.message || err}`)
+      toast.error(`Parse failed: ${err.message || err}`)
     }
-  }, [authFetch, fileContent, fileName, selectedFile, uploadType])
+  }, [authFetch, fileContent, fileName, selectedFile, toast, uploadType])
 
   const toggleRow = useCallback((id) => {
     setSelectedRows((prev) => {
@@ -432,11 +434,11 @@ export default function AccountImportView() {
       setImportProgress('')
     } catch (err) {
       setImportProgress('')
-      window.alert(`Import failed: ${err.message || err}`)
+      toast.error(`Import failed: ${err.message || err}`)
     } finally {
       setIsImporting(false)
     }
-  }, [authFetch, selectedRowObjects, uploadType, importWorkspaceId])
+  }, [authFetch, selectedRowObjects, toast, uploadType, importWorkspaceId])
 
   const runDiscoverAll = useCallback(async () => {
     setIsDiscovering(true)
@@ -453,11 +455,11 @@ export default function AccountImportView() {
       const ids = (data.rows || []).map((r) => r.id).filter(Boolean)
       setSelectedDiscoverIds(new Set(ids))
     } catch (err) {
-      window.alert(`Discover failed: ${err.message || err}`)
+      toast.error(`Discover failed: ${err.message || err}`)
     } finally {
       setIsDiscovering(false)
     }
-  }, [authFetch])
+  }, [authFetch, toast])
 
   const buildCloudCredentials = useCallback(() => {
     const envHint = discoverEnvHint.trim()
@@ -550,11 +552,11 @@ export default function AccountImportView() {
       const ids = rows.map((r) => r.id).filter(Boolean)
       setSelectedDiscoverIds(new Set(ids))
     } catch (err) {
-      window.alert(`Discover failed: ${err.message || err}`)
+      toast.error(`Discover failed: ${err.message || err}`)
     } finally {
       setIsDiscovering(false)
     }
-  }, [authFetch, discoverProvider, buildCloudCredentials])
+  }, [authFetch, discoverProvider, buildCloudCredentials, toast])
 
   const toggleDiscoverRow = useCallback((id) => {
     setSelectedDiscoverIds((prev) => {
@@ -598,11 +600,11 @@ export default function AccountImportView() {
       setImportProgress('')
     } catch (err) {
       setImportProgress('')
-      window.alert(`Import failed: ${err.message || err}`)
+      toast.error(`Import failed: ${err.message || err}`)
     } finally {
       setIsImporting(false)
     }
-  }, [authFetch, discoverKind, selectedDiscoverAccounts, importWorkspaceId])
+  }, [authFetch, discoverKind, selectedDiscoverAccounts, importWorkspaceId, toast])
 
   const toggleAwsRegion = useCallback((id) => {
     setAwsRegions((prev) => {
