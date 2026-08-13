@@ -714,12 +714,6 @@ class GitHubConnector(_BaseGitHub):
         store_idempotent(idempotency_key, out)
         return out
 
-    # TODO: Wrap connector actions in try/except and return:
-    # - ok: bool
-    # - tool: "github"
-    # - action: str
-    # - result: data on success
-    # - error: { type, message } on failure
     async def execute_action(self, action: str, params: dict) -> dict[str, Any]:
         try:
             repo = params.get("repo", "")
@@ -809,7 +803,6 @@ class GitHubConnector(_BaseGitHub):
                     idempotency_key=params.get("idempotency_key"),
                 )
                 return {"ok": bool(result.get("ok")), "tool": "github", "action": action, "result": result}
-            # TODO(S3-P3.1): Implement a lightweight 'ping' action for use by health probes
             if action in ("ping", "test_connection"):
                 # Prefer /rate_limit — cheap auth check without mutating state.
                 data = await self._get("/rate_limit")
@@ -820,7 +813,6 @@ class GitHubConnector(_BaseGitHub):
                     "result": data,
                 }
         except GitHubAPIError as exc:
-            # TODO(S3-P3.1): Increment health and connector metrics during probe runs and errors
             _record_connector_error(exc.error_type)
             try:
                 from ..observability.logger import logger

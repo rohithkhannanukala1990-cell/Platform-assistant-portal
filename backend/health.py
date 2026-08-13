@@ -69,7 +69,6 @@ def _sync_redis_ping() -> dict[str, Any]:
         }
 
 
-# TODO: Provide health/scorecard summary data that can be consumed by golden path applicability logic and AI grounding
 def get_entity_health_summary(
     session: Session,
     entity: Any,
@@ -128,7 +127,6 @@ def get_entity_health_summary(
     }
 
 
-# TODO(S3-P3.1): Add connector-specific health probes (GitHub, Jira, AWS, Kubernetes, PagerDuty) using tool_accounts
 _PROBE_HTTP_TIMEOUT = 3.0  # Keep health routes snappy; avoid heavy-blocking calls.
 
 
@@ -145,7 +143,6 @@ def _timed_probe(probe_name: str, fn) -> dict[str, Any]:
             "message": str(exc),
         }
     duration = time.perf_counter() - start
-    # TODO(S3-P3.1): Increment health and connector metrics during probe runs and errors
     observe_health_probe(probe_name, duration)
     if isinstance(result, dict) and result.get("latency_ms") is None:
         result = {**result, "latency_ms": round(duration * 1000, 2)}
@@ -797,7 +794,6 @@ def _sync_slow_queries() -> dict[str, Any]:
                     )
                 )
                 rows = result.fetchall()
-            # TODO(S3-P3.2): Display slow queries from health's pg_stat_statements probe
             slow = [
                 {
                     "query": str(r[0])[:500],
@@ -908,7 +904,6 @@ def _sync_pip_audit() -> dict[str, Any]:
                     "message": "pip-audit unavailable or failed",
                 }
             data = json.loads(proc.stdout or "[]")
-            # TODO(S3-P3.2): Display pip_audit results with package, version, id, severity
             vulnerabilities = _normalize_pip_audit_vulnerabilities(data)
             vulns = len(vulnerabilities)
             return {
@@ -930,7 +925,6 @@ def _sync_pip_audit() -> dict[str, Any]:
     return _timed_probe("dependencies", _run)
 
 
-# TODO(S3-P3.2): Provide basic metrics-based recommendations
 def build_tuning_recommendations(full: dict[str, Any]) -> list[dict[str, Any]]:
     """Derive read-only tuning hints from a health check_all payload."""
     recs: list[dict[str, Any]] = []

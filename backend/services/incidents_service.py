@@ -569,7 +569,6 @@ async def mock_hitl_slack_notify(incident_id: int, severity: str, owner_role: st
         logger.error("Slack alert failed", extra={"error": str(exc)})
 
 
-# TODO: Consider extracting incident-related endpoints to routers/incidents_api.py
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 MOCK_RUNBOOK_LOGS = """\

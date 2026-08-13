@@ -1,5 +1,9 @@
 # AIOps Platform Assistant
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
+Licensed under the [Apache License 2.0](LICENSE) — self-hosted, and your data stays on your infrastructure.
+
 It's 3am and you're paged. Before you can start fixing anything, you spend twenty minutes gathering context: which service owns this, what changed recently, what the runbook says, who else needs to know. You fix it, the page clears, and by morning there's no record of what you actually decided or why — just a resolved alert and a fuzzy memory.
 
 This portal's answer: an alert arrives, an AI agent gathers the real context (recent deploys, related incidents, runbook matches, live infrastructure state), proposes a specific remediation with the exact commands it would run, a human approves it from the web UI, Slack, or a terminal, it executes, and every step is logged.
@@ -324,3 +328,18 @@ See `.github/workflows/`.
 | [SCALING.md](docs/SCALING.md) | Capacity planning and load-testing notes |
 | [RUNBOOK_BACKUP.md](docs/RUNBOOK_BACKUP.md) | Database backup and restore procedure |
 | [product_comparison.md](docs/product_comparison.md) | Honest comparison against adjacent tools |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to set up, test, and the safety invariants not to break |
+| [SECURITY.md](SECURITY.md) | How to report a vulnerability |
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE) for the full text.
+
+Apache 2.0 rather than MIT deliberately: it carries an express patent grant and a
+patent-retaliation clause. This project ships a command policy engine, an approval
+model, and a compliance evidence collector — the areas most likely to attract
+patent questions in enterprise procurement, where MIT's silence on patents gets
+noticed.
+
+Contributions are accepted under the same license (Apache 2.0 §5). There are no
+per-file license headers; the LICENSE file and package metadata carry it.

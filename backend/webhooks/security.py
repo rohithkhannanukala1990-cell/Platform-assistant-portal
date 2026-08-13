@@ -35,7 +35,6 @@ def _secret_for(source: str) -> str:
     return secrets.get(key, "")
 
 
-# TODO: Verify webhook signatures using HMAC and reject mismatches with clear errors
 def verify_webhook_signature(source: str, payload: bytes, signature: str) -> bool:
     secret = _secret_for(source)
     if not secret:
@@ -55,7 +54,6 @@ def verify_webhook_signature(source: str, payload: bytes, signature: str) -> boo
         return False
 
 
-# TODO: Enforce presence of webhook secrets in non-dev environments; log critical and optionally reject if missing
 def require_valid_signature(source: str, payload: bytes, request_headers: dict):
     source_key = (source or "").strip().lower()
     secret = _secret_for(source_key)

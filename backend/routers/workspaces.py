@@ -160,7 +160,6 @@ def _workspace_visible_to(session: Session, w: Workspace, user: User) -> bool:
     return member is not None
 
 
-# TODO(S2-P2.1): Scope workspace list/detail APIs by tenant_id and current user
 def _tenant_workspace_query(user: User):
     """Build a Workspace select filtered by tenant and (for non-admins) membership."""
     tenant = _user_tenant(user)

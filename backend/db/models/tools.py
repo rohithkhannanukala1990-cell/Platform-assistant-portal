@@ -40,7 +40,6 @@ class ToolAccount(SQLModel, table=True):
     # Ownership / scoping (Phase 8) — never resolve another user's PAT globally.
     owner_user_id: Optional[str] = Field(default=None, index=True)
     workspace_id: Optional[str] = Field(default=None, index=True)
-    # TODO(S2-P2.1): Add tenant_id/org_id fields to support multi-tenant isolation
     tenant_id: Optional[str] = Field(default="default", index=True)
 
 

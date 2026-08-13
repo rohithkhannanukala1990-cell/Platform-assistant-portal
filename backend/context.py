@@ -27,7 +27,6 @@ def resolve_tenant_id(*candidates: Any) -> str:
 @dataclass
 class PlatformContext:
     request_id: str = ""
-    # TODO(S2-P2.1): Add tenant_id/org_id to PlatformContext and ensure to_dict/from_dict handle it
     workspace_id: Optional[str] = None
     tenant_id: Optional[str] = None
     workspace_name: str = ""

@@ -138,7 +138,6 @@ def dashboard_summary(
         return _mock_summary()
 
 
-# TODO(S3-P3.2): Provide basic metrics-based recommendations
 @router.get(
     "/health-recommendations",
     response_model=HealthRecommendationsResponse,

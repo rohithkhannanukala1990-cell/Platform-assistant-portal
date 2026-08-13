@@ -34,10 +34,8 @@ _PRODUCTION_MUTATING_PREFIXES = (
 _pending_executions: dict[str, dict] = {}
 
 
-# TODO: Standardize tool execution results using a common schema (AgentResult-like dict)
 class ToolExecutor:
 
-    # TODO: Review HITL_REQUIRED_ACTIONS and ensure all production-mutating operations require HITL in production
     def requires_hitl(self, tool_id: str,
                       action: str,
                       environment: str) -> bool:

@@ -10,7 +10,6 @@ from ..database import engine
 from ..rbac_core import check_user_permission
 
 
-# TODO: Remove X-User-Id == 'admin' bypass and rely on authenticated user identity from auth.py
 def require_permission(resource: str, action: str):
     """FastAPI dependency factory backed only by authenticated identity."""
 

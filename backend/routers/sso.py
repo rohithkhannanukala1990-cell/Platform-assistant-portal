@@ -31,7 +31,6 @@ ADMIN_EMAILS = {
 }
 
 
-# TODO: Apply normalize_role(...) and write_audit(...) when assigning roles from SSO, instead of ad-hoc role strings
 def _get_or_create_sso_user(email: str, role: str) -> User:
     """Look up a user by email; create one if not found."""
     canonical_role = normalize_role(role)

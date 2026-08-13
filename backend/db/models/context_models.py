@@ -17,7 +17,6 @@ class UserContext(SQLModel, table=True):
     active_accounts: str = Field(default="{}")  # JSON: { tool_id: account_id }
     pinned_accounts: str = Field(default="[]")  # JSON: [account_id, ...]
     last_switched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    # TODO(S2-P2.1): Add tenant_id/org_id fields to support multi-tenant isolation
     workspace_id: Optional[str] = Field(default=None, index=True)
     tenant_id: Optional[str] = Field(default="default", index=True)
 

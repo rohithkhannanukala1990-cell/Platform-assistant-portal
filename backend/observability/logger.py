@@ -7,7 +7,6 @@ from typing import Any, Optional
 _request_id_var: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
 _workspace_id_var: ContextVar[Optional[str]] = ContextVar("workspace_id", default=None)
 
-# TODO(S3-P3.1): Ensure health and connector logs include request_id, workspace_id, and connector name
 _STRUCTURED_KEYS = (
     "incident_id",
     "severity",

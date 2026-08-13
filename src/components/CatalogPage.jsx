@@ -119,7 +119,6 @@ export default function CatalogPage() {
   const [selfServiceActions, setSelfServiceActions] = useState([])
   const [copilotActions, setCopilotActions] = useState([])
   const [goldenPaths, setGoldenPaths] = useState([])
-  // TODO(S1-P1.2): Link catalog entities to golden paths
   const [applicablePaths, setApplicablePaths] = useState([])
   const [applicableLoading, setApplicableLoading] = useState(false)
   const [startingPathId, setStartingPathId] = useState(null)

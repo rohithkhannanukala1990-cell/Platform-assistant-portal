@@ -318,7 +318,6 @@ export default function AgentRunHistory() {
     }
   }, [activeWorkspace?.id, workspaceFilter])
 
-  // TODO(S1-P1.2): Display historical executions with filters by status and workspace
   const fetchAiExecutions = useCallback(async () => {
     if (!isAdmin) {
       setAiExecutions([])

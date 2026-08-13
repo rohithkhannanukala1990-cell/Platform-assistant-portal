@@ -165,7 +165,6 @@ def _path_to_summary(
     )
 
 
-# TODO: Use GoldenPathTemplate definitions to drive real execution plans instead of mock runs
 def _active_golden_paths(session: Session) -> list[GoldenPathTemplate]:
     return list(
         session.exec(
@@ -213,7 +212,6 @@ def find_applicable_paths_for_template(
     return [p for p in _active_golden_paths(session) if (p.category or "") == "Onboarding"]
 
 
-# TODO: Incorporate health and scorecard data to recommend golden paths based on gaps (e.g. missing observability, missing CI/CD)
 def find_applicable_paths_for_entity(
     session: Session,
     entity: Any,
@@ -388,10 +386,6 @@ def _serialize_template(row: GoldenPathTemplate) -> dict[str, Any]:
     }
 
 
-# TODO: Implement a step execution loop that:
-# - Iterates template steps
-# - Calls agents/connectors/internal tasks
-# - Aggregates outputs and logs
 async def _execute_golden_path_step(
     session: Session,
     template: GoldenPathTemplate,
@@ -582,7 +576,6 @@ async def execute_golden_path_run(
     return run
 
 
-# TODO: Ensure GoldenPathRun serialization captures real step outputs and logs
 def _serialize_run(row: GoldenPathRun) -> dict[str, Any]:
     try:
         outputs = json.loads(row.outputs_json or "{}")
@@ -904,7 +897,6 @@ def list_applicable_golden_paths(
     if entity_id:
         from .catalog import CatalogEntity
 
-        # TODO: Enforce workspace membership here when CatalogEntity gains a
         # workspace relationship. WorkspaceMember cannot currently scope it.
         entity = session.get(CatalogEntity, entity_id)
         if not entity or not entity.is_active:
@@ -938,7 +930,6 @@ def list_applicable_golden_paths(
     )
 
 
-# TODO: Protect golden path template management and runs with require_permission("golden_paths", "manage") / ("golden_paths", "run")
 @router.post("")
 def create_golden_path_template(
     body: GoldenPathTemplateCreate,
@@ -1002,7 +993,6 @@ def get_golden_path_template(
     return _serialize_template(row)
 
 
-# TODO: Protect golden path template management and runs with require_permission("golden_paths", "manage") / ("golden_paths", "run")
 @router.put("/{template_id}")
 def update_golden_path_template(
     template_id: int,
@@ -1060,7 +1050,6 @@ def update_golden_path_template(
     return _serialize_template(row)
 
 
-# TODO: Protect golden path template management and runs with require_permission("golden_paths", "manage") / ("golden_paths", "run")
 @router.delete("/{template_id}")
 def delete_golden_path_template(
     template_id: int,
@@ -1079,11 +1068,6 @@ def delete_golden_path_template(
     return {"ok": True, "id": template_id}
 
 
-# TODO: Protect golden path template management and runs with require_permission("golden_paths", "manage") / ("golden_paths", "run")
-# TODO: Implement a step execution loop that:
-# - Iterates template steps
-# - Calls agents/connectors/internal tasks
-# - Aggregates outputs and logs
 @router.post("/{template_id}/run")
 async def run_golden_path(
     template_id: int,

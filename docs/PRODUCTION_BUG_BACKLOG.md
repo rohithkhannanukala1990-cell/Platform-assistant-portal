@@ -12,7 +12,7 @@
 | P0-blocker | **0 open** (7 fixed) |
 | P1-high | **0 open blockers** — remaining FE/ops items = **accepted risk** (owner below) |
 | P2-medium | ~18 open (post-pilot) |
-| P3-low | ~11 open (polish) |
+| P3-low | ~15 open (polish) — includes ID-082…085 from the inline TODO sweep |
 | wontfix | 3 |
 | **Pilot blockers** | **0** |
 
@@ -111,6 +111,23 @@ Sources: direct review + prior audits. Security items from direct reads.
 
 ---
 
+## Inline TODO sweep (external-sharing prep)
+
+All 81 inline `TODO`/`FIXME` markers were removed from `backend/` and `src/` and
+each was verified against the implementation beneath it. The overwhelming
+majority described work that was already finished — they read as a
+pre-implementation checklist nobody deleted afterwards, and several implied
+security weaknesses that do not exist (see the commit for the full accounting).
+The four items below were the only genuinely-outstanding ones, tracked here
+instead of as scattered comments.
+
+- [ ] **ID-082** GitHub connector has no `ping` action — `backend/connectors/github_connector.py`. Every other connector (ArgoCD, Kubernetes, PagerDuty, Prometheus, ServiceNow, Slack, outbound webhook) exposes `ping` for health probes; GitHub is probed indirectly via `list_repos`. **Owner: backend** post-pilot.
+- [ ] **ID-083** Workspace-membership enforcement deferred — `backend/routers/golden_paths.py:907`, `backend/routers/standards.py:383`, `backend/routers/standards.py:478`. `CatalogEntity` carries `tenant_id` but not `workspace_id`, so these paths enforce tenant isolation only. Cross-tenant access is already blocked (404); this is intra-tenant, cross-workspace narrowing. Requires a schema change. **Owner: backend** post-pilot.
+- [ ] **ID-084** Template category/slug validation is local, not registry-backed — `backend/routers/templates.py:118`, `:135`. Category is checked against a local list and `golden_path_slug` is not cross-checked against `GoldenPathTemplate.slug`. **Owner: backend** P3 polish.
+- [ ] **ID-085** `tool_executor` results not on a common schema — `backend/ai/tool_executor.py`. Agent results use `AgentResult`; direct tool-executor returns are a looser dict. Cosmetic for callers today. **Owner: backend** P3 polish.
+
+---
+
 ## Prod/CI audit follow-up (Phase P1 addendum)
 
 - [x] **ID-070** Prod `frontend` nginx crash-loops on `read_only` rootfs — Fixed P1: tmpfs + healthcheck.
@@ -143,7 +160,7 @@ Sources: direct review + prior audits. Security items from direct reads.
 | Deploy/HITL in prod | OK | `base.py` + `requires_approval_envs` |
 | Read-only agents no shell execute | OK | Fixed P1/P3 |
 | documentation_agent approval UX | OK | Fixed P3: ID-026 |
-| AGENT_REGISTRY 17 agents | Verified pass | |
+| AGENT_REGISTRY 21 agents | Verified pass | Count re-verified against `backend/agents/*.py` |
 | MCP dangerous → HITL | Verified pass | Race fixed ID-007 |
 | Baseline deny not overridable by approval | Verified pass | |
 | Golden-path agent context tenant | OK | ID-058 |

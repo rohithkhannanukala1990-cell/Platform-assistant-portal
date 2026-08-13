@@ -380,7 +380,6 @@ def get_service_health(
     current_user: User = Depends(require_capability(VIEW_SERVICE_HEALTH)),
 ):
     with Session(engine) as session:
-        # TODO: Enforce workspace membership when CatalogEntity gains a
         # workspace relationship; entities are currently global.
         entity = _get_active_entity(session, entity_id)
         standards = evaluate_service_standards(session, entity)
@@ -475,7 +474,6 @@ def evaluate_entity_standard(
     current_user: User = Depends(require_capability(VIEW_SERVICE_HEALTH)),
 ):
     with Session(engine) as session:
-        # TODO: Enforce workspace membership when CatalogEntity gains a
         # workspace relationship; entities are currently global.
         entity = _get_active_entity(session, entity_id)
         standard = session.get(Standard, standard_id)

@@ -112,7 +112,6 @@ function AIHitlExecutionCard({ ex, onRemoved, authFetch, refreshApprovals, showT
   const [showReject, setShowReject] = useState(false)
   const [reason, setReason] = useState('')
   const ctx = ex.conversation_context
-  // TODO(S1-P1.2): Display `pending_executions` with action, environment, requires_hitl, and status
   const env = ex.environment || ctx?.environment || '—'
   const prod = String(env).toLowerCase() === 'production'
   const status = ex.status || 'pending_approval'

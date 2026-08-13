@@ -72,7 +72,6 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# TODO: Replace keyword-based action detection with parsing of an ACTIONS_JSON block produced by the LLM
 def _detect_keyword_action(text: str) -> Optional[str]:
     low = text.lower()
     for kw, action in KEYWORD_ACTIONS:
@@ -232,10 +231,6 @@ def _tool_statuses_line(session: Session, workspace_id: Optional[str]) -> str:
     return ", ".join(parts)
 
 
-# TODO: Expand AI context to include:
-# - catalog entity IDs, names, owner_team, lifecycle, tags
-# - health summaries
-# - applicable golden path template slugs and names
 def _build_context(session: Session, workspace_id: Optional[str], environment: str) -> dict[str, Any]:
     workspace_name = "None"
     tools: list[str] = []
@@ -357,11 +352,6 @@ def _safe_entity_context(entity: Any) -> dict[str, Any]:
     }
 
 
-# TODO: Return a structured list of recommended golden paths:
-# - name
-# - reason_for_recommendation
-# - estimated_duration
-# - risk_level
 def _template_suggestions(
     session: Session,
     message: str,
@@ -443,7 +433,6 @@ def _template_suggestions(
     ]
 
 
-# TODO: Ensure the grounding prompt references explicit entity IDs and golden path slugs to avoid hallucinating names
 def _build_platform_grounding(
     session: Session,
     message: str,
@@ -519,7 +508,6 @@ def _build_platform_grounding(
     }
 
 
-# TODO: Ensure grounding prompt explains the ACTIONS_JSON format and that risky production actions may require HITL
 def _grounding_system_prompt(context: dict[str, Any]) -> str:
     """Render only the allowlisted grounding object into model instructions."""
     return (
@@ -584,11 +572,6 @@ def _conv_to_list_item(session: Session, c: AIConversation) -> dict[str, Any]:
     }
 
 
-# TODO(S1-P1.1): Define a stable response schema for AI chat:
-# - messages: list of { role, content, created_at }
-# - actions_json: parsed actions or null
-# - pending_executions: list of { id, tool_id, action, requires_hitl, status }
-# - errors: list of { code, message }
 @router.post("/chat")
 async def chat(req: ChatRequest, current_user: User = Depends(get_current_user)):
     if not (req.message or "").strip():
@@ -785,7 +768,6 @@ async def chat(req: ChatRequest, current_user: User = Depends(get_current_user))
                     message_id=asst_msg_id,
                 )
             except Exception as exc:
-                # TODO: Increment ai_actions_error_total and log the failure for observability
                 AI_ACTIONS_ERROR_TOTAL.inc()
                 logger.error(
                     "AI action execution failed",
@@ -952,7 +934,6 @@ def _execution_with_context(session: Session, e: AIToolExecution) -> dict[str, A
     return item
 
 
-# TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints
 @router.get("/executions")
 def list_executions(
     status: Optional[str] = Query(None),
@@ -980,7 +961,6 @@ def list_executions(
         return out
 
 
-# TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints
 @router.get("/executions/pending")
 def list_pending_executions(
     _admin: User = Depends(require_admin),
@@ -995,8 +975,6 @@ def list_pending_executions(
         return [_execution_with_context(session, e) for e in rows]
 
 
-# TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints
-# TODO: Increment ai_actions_approved_total / ai_actions_rejected_total when HITL decisions are made
 @router.post("/executions/{execution_id}/approve")
 async def approve_execution(
     execution_id: str,
@@ -1021,7 +999,6 @@ async def approve_execution(
     try:
         result = await tool_executor.approve_execution(execution_id, approver)
     except Exception as exc:
-        # TODO: Increment ai_actions_error_total and log the failure for observability
         AI_ACTIONS_ERROR_TOTAL.inc()
         logger.error(
             "AI execution approval failed",
@@ -1052,8 +1029,6 @@ async def approve_execution(
         return _execution_to_dict(row)
 
 
-# TODO: Add require_permission("ai_tools", "execute") and ("ai_tools", "approve") to AI tool execution and HITL approval endpoints
-# TODO: Increment ai_actions_approved_total / ai_actions_rejected_total when HITL decisions are made
 @router.post("/executions/{execution_id}/reject")
 async def reject_execution(
     execution_id: str,
