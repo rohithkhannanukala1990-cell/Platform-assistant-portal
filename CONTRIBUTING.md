@@ -165,8 +165,10 @@ Answer it honestly — that's the flag for extra scrutiny.
 ## Reporting bugs and vulnerabilities
 
 Security issues go through [SECURITY.md](SECURITY.md) — privately, never a public
-issue. Everything else: use the issue templates. Check existing issues before
-filing a duplicate.
+issue. Email **rohith@aiops-solutions.com** with `SECURITY` in the subject if you
+cannot use GitHub's private advisory flow. Everything else: use the issue
+templates, or email the same address. Check existing issues before filing a
+duplicate.
 
 ## Licence
 

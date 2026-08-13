@@ -34,9 +34,9 @@ enabled on this repository:
 That creates a private advisory visible only to you and the maintainer, and gives
 us a private fork to develop and review the fix in before anything is disclosed.
 
-If you cannot use that route, email the repository owner via their GitHub profile
-and put `SECURITY` in the subject. Please do not include exploit details in an
-initial email if you can avoid it — ask for the advisory link instead.
+If you cannot use that route, email **rohith@aiops-solutions.com** with
+`SECURITY` in the subject. Please do not include exploit details in an initial
+email if you can avoid it — ask for the advisory link instead.
 
 ### What to include
 
