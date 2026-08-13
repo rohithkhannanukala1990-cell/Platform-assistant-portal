@@ -149,8 +149,10 @@ Backend — **run this from the repository root**, not from inside `backend/` (t
 
 ```bash
 cd backend && pip install -r requirements.txt && cd ..
-LLM_MOCK=1 uvicorn backend.main:app --reload --port 8000
+LLM_MOCK=1 SECRET_KEY=dev-only-not-for-production uvicorn backend.main:app --reload --port 8000
 ```
+
+`SECRET_KEY` is **required** — the backend deliberately refuses to start without one outside test environments (`RuntimeError: SECRET_KEY must be set to a non-empty non-default value`). The Docker paths supply it from the compose files, so this is the only path where you pass it yourself. Any non-empty, non-default value works locally; use a real random secret anywhere that isn't your laptop.
 
 No `DATABASE_URL` needed — the backend falls back to a local SQLite file (`backend/incidents.db`) automatically. Redis is optional everywhere in the request path (login lockout, rate limiting, workflow triggers, and Celery task dispatch all have working in-process fallbacks) — `/health/ready` will show `"redis": {"status": "skipped"}` and nothing breaks.
 

@@ -33,10 +33,19 @@ make smoke            # end-to-end smoke; needs a server already on :8000
 Without `make`:
 
 ```bash
-docker compose run --rm -e DATABASE_URL=sqlite:////tmp/test.db backend python -m pytest backend/tests/ -q
+docker compose run --rm -e DATABASE_URL=sqlite:////tmp/test.db \
+  -v "$PWD/deploy:/deploy:ro" -v "$PWD/scripts:/scripts:ro" \
+  -v "$PWD/.github:/.github:ro" -v "$PWD/.env.production.example:/.env.production.example:ro" \
+  backend env -u CELERY_BROKER_URL -u CELERY_RESULT_BACKEND -u RATELIMIT_STORAGE_URL -u REDIS_URL \
+  python -m pytest backend/tests/ -q
 npm run test
 python3 scripts/mock_portal_smoke.py   # Windows: `python` — `python3` hits the Microsoft Store stub
 ```
+
+The mounts and `env -u` above are not optional garnish: the compose-config tests
+resolve repo-root paths that are absent from the backend image, and
+`docker compose run` leaks `CELERY_BROKER_URL` into the rate-limiter test.
+Without them the suite reports 9 failures that CI does not have.
 
 `make` is not available on Windows by default, which is why every `make` target
 above has a raw equivalent.
