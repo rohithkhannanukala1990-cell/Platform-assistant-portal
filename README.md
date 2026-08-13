@@ -335,6 +335,12 @@ See `.github/workflows/`.
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to set up, test, and the safety invariants not to break |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability |
 
+## Contact
+
+**rohith@aiops-solutions.com** — security reports, pilots, and general questions.
+Vulnerabilities still go through [SECURITY.md](SECURITY.md) first (private GitHub
+advisory or that same address with `SECURITY` in the subject).
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE) for the full text.
